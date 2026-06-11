@@ -19,10 +19,42 @@ export interface Panel {
 // `verified` flips to true only when a value is confirmed against factory data.
 // ---------------------------------------------------------------------------
 
-export interface HingeSpec {
-  brand: string;
+/**
+ * Two grades of SKU — the safety line (doc 17 §2). Browse grade may be shown,
+ * priced, and quoted; ONLY manufacturing grade (verified drilling) may ever
+ * drive drilling output.
+ */
+export type SkuGrade = "browse" | "manufacturing";
+
+/**
+ * Media references (doc 17 §5): content-addressed refs into media packs, never
+ * inline data. Media is lazy — a missing image must never block pricing or solving.
+ */
+export interface SkuMedia {
+  image?: string;
+  drawing?: string;
+  animation?: string;
+}
+
+/**
+ * Catalog provenance fields shared by every SKU-bearing spec (doc 17 sequence
+ * step 1 — additive only). `verified`/`source` predate this and stay required;
+ * the rest are optional so existing catalog JSON remains valid unchanged.
+ */
+export interface CatalogMeta {
+  /** True only when confirmed against a real export or manufacturer datasheet. */
   verified: boolean;
+  /** Where the values came from (datasheet, factory file, research estimate). */
   source: string;
+  /** Defaults to "browse" when absent; "manufacturing" requires verified: true. */
+  grade?: SkuGrade;
+  media?: SkuMedia;
+  /** Immutable pack the SKU shipped in, e.g. "gtv@2025.06". */
+  packVersion?: string;
+}
+
+export interface HingeSpec extends CatalogMeta {
+  brand: string;
   cup: { diameter: number; depth: number };
   cupCenterFromDoorEdge: number;
   mountingHoles: {
@@ -33,10 +65,8 @@ export interface HingeSpec {
   };
 }
 
-export interface ConnectorSpec {
+export interface ConnectorSpec extends CatalogMeta {
   brand: string;
-  verified: boolean;
-  source: string;
   camSeat: {
     diameter: number;
     depth: number;
@@ -46,17 +76,13 @@ export interface ConnectorSpec {
   dowelHole: { diameter: number; depth: number };
 }
 
-export interface ShelfPinSpec {
+export interface ShelfPinSpec extends CatalogMeta {
   brand: string;
-  verified: boolean;
-  source: string;
   diameter: number;
   depth: number;
 }
 
-export interface System32Spec {
-  verified: boolean;
-  source: string;
+export interface System32Spec extends CatalogMeta {
   verticalPitch: number;
   firstHoleOffset: number;
   frontRowSetback: number;
