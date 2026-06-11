@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(timeout 15 npm ping)",
+      "Bash(npm ping *)"
+    ]
+  }
+}

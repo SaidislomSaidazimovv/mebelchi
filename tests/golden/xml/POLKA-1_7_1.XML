@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Root>
+	<Project Name="" Flag="SWJ008">
+		<Panels>
+			<Panel ID="POLKA-1_7_1" Name="POLKA-1_7_1" Width="486.000" Length="503.000" Material="" Thickness="16.000" IsProduce="true" MachiningPoint="1" Type="1" Face5ID="" Face6ID="" Grain="L">
+				<Outline></Outline>
+				<Machines>
+					<Machining ID="1000" Type="2" IsGenCode="2" Face="5" X="91.500" Y="7.000" Depth="11.000" Diameter="15.000" />
+					<Machining ID="1010" Type="2" IsGenCode="2" Face="5" X="411.500" Y="7.000" Depth="11.000" Diameter="15.000" />
+					<Machining ID="1020" Type="2" IsGenCode="2" Face="5" X="59.500" Y="479.000" Depth="11.000" Diameter="15.000" />
+					<Machining ID="1030" Type="2" IsGenCode="2" Face="5" X="443.500" Y="479.000" Depth="11.000" Diameter="15.000" />
+				</Machines>
+				<EdgeGroup>
+					<Edge Face="1" Thickness="0.000000" />
+					<Edge Face="2" Thickness="0.000000" />
+					<Edge Face="3" Thickness="1.000" />
+					<Edge Face="4" Thickness="0.000000" />
+				</EdgeGroup>
+			</Panel>
+		</Panels>
+	</Project>
+</Root>
