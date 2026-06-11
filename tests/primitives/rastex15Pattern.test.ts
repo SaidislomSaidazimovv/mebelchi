@@ -30,11 +30,17 @@ const panel: Panel = {
 // Ground-truth subset of the edge-3 joint: cam seats Ø15 (=150) on Face A at the
 // mating edge, and their paired Ø8 (=80) dowels into edge3.
 const realDowels = canonOps(
-  realPanel.operations.filter((o) => o.face === "edge3" && o.diameter_mm10 === 80),
+  realPanel.operations.filter(
+    (o) => o.op === "drill" && o.face === "edge3" && o.diameter_mm10 === 80,
+  ),
 );
 const realCams = canonOps(
   realPanel.operations.filter(
-    (o) => o.face === "A" && o.diameter_mm10 === 150 && o.x_mm10 === realPanel.length_mm10 - 340,
+    (o) =>
+      o.op === "drill" &&
+      o.face === "A" &&
+      o.diameter_mm10 === 150 &&
+      o.x_mm10 === realPanel.length_mm10 - 340,
   ),
 );
 // Joint Y positions are an INPUT; read them from the real dowels.

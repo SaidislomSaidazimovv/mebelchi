@@ -14,12 +14,49 @@ const T = "\t";
 const ID_BASE = 1000;
 const ID_STEP = 10;
 
-function machiningLine(part: Part, opIndex: number): string {
+/**
+ * Arc sweep as SWJ008 writes it: zero is emitted with 6 decimals ("0.000000"),
+ * non-zero with 3 ("-90.000"). Same factory quirk as edge-banding thickness.
+ */
+function deg10ToAngleString(v: number): string {
+  return v === 0 ? "0.000000" : (v / 10).toFixed(3);
+}
+
+function machiningLines(part: Part, opIndex: number): string[] {
   const op = part.operations[opIndex]!;
   const id = ID_BASE + opIndex * ID_STEP;
-  const type = swjMachiningType(op.face);
   const face = FACE_TO_SWJ[op.face];
 
+  if (op.op === "contour") {
+    // Type 3 attribute order differs from drills: Depth precedes X/Y.
+    // ToolOffset is the machine's token, written verbatim (may be CJK: 右/左).
+    const lines: string[] = [
+      `${T.repeat(5)}<Machining ID="${id}" Type="3" IsGenCode="2" Face="${face}" ` +
+        `Depth="${mm10ToMmString(op.depth_mm10)}" X="${mm10ToMmString(op.x_mm10)}" ` +
+        `Y="${mm10ToMmString(op.y_mm10)}" Pocket="${op.pocket}" ToolOffset="${op.toolOffset}">`,
+      `${T.repeat(6)}<Lines>`,
+    ];
+    op.segments.forEach((s, i) => {
+      lines.push(
+        `${T.repeat(7)}<Line LineID="${i + 1}" EndX="${mm10ToMmString(s.endX_mm10)}" ` +
+          `EndY="${mm10ToMmString(s.endY_mm10)}" Angle="${deg10ToAngleString(s.angle_deg10)}" />`,
+      );
+    });
+    lines.push(`${T.repeat(6)}</Lines>`);
+    lines.push(`${T.repeat(5)}</Machining>`);
+    return lines;
+  }
+
+  if (op.op === "saw_groove") {
+    return [
+      `${T.repeat(5)}<Machining ID="${id}" Type="4" IsGenCode="2" Face="${face}" ` +
+        `X="${mm10ToMmString(op.x_mm10)}" Y="${mm10ToMmString(op.y_mm10)}" ` +
+        `EndX="${mm10ToMmString(op.endX_mm10)}" EndY="${mm10ToMmString(op.endY_mm10)}" ` +
+        `Width="${mm10ToMmString(op.width_mm10)}" Depth="${mm10ToMmString(op.depth_mm10)}" />`,
+    ];
+  }
+
+  const type = swjMachiningType(op.face);
   const attrs: string[] = [
     `ID="${id}"`,
     `Type="${type}"`,
@@ -35,7 +72,7 @@ function machiningLine(part: Part, opIndex: number): string {
   attrs.push(`Depth="${mm10ToMmString(op.depth_mm10)}"`);
   attrs.push(`Diameter="${mm10ToMmString(op.diameter_mm10)}"`);
 
-  return `${T.repeat(5)}<Machining ${attrs.join(" ")} />`;
+  return [`${T.repeat(5)}<Machining ${attrs.join(" ")} />`];
 }
 
 function panelBlock(part: Part): string[] {
@@ -60,7 +97,7 @@ function panelBlock(part: Part): string[] {
   lines.push(`${T.repeat(4)}<Outline></Outline>`);
   lines.push(`${T.repeat(4)}<Machines>`);
   for (let i = 0; i < part.operations.length; i++) {
-    lines.push(machiningLine(part, i));
+    lines.push(...machiningLines(part, i));
   }
   lines.push(`${T.repeat(4)}</Machines>`);
   lines.push(`${T.repeat(4)}<EdgeGroup>`);

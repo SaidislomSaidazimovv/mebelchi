@@ -17,6 +17,28 @@ export interface CanonicalOp {
   diameter: mm10;
 }
 
+/** Canonical contour mill (Type 3). Segment order is the toolpath — never sorted. */
+export interface CanonicalContour {
+  swjFace: number;
+  x: mm10;
+  y: mm10;
+  depth: mm10;
+  pocket: number;
+  toolOffset: string;
+  segments: Array<{ endX: mm10; endY: mm10; angle_deg10: number }>;
+}
+
+/** Canonical saw groove (Type 4). */
+export interface CanonicalGroove {
+  swjFace: number;
+  x: mm10;
+  y: mm10;
+  endX: mm10;
+  endY: mm10;
+  width: mm10;
+  depth: mm10;
+}
+
 export interface CanonicalPanel {
   id: string;
   width: mm10;
@@ -25,6 +47,8 @@ export interface CanonicalPanel {
   grain: Grain;
   edges: [mm10, mm10, mm10, mm10];
   ops: CanonicalOp[];
+  contours: CanonicalContour[];
+  grooves: CanonicalGroove[];
 }
 
 export interface CanonicalDoc {
@@ -43,18 +67,69 @@ function compareOps(a: CanonicalOp, b: CanonicalOp): number {
   );
 }
 
+function compareContours(a: CanonicalContour, b: CanonicalContour): number {
+  return a.swjFace - b.swjFace || a.x - b.x || a.y - b.y || a.depth - b.depth;
+}
+
+function compareGrooves(a: CanonicalGroove, b: CanonicalGroove): number {
+  return (
+    a.swjFace - b.swjFace ||
+    a.x - b.x ||
+    a.y - b.y ||
+    a.endX - b.endX ||
+    a.endY - b.endY ||
+    a.width - b.width ||
+    a.depth - b.depth
+  );
+}
+
 /** Reduce one Part to its canonical panel. */
 export function canonicalizePart(part: Part): CanonicalPanel {
-  const ops: CanonicalOp[] = part.operations.map((o) => ({
-    swjFace: FACE_TO_SWJ[o.face],
-    swjType: swjMachiningType(o.face),
-    x: o.x_mm10,
-    y: o.y_mm10,
-    z: o.z_mm10 ?? 0,
-    depth: o.depth_mm10,
-    diameter: o.diameter_mm10,
-  }));
+  const ops: CanonicalOp[] = [];
+  const contours: CanonicalContour[] = [];
+  const grooves: CanonicalGroove[] = [];
+
+  for (const o of part.operations) {
+    if (o.op === "drill") {
+      ops.push({
+        swjFace: FACE_TO_SWJ[o.face],
+        swjType: swjMachiningType(o.face),
+        x: o.x_mm10,
+        y: o.y_mm10,
+        z: o.z_mm10 ?? 0,
+        depth: o.depth_mm10,
+        diameter: o.diameter_mm10,
+      });
+    } else if (o.op === "contour") {
+      contours.push({
+        swjFace: FACE_TO_SWJ[o.face],
+        x: o.x_mm10,
+        y: o.y_mm10,
+        depth: o.depth_mm10,
+        pocket: o.pocket,
+        toolOffset: o.toolOffset,
+        segments: o.segments.map((s) => ({
+          endX: s.endX_mm10,
+          endY: s.endY_mm10,
+          angle_deg10: s.angle_deg10,
+        })),
+      });
+    } else {
+      grooves.push({
+        swjFace: FACE_TO_SWJ[o.face],
+        x: o.x_mm10,
+        y: o.y_mm10,
+        endX: o.endX_mm10,
+        endY: o.endY_mm10,
+        width: o.width_mm10,
+        depth: o.depth_mm10,
+      });
+    }
+  }
   ops.sort(compareOps);
+  contours.sort(compareContours);
+  grooves.sort(compareGrooves);
+
   return {
     id: part.id,
     width: part.width_mm10,
@@ -63,6 +138,8 @@ export function canonicalizePart(part: Part): CanonicalPanel {
     grain: part.grain,
     edges: [...part.edges],
     ops,
+    contours,
+    grooves,
   };
 }
 

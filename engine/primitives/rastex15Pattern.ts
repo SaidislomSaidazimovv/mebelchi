@@ -7,13 +7,13 @@
 //   - dowel hole into the mating edge (edge3) of panelWithDowel, centred through the
 //     board thickness (Z = thickness / 2 — derived from panel geometry, not a literal).
 
-import type { mm10, Operation } from "../contracts/types.js";
+import type { mm10, DrillOp } from "../contracts/types.js";
 import { mmToMm10 } from "../core/units.js";
 import type { ConnectorSpec, Panel } from "./types.js";
 
 export interface RastexOps {
-  camOps: Operation[];
-  dowelOps: Operation[];
+  camOps: DrillOp[];
+  dowelOps: DrillOp[];
 }
 
 export function rastex15Pattern(
@@ -33,8 +33,8 @@ export function rastex15Pattern(
   const dowelX = panelWithDowel.length_mm10;
   const dowelZ = Math.round(panelWithDowel.thickness_mm10 / 2); // centred in thickness
 
-  const camOps: Operation[] = [];
-  const dowelOps: Operation[] = [];
+  const camOps: DrillOp[] = [];
+  const dowelOps: DrillOp[] = [];
   let seq = 0;
   for (const y of jointPositionsY) {
     camOps.push({

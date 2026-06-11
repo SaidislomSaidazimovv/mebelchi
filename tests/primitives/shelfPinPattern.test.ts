@@ -29,7 +29,9 @@ const panel: Panel = {
 
 // Ground-truth subset: Ø5 (=50 mm10) holes on Face A.
 const realPins = canonOps(
-  realPanel.operations.filter((o) => o.face === "A" && o.diameter_mm10 === 50),
+  realPanel.operations.filter(
+    (o) => o.op === "drill" && o.face === "A" && o.diameter_mm10 === 50,
+  ),
 );
 // Shelf X positions are an INPUT (the designer's choice); read them from the real panel.
 const shelfPositionsX = [...new Set(realPins.map((o) => o.x))];

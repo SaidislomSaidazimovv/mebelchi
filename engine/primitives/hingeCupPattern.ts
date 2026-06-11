@@ -6,7 +6,7 @@
 // Per hinge it emits: 1 cup on the interior face (Face B), set in cupCenterFromDoorEdge
 // from the hinge edge, plus spec.mountingHoles.count screws straddling the cup in Y.
 
-import type { mm10, Operation } from "../contracts/types.js";
+import type { mm10, DrillOp } from "../contracts/types.js";
 import { mmToMm10 } from "../core/units.js";
 import type { HingeSpec, Panel } from "./types.js";
 
@@ -26,7 +26,7 @@ export function hingeCupPattern(
   hingeSide: "left" | "right",
   hingePositionsY: mm10[],
   spec: HingeSpec,
-): Operation[] {
+): DrillOp[] {
   const cupDiameter = mmToMm10(spec.cup.diameter);
   const cupDepth = mmToMm10(spec.cup.depth);
   const cupFromEdge = mmToMm10(spec.cupCenterFromDoorEdge);
@@ -40,7 +40,7 @@ export function hingeCupPattern(
   const cupX =
     hingeSide === "left" ? cupFromEdge : doorPanel.length_mm10 - cupFromEdge;
 
-  const ops: Operation[] = [];
+  const ops: DrillOp[] = [];
   let seq = 0;
   for (const cupY of hingePositionsY) {
     ops.push({

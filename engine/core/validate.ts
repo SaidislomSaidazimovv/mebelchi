@@ -25,37 +25,62 @@ export function validateParts(parts: Part[]): ValidationReport {
       });
     }
 
+    const outOfBounds = (x: number, y: number) => x < 0 || x > maxX || y < 0 || y > maxY;
+
     for (const op of part.operations) {
-      if (op.x_mm10 < 0 || op.x_mm10 > maxX) {
+      if (outOfBounds(op.x_mm10, op.y_mm10)) {
         findings.push({
           code: "MACHINING_OP_OUT_OF_BOUNDS",
-          message_ru: `Отверстие ${op.id} вне панели по X (${op.x_mm10 / 10}мм)`,
+          message_ru: `Операция ${op.id} вне панели (${op.x_mm10 / 10}, ${op.y_mm10 / 10})мм`,
           part_id: part.id,
           op_id: op.id,
         });
       }
-      if (op.y_mm10 < 0 || op.y_mm10 > maxY) {
-        findings.push({
-          code: "MACHINING_OP_OUT_OF_BOUNDS",
-          message_ru: `Отверстие ${op.id} вне панели по Y (${op.y_mm10 / 10}мм)`,
-          part_id: part.id,
-          op_id: op.id,
-        });
-      }
-      if (op.diameter_mm10 <= 0 || op.depth_mm10 <= 0) {
+      if (op.depth_mm10 <= 0) {
         findings.push({
           code: "MACHINING_OP_INVALID",
-          message_ru: `Отверстие ${op.id}: некорректный диаметр или глубина`,
+          message_ru: `Операция ${op.id}: некорректная глубина`,
           part_id: part.id,
           op_id: op.id,
         });
       }
-      if (isEdgeFace(op.face)) {
-        const z = op.z_mm10 ?? -1;
-        if (z < 0 || z > maxZ) {
+
+      if (op.op === "drill") {
+        if (op.diameter_mm10 <= 0) {
           findings.push({
-            code: "MACHINING_EDGE_Z_OUT_OF_BOUNDS",
-            message_ru: `Торцевое отверстие ${op.id} вне толщины панели по Z`,
+            code: "MACHINING_OP_INVALID",
+            message_ru: `Отверстие ${op.id}: некорректный диаметр`,
+            part_id: part.id,
+            op_id: op.id,
+          });
+        }
+        if (isEdgeFace(op.face)) {
+          const z = op.z_mm10 ?? -1;
+          if (z < 0 || z > maxZ) {
+            findings.push({
+              code: "MACHINING_EDGE_Z_OUT_OF_BOUNDS",
+              message_ru: `Торцевое отверстие ${op.id} вне толщины панели по Z`,
+              part_id: part.id,
+              op_id: op.id,
+            });
+          }
+        }
+      } else if (op.op === "contour") {
+        for (const s of op.segments) {
+          if (outOfBounds(s.endX_mm10, s.endY_mm10)) {
+            findings.push({
+              code: "MACHINING_CONTOUR_OUT_OF_BOUNDS",
+              message_ru: `Контур ${op.id}: точка (${s.endX_mm10 / 10}, ${s.endY_mm10 / 10})мм вне панели`,
+              part_id: part.id,
+              op_id: op.id,
+            });
+          }
+        }
+      } else if (op.op === "saw_groove") {
+        if (outOfBounds(op.endX_mm10, op.endY_mm10) || op.width_mm10 <= 0) {
+          findings.push({
+            code: "MACHINING_GROOVE_INVALID",
+            message_ru: `Паз ${op.id}: конец вне панели или некорректная ширина`,
             part_id: part.id,
             op_id: op.id,
           });

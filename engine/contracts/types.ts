@@ -42,7 +42,50 @@ export interface DrillOp {
   source: OperationSource;
 }
 
-export type Operation = DrillOp;
+/** One segment of a contour-mill path (SWJ008 Type 3 <Line> child). */
+export interface ContourSegment {
+  endX_mm10: mm10;
+  endY_mm10: mm10;
+  /**
+   * Arc sweep in tenths of a degree (fixed-point, like mm10). 0 = straight segment;
+   * non-zero = arc with that sweep (SHKOF shows -900 = -90° corner-radius arcs).
+   */
+  angle_deg10: number;
+}
+
+/**
+ * Contour mill (SWJ008 Type 3). Path starts at (x,y) and follows segments[] in order.
+ * `toolOffset` carries the machine's token verbatim ("右" = right, "左" = left, "" = none)
+ * and must survive parse → canonical → export byte-exactly.
+ */
+export interface ContourOp {
+  op: "contour";
+  id: string;
+  face: PanelFace;
+  x_mm10: mm10;
+  y_mm10: mm10;
+  depth_mm10: mm10;
+  pocket: number;
+  toolOffset: string;
+  segments: ContourSegment[];
+  source: OperationSource;
+}
+
+/** Saw groove (SWJ008 Type 4): straight dado from (x,y) to (endX,endY). */
+export interface SawGrooveOp {
+  op: "saw_groove";
+  id: string;
+  face: PanelFace;
+  x_mm10: mm10;
+  y_mm10: mm10;
+  endX_mm10: mm10;
+  endY_mm10: mm10;
+  width_mm10: mm10;
+  depth_mm10: mm10;
+  source: OperationSource;
+}
+
+export type Operation = DrillOp | ContourOp | SawGrooveOp;
 
 /**
  * A single panel as it will be manufactured (05_CONTRACTS.md — the most important schema).
@@ -114,6 +157,36 @@ export interface ValidationReport {
 export interface FullResult {
   plan: MachiningPlan;
   validation: ValidationReport;
+}
+
+/**
+ * Tolerate-and-flag (addition for the factory dump): the SWJ008 reader NEVER silently
+ * drops or crashes on content outside current coverage. Known content parses; the rest
+ * becomes explicit machine-readable flags surfaced with the result.
+ */
+export interface ParseFlag {
+  code:
+    | "SWJ008_UNKNOWN_MACHINING_TYPE"
+    | "SWJ008_UNKNOWN_ATTRIBUTE"
+    | "SWJ008_NONEMPTY_OUTLINE"
+    | "SWJ008_NONEMPTY_FACE_ID"
+    | "SWJ008_UNKNOWN_FACE"
+    | "SWJ008_MALFORMED"
+    /**
+     * A coordinate finer than 0.1mm was rounded to mm10 (e.g. the factory's
+     * "907.250" marking holes). The engine convention is mm10; if the dump shows
+     * this is common, promoting the core to mm100 is a constitution decision.
+     */
+    | "SWJ008_PRECISION_LOSS";
+  /** Panel ID the content belongs to, or "" for document-level content. */
+  where: string;
+  /** The raw content / attribute carried verbatim, so nothing is lost. */
+  detail: string;
+}
+
+export interface ParsedDocument {
+  parts: Part[];
+  flags: ParseFlag[];
 }
 
 export const SCHEMA_VERSION = 1;

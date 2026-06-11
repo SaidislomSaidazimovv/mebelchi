@@ -11,9 +11,10 @@ export interface CanonOp {
   depth: number;
 }
 
-/** Normalise an Operation[] to a sorted, id-free, mm10 canonical form. */
+/** Normalise drill operations to a sorted, id-free, mm10 canonical form. */
 export function canonOps(ops: Operation[]): CanonOp[] {
   return ops
+    .filter((o) => o.op === "drill")
     .map((o) => ({
       face: o.face,
       x: o.x_mm10,

@@ -1,0 +1,15 @@
+{
+  "_README": "Layer-0 data: the drilling vocabulary observed in real factory SWJ008 exports. Pure data — no primitive reads this yet; it documents the hole classes the dump mining recognizes. diameter/depth in mm.",
+  "classes": [
+    { "id": "cam_seat_15_125", "kind": "face", "diameter": 15, "depth": 12.5, "meaning": "cam connector seat (deep class)", "source": "POL/ORTA_BAK/YON_BAK 2026-06" },
+    { "id": "cam_seat_15_11", "kind": "face", "diameter": 15, "depth": 11, "meaning": "cam connector seat (shallow class)", "source": "POLKA 2026-06" },
+    { "id": "dowel_edge_8_34", "kind": "edge", "diameter": 8, "depth": 34, "meaning": "edge dowel / cam bolt channel", "source": "POL/ORTA_BAK/OYOQ/YON_BAK 2026-06" },
+    { "id": "dowel_face_8_11", "kind": "face", "diameter": 8, "depth": 11, "meaning": "face dowel seat / cam bolt thread seat", "source": "POL/ORTA_BAK/YON_BAK 2026-06" },
+    { "id": "face_drill_8_14", "kind": "face", "diameter": 8, "depth": 14, "meaning": "deep face dowel seat (SHKOF wardrobe class)", "source": "SHKOF TOM/ORTA POL 2026-06" },
+    { "id": "shelf_pin_5_11", "kind": "face", "diameter": 5, "depth": 11, "meaning": "adjustable shelf pin", "source": "ORTA_BAK/YON_BAK 2026-06" },
+    { "id": "confirmat_face_7_17", "kind": "face", "diameter": 7, "depth": 17, "meaning": "confirmat screw face bore", "source": "POL/SHKOF TOM 2026-06" },
+    { "id": "pilot_edge_45_10", "kind": "edge", "diameter": 4.5, "depth": 10, "meaning": "screw pilot row (32mm pitch)", "source": "YON_BAK/OYOQ 2026-06" },
+    { "id": "pilot_edge_45_34", "kind": "edge", "diameter": 4.5, "depth": 34, "meaning": "deep screw pilot", "source": "ORTA_BAK 2026-06" },
+    { "id": "marking_3_1", "kind": "face", "diameter": 3, "depth": 1, "meaning": "positional marking prick (not a joint)", "source": "SHKOF ORTA POL 2026-06" }
+  ]
+}

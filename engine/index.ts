@@ -20,9 +20,15 @@ import { exportSWJ008 } from "./postprocessors/swj008.js";
 // Re-export the public model + the one exporter the UI/exporters consume.
 export * from "./contracts/types.js";
 export { exportSWJ008 } from "./postprocessors/swj008.js";
-export { parseSWJ008 } from "./postprocessors/swj008Parse.js";
+export { parseSWJ008, parseSWJ008Document } from "./postprocessors/swj008Parse.js";
 export { canonicalizeParts, canonicalizePart } from "./core/canonical.js";
-export type { CanonicalDoc, CanonicalPanel, CanonicalOp } from "./core/canonical.js";
+export type {
+  CanonicalDoc,
+  CanonicalPanel,
+  CanonicalOp,
+  CanonicalContour,
+  CanonicalGroove,
+} from "./core/canonical.js";
 
 /**
  * solvePreview(project): sync, cheap (~2ms), bounded per gesture tick.
