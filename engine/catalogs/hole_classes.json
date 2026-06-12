@@ -1,15 +1,283 @@
 {
-  "_README": "Layer-0 data: the drilling vocabulary observed in real factory SWJ008 exports. Pure data — no primitive reads this yet; it documents the hole classes the dump mining recognizes. diameter/depth in mm.",
+  "_README": "Layer-0 data: the drilling vocabulary observed in real factory SWJ008 exports. Pure data — no primitive reads this yet; it documents the hole classes the dump mining recognizes. diameter/depth in mm. Entries with status UNIDENTIFIED came from the 2026-06 factory dump and have no confirmed meaning yet — identify at the next constructor interview (doc 16 Source B).",
   "classes": [
-    { "id": "cam_seat_15_125", "kind": "face", "diameter": 15, "depth": 12.5, "meaning": "cam connector seat (deep class)", "source": "POL/ORTA_BAK/YON_BAK 2026-06" },
-    { "id": "cam_seat_15_11", "kind": "face", "diameter": 15, "depth": 11, "meaning": "cam connector seat (shallow class)", "source": "POLKA 2026-06" },
-    { "id": "dowel_edge_8_34", "kind": "edge", "diameter": 8, "depth": 34, "meaning": "edge dowel / cam bolt channel", "source": "POL/ORTA_BAK/OYOQ/YON_BAK 2026-06" },
-    { "id": "dowel_face_8_11", "kind": "face", "diameter": 8, "depth": 11, "meaning": "face dowel seat / cam bolt thread seat", "source": "POL/ORTA_BAK/YON_BAK 2026-06" },
-    { "id": "face_drill_8_14", "kind": "face", "diameter": 8, "depth": 14, "meaning": "deep face dowel seat (SHKOF wardrobe class)", "source": "SHKOF TOM/ORTA POL 2026-06" },
-    { "id": "shelf_pin_5_11", "kind": "face", "diameter": 5, "depth": 11, "meaning": "adjustable shelf pin", "source": "ORTA_BAK/YON_BAK 2026-06" },
-    { "id": "confirmat_face_7_17", "kind": "face", "diameter": 7, "depth": 17, "meaning": "confirmat screw face bore", "source": "POL/SHKOF TOM 2026-06" },
-    { "id": "pilot_edge_45_10", "kind": "edge", "diameter": 4.5, "depth": 10, "meaning": "screw pilot row (32mm pitch)", "source": "YON_BAK/OYOQ 2026-06" },
-    { "id": "pilot_edge_45_34", "kind": "edge", "diameter": 4.5, "depth": 34, "meaning": "deep screw pilot", "source": "ORTA_BAK 2026-06" },
-    { "id": "marking_3_1", "kind": "face", "diameter": 3, "depth": 1, "meaning": "positional marking prick (not a joint)", "source": "SHKOF ORTA POL 2026-06" }
+    {
+      "id": "cam_seat_15_125",
+      "kind": "face",
+      "diameter": 15,
+      "depth": 12.5,
+      "meaning": "cam connector seat (deep class)",
+      "source": "POL/ORTA_BAK/YON_BAK 2026-06"
+    },
+    {
+      "id": "cam_seat_15_11",
+      "kind": "face",
+      "diameter": 15,
+      "depth": 11,
+      "meaning": "cam connector seat (shallow class)",
+      "source": "POLKA 2026-06"
+    },
+    {
+      "id": "dowel_edge_8_34",
+      "kind": "edge",
+      "diameter": 8,
+      "depth": 34,
+      "meaning": "edge dowel / cam bolt channel",
+      "source": "POL/ORTA_BAK/OYOQ/YON_BAK 2026-06"
+    },
+    {
+      "id": "dowel_face_8_11",
+      "kind": "face",
+      "diameter": 8,
+      "depth": 11,
+      "meaning": "face dowel seat / cam bolt thread seat",
+      "source": "POL/ORTA_BAK/YON_BAK 2026-06"
+    },
+    {
+      "id": "face_drill_8_14",
+      "kind": "face",
+      "diameter": 8,
+      "depth": 14,
+      "meaning": "deep face dowel seat (SHKOF wardrobe class)",
+      "source": "SHKOF TOM/ORTA POL 2026-06"
+    },
+    {
+      "id": "shelf_pin_5_11",
+      "kind": "face",
+      "diameter": 5,
+      "depth": 11,
+      "meaning": "adjustable shelf pin",
+      "source": "ORTA_BAK/YON_BAK 2026-06"
+    },
+    {
+      "id": "confirmat_face_7_17",
+      "kind": "face",
+      "diameter": 7,
+      "depth": 17,
+      "meaning": "confirmat screw face bore",
+      "source": "POL/SHKOF TOM 2026-06"
+    },
+    {
+      "id": "pilot_edge_45_10",
+      "kind": "edge",
+      "diameter": 4.5,
+      "depth": 10,
+      "meaning": "screw pilot row (32mm pitch)",
+      "source": "YON_BAK/OYOQ 2026-06"
+    },
+    {
+      "id": "pilot_edge_45_34",
+      "kind": "edge",
+      "diameter": 4.5,
+      "depth": 34,
+      "meaning": "deep screw pilot",
+      "source": "ORTA_BAK 2026-06"
+    },
+    {
+      "id": "marking_3_1",
+      "kind": "face",
+      "diameter": 3,
+      "depth": 1,
+      "meaning": "positional marking prick (not a joint)",
+      "source": "SHKOF ORTA POL 2026-06"
+    },
+    {
+      "id": "hinge_cup_35_13",
+      "kind": "face",
+      "diameter": 35,
+      "depth": 13,
+      "meaning": "hinge cup seat — CONFIRMS doc-15 research estimate (cup depth 13mm)",
+      "source": "factory dump Example sets 2026-06 (x94 in 18 panels)",
+      "status": "observed"
+    },
+    {
+      "id": "unid_edge_8_18",
+      "kind": "edge",
+      "diameter": 8,
+      "depth": 18,
+      "meaning": "UNIDENTIFIED — shallow Ø8 edge drill",
+      "source": "factory dump Example sets 2026-06 (x122 in 23 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_5_14",
+      "kind": "face",
+      "diameter": 5,
+      "depth": 14,
+      "meaning": "UNIDENTIFIED — deep shelf-pin-like",
+      "source": "factory dump Example sets 2026-06 (x36 in 4 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_edge_6_98",
+      "kind": "edge",
+      "diameter": 6,
+      "depth": 9.8,
+      "meaning": "UNIDENTIFIED — sub-0.1mm depth precision (9.8)",
+      "source": "factory dump Example sets 2026-06 (x36 in 28 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_5_12",
+      "kind": "face",
+      "diameter": 5,
+      "depth": 12,
+      "meaning": "UNIDENTIFIED — shelf-pin-like depth variant",
+      "source": "factory dump Example sets 2026-06 (x24 in 16 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_45_17",
+      "kind": "face",
+      "diameter": 4.5,
+      "depth": 17,
+      "meaning": "UNIDENTIFIED — screw bore?",
+      "source": "factory dump Example sets 2026-06 (x24 in 7 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_5_13",
+      "kind": "face",
+      "diameter": 5,
+      "depth": 13,
+      "meaning": "UNIDENTIFIED — shelf-pin-like depth variant",
+      "source": "factory dump Example sets 2026-06 (x24 in 3 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_45_2",
+      "kind": "face",
+      "diameter": 4.5,
+      "depth": 2,
+      "meaning": "UNIDENTIFIED — surface prick/mark?",
+      "source": "factory dump Example sets 2026-06 (x18 in 2 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_10_14",
+      "kind": "face",
+      "diameter": 10,
+      "depth": 14,
+      "meaning": "UNIDENTIFIED — Ø10 seat",
+      "source": "factory dump Example sets 2026-06 (x16 in 4 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_7_10",
+      "kind": "face",
+      "diameter": 7,
+      "depth": 10,
+      "meaning": "UNIDENTIFIED — shallow confirmat-like",
+      "source": "factory dump Example sets 2026-06 (x16 in 6 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_45_10",
+      "kind": "face",
+      "diameter": 4.5,
+      "depth": 10,
+      "meaning": "UNIDENTIFIED — face pilot row?",
+      "source": "factory dump Example sets 2026-06 (x16 in 1 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_165_12",
+      "kind": "face",
+      "diameter": 16.5,
+      "depth": 12,
+      "meaning": "UNIDENTIFIED — Ø16.5 seat (cam class?)",
+      "source": "factory dump Example sets 2026-06 (x14 in 2 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_3_3",
+      "kind": "face",
+      "diameter": 3,
+      "depth": 3,
+      "meaning": "UNIDENTIFIED — deep marking variant",
+      "source": "factory dump Example sets 2026-06 (x12 in 12 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_7_4",
+      "kind": "face",
+      "diameter": 7,
+      "depth": 4,
+      "meaning": "UNIDENTIFIED",
+      "source": "factory dump Example sets 2026-06 (x10 in 1 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_6_98",
+      "kind": "face",
+      "diameter": 6,
+      "depth": 9.8,
+      "meaning": "UNIDENTIFIED — face variant of Ø6×9.8",
+      "source": "factory dump Example sets 2026-06 (x10 in 5 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_7_13",
+      "kind": "face",
+      "diameter": 7,
+      "depth": 13,
+      "meaning": "UNIDENTIFIED",
+      "source": "factory dump Example sets 2026-06 (x8 in 1 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_edge_8_22",
+      "kind": "edge",
+      "diameter": 8,
+      "depth": 22,
+      "meaning": "UNIDENTIFIED",
+      "source": "factory dump Example sets 2026-06 (x4 in 1 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_7_16",
+      "kind": "face",
+      "diameter": 7,
+      "depth": 16,
+      "meaning": "UNIDENTIFIED — confirmat depth variant",
+      "source": "factory dump Example sets 2026-06 (x3 in 1 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_8_17",
+      "kind": "face",
+      "diameter": 8,
+      "depth": 17,
+      "meaning": "UNIDENTIFIED",
+      "source": "factory dump Example sets 2026-06 (x2 in 1 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_10_17",
+      "kind": "face",
+      "diameter": 10,
+      "depth": 17,
+      "meaning": "UNIDENTIFIED",
+      "source": "factory dump Example sets 2026-06 (x2 in 1 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_20_17",
+      "kind": "face",
+      "diameter": 20,
+      "depth": 17,
+      "meaning": "UNIDENTIFIED — Ø20 seat (rafix_20 class? doc-16 first sighting)",
+      "source": "factory dump Example sets 2026-06 (x2 in 1 panels)",
+      "status": "UNIDENTIFIED"
+    },
+    {
+      "id": "unid_face_7_33",
+      "kind": "face",
+      "diameter": 7,
+      "depth": 33,
+      "meaning": "UNIDENTIFIED — deep Ø7",
+      "source": "factory dump Example sets 2026-06 (x2 in 1 panels)",
+      "status": "UNIDENTIFIED"
+    }
   ]
 }
