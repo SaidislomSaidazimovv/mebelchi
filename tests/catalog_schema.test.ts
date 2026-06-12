@@ -15,14 +15,16 @@ import type {
 } from "../engine/primitives/types.js";
 
 describe("catalog schema extension — additive, no behavior change", () => {
-  it("the existing dummy catalog (no new fields) still loads and typechecks", () => {
+  it("the existing dummy catalog still loads and typechecks", () => {
     const spec = loadHardwareSpec();
-    // Old required provenance fields are intact.
-    expect(spec.hinges.DUMMY_CUP_110!.verified).toBe(false);
+    // Old required provenance fields are intact; unverified entries stay false.
+    expect(spec.connectors.DUMMY_RASTEX_15!.verified).toBe(false);
     expect(spec.connectors.DUMMY_RASTEX_15!.source).toContain("CONFIRM");
-    // New fields are optional: absent on the legacy data.
-    expect(spec.hinges.DUMMY_CUP_110!.grade).toBeUndefined();
-    expect(spec.hinges.DUMMY_CUP_110!.packVersion).toBeUndefined();
+    // New fields are optional: absent on legacy entries, present on the verified hinge.
+    expect(spec.connectors.DUMMY_RASTEX_15!.grade).toBeUndefined();
+    expect(spec.connectors.DUMMY_RASTEX_15!.packVersion).toBeUndefined();
+    expect(spec.hinges.DUMMY_CUP_110!.verified).toBe(true);
+    expect(spec.hinges.DUMMY_CUP_110!.grade).toBe("manufacturing");
   });
 
   it("a fully-annotated SKU typechecks (compile-time assertion)", () => {
@@ -38,8 +40,8 @@ describe("catalog schema extension — additive, no behavior change", () => {
       media,
       packVersion: "gtv@2025.06",
       cup: { diameter: 35, depth: 13 },
-      cupCenterFromDoorEdge: 22.5,
-      mountingHoles: { count: 2, diameter: 8, depth: 11, spacingFromCupCenter: 24 },
+      cupCenterFromDoorEdge: 21.5,
+      satelliteMarks: { count: 2, diameter: 3, depth: 1, alongFromCupCenter: 26, beyondCupFromEdge: 5.5 },
     };
     expect(annotated.grade).toBe("manufacturing");
 

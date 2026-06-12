@@ -5,22 +5,24 @@
 
   "hinges": {
     "DUMMY_CUP_110": {
-      "brand": "TBD (Boyard B-35H / Blum CLIP top / Hettich)",
-      "verified": false,
-      "source": "research-estimate; CONFIRM at factory",
+      "brand": "TBD — SKU/brand still unknown; drilling pattern verified against factory door export",
+      "verified": true,
+      "source": "Example sets/prop-2/SHKOF ORTA CHAP ESHIK_7_1.XML (golden fixture, dump 2026-06-12)",
+      "grade": "manufacturing",
       "cup": {
         "diameter": 35,
         "depth": 13,
-        "comment_depth": "research says 13; NO Ø35 holes in current factory files (this cabinet has no doors) — UNVERIFIED, get a door panel export"
+        "comment": "PROVEN: Ø35.000 × 13.000 on Face 5, ×94 across the dump — research estimate 13mm was right"
       },
-      "cupCenterFromDoorEdge": 22.5,
-      "comment_offset": "the 'sacred' System-32 number; verify per overlay type — depends on full/half/inset",
-      "mountingHoles": {
+      "cupCenterFromDoorEdge": 21.5,
+      "comment_offset": "PROVEN: 21.5mm (research said 22.5 — WRONG). prop-0 doors show float noise 21.496/21.504 of the same value. Overlay dependence still unknown.",
+      "satelliteMarks": {
         "count": 2,
-        "diameter": 8,
-        "depth": 11,
-        "spacingFromCupCenter": 24,
-        "comment_spacing": "research says 48mm BETWEEN the two screws → 24mm each side of cup center; CONFIRM"
+        "diameter": 3,
+        "depth": 1,
+        "alongFromCupCenter": 26,
+        "beyondCupFromEdge": 5.5,
+        "comment": "PROVEN: the factory does NOT drill wing screws (research claimed Ø8×11 at ±24 — WRONG twice). It pricks 2× Ø3×1 marks per cup at cupX±26, 5.5mm beyond the cup centre (Y=27 for cups at Y=21.5). NOTE: the 4 prop-0 SHK ESHIK doors have cups with NO marks at all — possibly a different hinge SKU or operator setting; ask the constructor."
       }
     }
   },

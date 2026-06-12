@@ -56,12 +56,20 @@ export interface CatalogMeta {
 export interface HingeSpec extends CatalogMeta {
   brand: string;
   cup: { diameter: number; depth: number };
+  /** Cup centre distance from the hinge edge. Factory door proves 21.5 (not 22.5). */
   cupCenterFromDoorEdge: number;
-  mountingHoles: {
+  /**
+   * The factory does NOT pre-drill hinge wing screws. It pricks Ø3×1 marking
+   * points instead (proven by SHKOF ORTA CHAP ESHIK_7_1): per cup, `count` marks
+   * at cupX ± alongFromCupCenter along the hinge edge, sitting beyondCupFromEdge
+   * farther from the edge than the cup centre.
+   */
+  satelliteMarks: {
     count: number;
     diameter: number;
     depth: number;
-    spacingFromCupCenter: number;
+    alongFromCupCenter: number;
+    beyondCupFromEdge: number;
   };
 }
 

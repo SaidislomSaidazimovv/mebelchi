@@ -25,6 +25,8 @@ const xml = (file: string) => readFileSync(join(HERE, "golden", "xml", file), "u
 const SHKOF_FILES: Array<{ file: string; precisionFlags: number }> = [
   { file: "SHKOF_TOM_4_1.XML", precisionFlags: 0 },
   { file: "SHKOF_ORTA_POL_14_1.XML", precisionFlags: 2 },
+  // Door panel from the 2026-06-12 dump — the hinge ground truth (4×Ø35 cups + marks).
+  { file: "SHKOF_ORTA_CHAP_ESHIK_7_1.XML", precisionFlags: 0 },
 ];
 
 describe("SHKOF golden fixtures — semantic round-trip (parse → canonical → export → re-parse → zero diff)", () => {
@@ -50,10 +52,12 @@ describe("SHKOF golden fixtures — semantic round-trip (parse → canonical →
     });
   }
 
-  it("SHKOF_TOM_4_1.XML re-export is byte-identical to the factory file", () => {
-    const { parts } = parseSWJ008Document(xml("SHKOF_TOM_4_1.XML"));
-    expect(exportSWJ008({ id: "x", name: "x", parts })).toBe(xml("SHKOF_TOM_4_1.XML"));
-  });
+  for (const file of ["SHKOF_TOM_4_1.XML", "SHKOF_ORTA_CHAP_ESHIK_7_1.XML"]) {
+    it(`${file} re-export is byte-identical to the factory file`, () => {
+      const { parts } = parseSWJ008Document(xml(file));
+      expect(exportSWJ008({ id: "x", name: "x", parts })).toBe(xml(file));
+    });
+  }
 
   it("SHKOF_ORTA_POL re-export is byte-identical except the two flagged mm10 roundings", () => {
     const { parts } = parseSWJ008Document(xml("SHKOF_ORTA_POL_14_1.XML"));
