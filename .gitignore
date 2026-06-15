@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 mined_*
 joint_decisions*.json
+dist/
+.vite/
+packages/*/dist/
