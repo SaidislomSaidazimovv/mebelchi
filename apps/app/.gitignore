@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.vite/
+# Capacitor native projects (regenerated with `cap add`)
+ios/
+android/

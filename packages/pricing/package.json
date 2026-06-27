@@ -1,0 +1,21 @@
+{
+  "name": "@mebelchi/pricing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure pricing — buildBom (Project → BOM via the engine) + priceProject (BOM × RateTable → grouped Quote). No network, no UI.",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.8"
+  }
+}

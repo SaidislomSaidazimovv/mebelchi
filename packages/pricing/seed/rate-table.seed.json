@@ -1,0 +1,74 @@
+{
+  "id": "d5044143-95d8-4994-bdaa-55d915b6ac87",
+  "currency": "UZS",
+  "effectiveDate": "2026-06-20",
+  "source": "placeholder seed — replace numbers with a real eman.uz snapshot",
+  "materials": {
+    "cca8dc43-3ec6-4c8c-980d-05bf4625cc16": {
+      "name": "ЛДСП 16мм, белый",
+      "type": "LDSP",
+      "pricePerM2": 95000
+    },
+    "1d2c7bbe-c4c8-4f08-a1b7-85a55823c545": {
+      "name": "МДФ фасад фрезерованный 18мм",
+      "type": "MDF",
+      "pricePerM2": 240000
+    },
+    "4f50187e-c448-4022-a12e-0a6951571a61": {
+      "name": "ХДФ задняя стенка 3мм",
+      "type": "HDF",
+      "pricePerM2": 42000
+    }
+  },
+  "edge": {
+    "3f5c7d17-561b-4d84-bb87-4367cfcb769d": {
+      "name": "Кромка ПВХ 2мм (видимая)",
+      "pricePerM": 3500
+    },
+    "ea86c841-0136-43ea-b06e-8fa8f5977408": {
+      "name": "Кромка 0.4мм (скрытая)",
+      "pricePerM": 1200
+    }
+  },
+  "worktop": {
+    "e8b5f6db-2fec-4e55-a3e0-8205087a2ad9": {
+      "name": "Столешница постформинг 38мм",
+      "pricePerM": 185000
+    }
+  },
+  "hardware": {
+    "b0e5eb2b-1afe-4c50-adbb-b607ef35df6f": {
+      "name": "Петля накладная с доводчиком",
+      "sku": "HNG-CLIP-110",
+      "pricePerUnit": 12000
+    },
+    "f78abb0d-dc03-457a-ab22-4744498891d4": {
+      "name": "Направляющая шариковая 450мм (комплект)",
+      "sku": "SLIDE-BB-450",
+      "pricePerUnit": 38000
+    },
+    "16356eff-eead-4019-8c1c-300b3d3b6c88": {
+      "name": "Шкант 8x30мм",
+      "sku": "DOWEL-8x30",
+      "pricePerUnit": 300
+    },
+    "26c71d2d-ba4a-48c4-bc7e-7cc3bcc7c26a": {
+      "name": "Стяжка эксцентриковая (минификс)",
+      "sku": "CAM-MINIFIX-15",
+      "pricePerUnit": 1500
+    }
+  },
+  "operations": {
+    "drillPerHole": 250,
+    "cutPerPanel": 4000,
+    "edgebandPerM": 1800
+  },
+  "labor": {
+    "assemblyPerModule": 80000,
+    "hardeningPerPreset": 25000
+  },
+  "delivery": {
+    "base": 150000,
+    "perModule": 20000
+  }
+}
