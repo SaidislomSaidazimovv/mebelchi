@@ -190,3 +190,16 @@ export interface ParsedDocument {
 }
 
 export const SCHEMA_VERSION = 1;
+
+// ---------------------------------------------------------------------------
+// Structural linkage (Construction-mode) — see engine/contracts/structure.ts.
+// Additive only: the manufacturing model above is untouched. The structural
+// overlay treats each `Part` as the leaf "Деталь" and refers to it by id.
+// ---------------------------------------------------------------------------
+
+/** Stable identifier of a `Part` (the Деталь leaf). */
+export type PartId = string;
+
+/** Деталь — domain alias for the manufacturing `Part`. The Construction-mode
+ *  hierarchy bottoms out at exactly this type; there is no separate leaf model. */
+export type Detail = Part;
