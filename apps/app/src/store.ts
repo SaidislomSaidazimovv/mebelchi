@@ -4,7 +4,7 @@
 
 import { create } from "zustand";
 import { MATERIALS, mk, newCabId, type Cabinet, type FinishKey } from "./model/cabinet";
-import { fillGapSpan, firstFitX, parkX } from "./model/fill";
+import { fillGapSpan, firstFitX, parkX, rowEndX } from "./model/fill";
 import { dockToRun, cabFootprints, footsOverlap } from "./model/footprint";
 import { generateVariants as solveVariants, type GenVariant, type KitchenStyle, type Zone, type FridgeType, type OvenType, type HoodType } from "./model/layout";
 import { planRuns, cornerUnits, interiorWallCabs, type KitchenLayout } from "./model/runPlan";
@@ -965,8 +965,21 @@ export const useStore = create<AppState>((set, get) => ({
           break;
         }
       }
+      // no interior gap fit it → DON'T float a wall cabinet in the middle over other
+      // modules. Dock it to a wall: append after the last module on the wall run with
+      // the most trailing free space, so it lands in the empty part of a wall.
+      if (!placed) {
+        let best: { run: number; x: number; free: number } | null = null;
+        for (const r of order) {
+          if (runs[r].kind !== "wall") continue;
+          const endX = rowEndX(s.cabs, r, isUpper);
+          const free = runs[r].len - endX;
+          if (!best || free > best.free) best = { run: r, x: endX, free };
+        }
+        if (best) placed = { ...cab, run: best.run, x: best.x };
+      }
     }
-    // nothing fit (or a corner unit) → drop it free-floating. Stagger successive drops
+    // still nothing (corner unit / free furniture / no wall run) → free-float. Stagger drops
     // in a 3×3 grid around the room centre (clamped inside the room) so several
     // corner/upper/tall blocks don't stack on the exact same point and become
     // impossible to grab or move individually.

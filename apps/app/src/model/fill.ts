@@ -58,6 +58,20 @@ export function parkX(cabs: Cabinet[], ref: Cabinet, w: number): number {
   return Math.round(cursor);
 }
 
+/** The right edge (mm) of the last tiled module in `run`'s lane (upper vs floor), or 0
+ *  when the lane is empty. Used to DOCK a new module in the empty tail of a wall when no
+ *  interior gap fits it — so a wall cabinet stays wall-attached instead of floating over
+ *  other modules. Ignores free-floated (px) and filler modules, matching firstFitX. */
+export function rowEndX(cabs: Cabinet[], run: number, isUpper: boolean): number {
+  let end = 0;
+  for (const c of cabs) {
+    if ((c.run ?? 0) !== run || (c.kind === "upper") !== isUpper) continue;
+    if (c.x == null || c.px != null || c.appliance === "filler") continue;
+    end = Math.max(end, (c.x as number) + c.w);
+  }
+  return Math.round(end);
+}
+
 /** The left edge for a NEW module of width `w` on wall `run` (lane = upper vs floor),
  *  scanning left→right for the first gap (or the run end) that fits within `runLen`.
  *  Returns null when the run is full — the caller then drops it free-floating. */
