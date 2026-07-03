@@ -845,9 +845,17 @@ body {
 
 .toolbar-row {
   display: flex;
-  justify-content: center;
+  /* `safe center` centres when the buttons fit, but left-aligns (never clips the first
+     button) when they overflow — e.g. 5 category buttons on a narrow phone. Paired with
+     horizontal scroll so the row can never break the page width on mobile. */
+  justify-content: safe center;
   gap: 10px;
-  padding: 4px 0 18px;
+  padding: 4px 14px 18px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.toolbar-row::-webkit-scrollbar {
+  display: none;
 }
 
 .tool-btn {
@@ -856,6 +864,7 @@ body {
   align-items: center;
   gap: 10px;
   width: 81px;
+  flex: 0 0 auto; /* keep width; scroll instead of squishing when the row overflows */
   background: none;
   border: none;
   cursor: pointer;
@@ -2162,11 +2171,14 @@ body {
 
 .fe-actions {
   display: flex;
+  flex-wrap: wrap; /* 3 actions (incl. the long "Bibliotekaga saqlash") wrap instead of overflowing on mobile */
   gap: 12px;
 }
 
 .fe-action {
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  min-width: 96px;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
