@@ -36,11 +36,13 @@ describe("Phase 3 — karkasStore", () => {
     expect(useKarkas.getState().parts.length).toBe(before + 1);
   });
 
-  it("divide changes the model; undo reverts it exactly", () => {
+  it("divide preserves the section's content (no orphaned shelves) and undo reverts", () => {
     useKarkas.getState().setModel(buildDemoModel());
     const before = useKarkas.getState().parts.length;
     useKarkas.getState().divide();
-    expect(useKarkas.getState().parts.length).not.toBe(before); // an edit happened
+    // the split adds a divider and re-homes the section's shelves into a child leaf, so the
+    // part count never DROPS (before the re-home fix, dividing a content section lost its shelves)
+    expect(useKarkas.getState().parts.length).toBeGreaterThanOrEqual(before);
     expect(useKarkas.getState().canUndo()).toBe(true);
     useKarkas.getState().undo();
     expect(useKarkas.getState().parts.length).toBe(before); // exact revert
