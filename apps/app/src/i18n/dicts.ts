@@ -252,7 +252,7 @@ export const ru = {
     mm: "мм",
     kindUpper: "Верхний", kindTall: "Пенал", kindBase: "Тумба", module: "Модуль",
     subFurn: "Мебель", subAppl: "Встроенная техника", subUpper: "Навесной шкаф", subTall: "Высокий пенал", subBase: "Напольный шкаф",
-    library: "Библиотека", myBlocks: "Мои блоки", myBlock: "Мой блок", myBlocksEmpty: "Пока нет сохранённых блоков",
+    library: "Библиотека", catalog: "Каталог", myBlocks: "Мои блоки", myBlock: "Мой блок", myBlocksEmpty: "Пока нет сохранённых блоков",
   },
   fe: {
     close: "Закрыть", back: "← Назад", fill: "Наполнение", style: "Стиль", edit: "Редактировать", saveToLibrary: "Сохранить в библиотеку",
@@ -569,7 +569,7 @@ export const uz: typeof ru = {
     mm: "mm",
     kindUpper: "Yuqori", kindTall: "Penal", kindBase: "Tumba", module: "Modul",
     subFurn: "Mebel", subAppl: "O'rnatilgan texnika", subUpper: "Osma shkaf", subTall: "Baland penal", subBase: "Poldagi shkaf",
-    library: "Biblioteka", myBlocks: "Mening bloklarim", myBlock: "Mening blokim", myBlocksEmpty: "Hozircha saqlangan bloklar yo'q",
+    library: "Biblioteka", catalog: "Katalog", myBlocks: "Mening bloklarim", myBlock: "Mening blokim", myBlocksEmpty: "Hozircha saqlangan bloklar yo'q",
   },
   fe: {
     close: "Yopish", back: "← Orqaga", fill: "To'ldirish", style: "Uslub", edit: "Tahrirlash", saveToLibrary: "Bibliotekaga saqlash",

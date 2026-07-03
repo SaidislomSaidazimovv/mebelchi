@@ -118,6 +118,7 @@ export function ConfigScreen() {
   const [openIds, setOpenIds] = useState<string[]>([]); // modules with doors/drawers open (3D)
   const [showHint, setShowHint] = useState(true);
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [libTab, setLibTab] = useState<"catalog" | "mine">("catalog"); // Biblioteka sheet: catalog vs saved blocks
   const [fillOpen, setFillOpen] = useState(false); // focused full-screen Наполнение editor
   const [sheetClosing, setSheetClosing] = useState(false);
   // when set, picking a catalog item REPLACES this module (instead of adding a new one)
@@ -682,45 +683,51 @@ export function ConfigScreen() {
                   <div className="sheet-title">{t.config.library}</div>
                   <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.config.close}>✕</button>
                 </div>
+                {/* two pages: the full catalog, and the master's own saved blocks */}
+                <div className="lib-tabs">
+                  <button className={`lib-tab${libTab === "catalog" ? " on" : ""}`} onClick={() => setLibTab("catalog")} type="button">
+                    {t.config.catalog}
+                  </button>
+                  <button className={`lib-tab${libTab === "mine" ? " on" : ""}`} onClick={() => setLibTab("mine")} type="button">
+                    {t.config.myBlocks}{myLibrary.length ? ` (${myLibrary.length})` : ""}
+                  </button>
+                </div>
                 <div className="cfg-sheet-body">
-                  {/* predefined demo blocks (level-1 categories → level-2 internal layouts) */}
-                  {LIBRARY_GROUPS.map((g) => (
-                    <div className="add-group" key={g.heading}>
-                      <div className="add-head">{g.heading}</div>
-                      <div className="add-grid">
-                        {g.items.map((it) => (
-                          <button key={it.id} className="add-chip" onClick={() => addItem(it)} type="button">
-                            <span className="add-glyph" aria-hidden="true">{it.glyph}</span>
-                            <span className="add-name">{it.name}</span>
-                            <span className="add-sub">{it.sub}</span>
-                          </button>
-                        ))}
+                  {libTab === "catalog" ? (
+                    /* level-1 categories → each chip's level-2 internal layout */
+                    LIBRARY_GROUPS.map((g) => (
+                      <div className="add-group" key={g.heading}>
+                        <div className="add-head">{g.heading}</div>
+                        <div className="add-grid">
+                          {g.items.map((it) => (
+                            <button key={it.id} className="add-chip" onClick={() => addItem(it)} type="button">
+                              <span className="add-glyph" aria-hidden="true">{it.glyph}</span>
+                              <span className="add-name">{it.name}</span>
+                              <span className="add-sub">{it.sub}</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
+                    ))
+                  ) : myLibrary.length === 0 ? (
+                    <div className="add-sub" style={{ padding: "8px 4px" }}>{t.config.myBlocksEmpty}</div>
+                  ) : (
+                    <div className="add-grid">
+                      {myLibrary.map((item) => (
+                        <button key={item.id} className="add-chip" style={{ position: "relative" }} onClick={() => addLibraryItem(item)} type="button">
+                          <span
+                            role="button"
+                            aria-label={t.config.del}
+                            onClick={(e) => { e.stopPropagation(); removeLibraryItem(item.id); }}
+                            style={{ position: "absolute", top: 2, right: 6, fontSize: 13, lineHeight: 1, color: "var(--muted)", padding: 2 }}
+                          >✕</span>
+                          <span className="add-glyph" aria-hidden="true">{item.glyph}</span>
+                          <span className="add-name">{item.name}</span>
+                          <span className="add-sub">{t.config.myBlock}</span>
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                  {/* the master's own saved blocks */}
-                  <div className="add-group">
-                    <div className="add-head">{t.config.myBlocks}</div>
-                    {myLibrary.length === 0 ? (
-                      <div className="add-sub" style={{ padding: "2px 0 6px" }}>{t.config.myBlocksEmpty}</div>
-                    ) : (
-                      <div className="add-grid">
-                        {myLibrary.map((item) => (
-                          <button key={item.id} className="add-chip" style={{ position: "relative" }} onClick={() => addLibraryItem(item)} type="button">
-                            <span
-                              role="button"
-                              aria-label={t.config.del}
-                              onClick={(e) => { e.stopPropagation(); removeLibraryItem(item.id); }}
-                              style={{ position: "absolute", top: 2, right: 6, fontSize: 13, lineHeight: 1, color: "var(--muted)", padding: 2 }}
-                            >✕</span>
-                            <span className="add-glyph" aria-hidden="true">{item.glyph}</span>
-                            <span className="add-name">{item.name}</span>
-                            <span className="add-sub">{t.config.myBlock}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
               </>
             )}
