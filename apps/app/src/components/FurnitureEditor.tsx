@@ -86,6 +86,7 @@ export function FurnitureEditor({
   onClose,
   onOpenFill,
   onReplace,
+  onSaveToLibrary,
   flash,
 }: {
   cab: Cabinet;
@@ -108,6 +109,8 @@ export function FurnitureEditor({
   onOpenFill: () => void;
   /** open the catalog to swap this module for another type (keeps its place) */
   onReplace: () => void;
+  /** save THIS module (with its full layout/finish) to the personal block library */
+  onSaveToLibrary: () => void;
   flash: (msg: string) => void;
 }) {
   const t = useT();
@@ -247,6 +250,9 @@ export function FurnitureEditor({
             )}
             <button className="fe-action fe-action-2" onClick={onReplace} type="button">
               <span className="fe-action-ic">⟳</span> {t.fe.replace}
+            </button>
+            <button className="fe-action" onClick={() => { onSaveToLibrary(); flash(`${t.fe.saveToLibrary} ✓`); }} type="button">
+              <span className="fe-action-ic">▤</span> {t.fe.saveToLibrary}
             </button>
           </div>
 

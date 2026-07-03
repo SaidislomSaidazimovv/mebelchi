@@ -252,9 +252,10 @@ export const ru = {
     mm: "мм",
     kindUpper: "Верхний", kindTall: "Пенал", kindBase: "Тумба", module: "Модуль",
     subFurn: "Мебель", subAppl: "Встроенная техника", subUpper: "Навесной шкаф", subTall: "Высокий пенал", subBase: "Напольный шкаф",
+    library: "Библиотека", myBlocks: "Мои блоки", myBlock: "Мой блок", myBlocksEmpty: "Пока нет сохранённых блоков",
   },
   fe: {
-    close: "Закрыть", back: "← Назад", fill: "Наполнение", style: "Стиль", edit: "Редактировать",
+    close: "Закрыть", back: "← Назад", fill: "Наполнение", style: "Стиль", edit: "Редактировать", saveToLibrary: "Сохранить в библиотеку",
     editLabel: (l: string) => `Редактировать (${l})`,
     width: "Ширина", height: "Высота", replace: "Заменять",
     changeSome: "Измените некоторые элементы:", delete: "Удалять",
@@ -568,9 +569,10 @@ export const uz: typeof ru = {
     mm: "mm",
     kindUpper: "Yuqori", kindTall: "Penal", kindBase: "Tumba", module: "Modul",
     subFurn: "Mebel", subAppl: "O'rnatilgan texnika", subUpper: "Osma shkaf", subTall: "Baland penal", subBase: "Poldagi shkaf",
+    library: "Biblioteka", myBlocks: "Mening bloklarim", myBlock: "Mening blokim", myBlocksEmpty: "Hozircha saqlangan bloklar yo'q",
   },
   fe: {
-    close: "Yopish", back: "← Orqaga", fill: "To'ldirish", style: "Uslub", edit: "Tahrirlash",
+    close: "Yopish", back: "← Orqaga", fill: "To'ldirish", style: "Uslub", edit: "Tahrirlash", saveToLibrary: "Bibliotekaga saqlash",
     editLabel: (l: string) => `Tahrirlash (${l})`,
     width: "Kenglik", height: "Balandlik", replace: "Almashtirish",
     changeSome: "Ba'zi elementlarni o'zgartiring:", delete: "O'chirish",

@@ -19,6 +19,7 @@ import { fillGapSpan } from "../model/fill";
 import { dockToRun } from "../model/footprint";
 import { type Cabinet } from "../model/cabinet";
 import { CABINET_GROUPS, APPLIANCE_GROUPS, FURNITURE_GROUPS, EXTRA_GROUPS, type AddTemplate } from "../model/addCatalog";
+import { LIBRARY_GROUPS, type LibraryItem } from "../model/library";
 import { FLOOR_COVERINGS } from "../model/floors";
 import {
   IconCabinets,
@@ -42,7 +43,7 @@ import {
 /** A real built-in appliance (excludes plain modules and render-only fillers). */
 const isAppliance = (c: Cabinet) => !!c.appliance && c.appliance !== "none" && c.appliance !== "filler";
 
-type Sheet = null | "pickCab" | "pickAppl" | "editor" | "dining" | "extra";
+type Sheet = null | "pickCab" | "pickAppl" | "editor" | "dining" | "extra" | "library";
 
 const MODES = [
   { v: "wire", Icon: IconLines },
@@ -73,6 +74,9 @@ export function ConfigScreen() {
   const patchAllCabs = useStore((s) => s.patchAllCabs);
   const fillCabGap = useStore((s) => s.fillCabGap);
   const addCab = useStore((s) => s.addCab);
+  const myLibrary = useStore((s) => s.myLibrary);
+  const saveToLibrary = useStore((s) => s.saveToLibrary);
+  const removeLibraryItem = useStore((s) => s.removeLibraryItem);
   const replaceCab = useStore((s) => s.replaceCab);
   const removeCab = useStore((s) => s.removeCab);
   const duplicateCab = useStore((s) => s.duplicateCab);
@@ -234,6 +238,15 @@ export function ConfigScreen() {
     if (id) {
       pick(id);
       flash(t.config.added(tpl.name));
+    }
+    closeSheet();
+  };
+  // add a personal library block — same auto-fit + select flow as a catalog item
+  const addLibraryItem = (item: LibraryItem) => {
+    const id = addCab(item.cab, front ? wall : undefined);
+    if (id) {
+      pick(id);
+      flash(t.config.added(item.name));
     }
     closeSheet();
   };
@@ -613,6 +626,14 @@ export function ConfigScreen() {
                 <span className="ico"><IconExtra /></span>
                 <span className="lbl">{t.config.extras}</span>
               </button>
+              <button className="tool-btn" onClick={() => openSheet("library")} type="button">
+                <span className="ico">
+                  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+                    <path d="M4 4H14V14H4V4ZM18 4H28V14H18V4ZM4 18H14V28H4V18ZM18 18H28V28H18V18Z" fill="var(--accent)" />
+                  </svg>
+                </span>
+                <span className="lbl">{t.config.library}</span>
+              </button>
             </>
           )}
         </div>
@@ -621,7 +642,7 @@ export function ConfigScreen() {
       {sheet && (
         <>
           <div className={`sheet-backdrop dim${sheetClosing ? " closing" : ""}`} onClick={closeSheet} />
-          <div className={`bottom-sheet${sheet === "pickCab" || sheet === "pickAppl" || sheet === "dining" || sheet === "extra" || sheet === "editor" ? " tall" : ""}${sheetClosing ? " closing" : ""}`}>
+          <div className={`bottom-sheet${sheet === "pickCab" || sheet === "pickAppl" || sheet === "dining" || sheet === "extra" || sheet === "library" || sheet === "editor" ? " tall" : ""}${sheetClosing ? " closing" : ""}`}>
             <div className="sheet-grip" />
 
             {(sheet === "pickCab" || sheet === "pickAppl" || sheet === "dining" || sheet === "extra") && (() => {
@@ -655,6 +676,55 @@ export function ConfigScreen() {
               );
             })()}
 
+            {sheet === "library" && (
+              <>
+                <div className="sheet-head">
+                  <div className="sheet-title">{t.config.library}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.config.close}>✕</button>
+                </div>
+                <div className="cfg-sheet-body">
+                  {/* predefined demo blocks (level-1 categories → level-2 internal layouts) */}
+                  {LIBRARY_GROUPS.map((g) => (
+                    <div className="add-group" key={g.heading}>
+                      <div className="add-head">{g.heading}</div>
+                      <div className="add-grid">
+                        {g.items.map((it) => (
+                          <button key={it.id} className="add-chip" onClick={() => addItem(it)} type="button">
+                            <span className="add-glyph" aria-hidden="true">{it.glyph}</span>
+                            <span className="add-name">{it.name}</span>
+                            <span className="add-sub">{it.sub}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {/* the master's own saved blocks */}
+                  <div className="add-group">
+                    <div className="add-head">{t.config.myBlocks}</div>
+                    {myLibrary.length === 0 ? (
+                      <div className="add-sub" style={{ padding: "2px 0 6px" }}>{t.config.myBlocksEmpty}</div>
+                    ) : (
+                      <div className="add-grid">
+                        {myLibrary.map((item) => (
+                          <button key={item.id} className="add-chip" style={{ position: "relative" }} onClick={() => addLibraryItem(item)} type="button">
+                            <span
+                              role="button"
+                              aria-label={t.config.del}
+                              onClick={(e) => { e.stopPropagation(); removeLibraryItem(item.id); }}
+                              style={{ position: "absolute", top: 2, right: 6, fontSize: 13, lineHeight: 1, color: "var(--muted)", padding: 2 }}
+                            >✕</span>
+                            <span className="add-glyph" aria-hidden="true">{item.glyph}</span>
+                            <span className="add-name">{item.name}</span>
+                            <span className="add-sub">{t.config.myBlock}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
             {sheet === "editor" && cabs[i] && (
               <FurnitureEditor
                 cab={cabs[i]}
@@ -671,6 +741,7 @@ export function ConfigScreen() {
                 onClose={closeSheet}
                 onOpenFill={() => setFillOpen(true)}
                 onReplace={onReplaceCab}
+                onSaveToLibrary={() => saveToLibrary(cabs[i])}
                 flash={flash}
               />
             )}

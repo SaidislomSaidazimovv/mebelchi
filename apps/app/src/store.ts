@@ -11,6 +11,7 @@ import { planRuns, cornerUnits, interiorWallCabs, type KitchenLayout } from "./m
 import { roomOutlineMm, defaultOpenings, defaultOpeningHeight, fittingKind, wallSegments, interiorSegRef, polygonBoundsMm, type Pt, type Opening, type OpeningKind, type Fitting, type FittingCategory } from "./model/room";
 import { defaultSurface, splitLeaf, colorLeaf, type Surface, type SurfPath } from "./model/walls";
 import { PERSIST_KEYS, loadProjectState, upsertProject, deleteProject, updateProjectMeta, newProjectId, allProjects, replaceAllProjects, type DesignState } from "./model/projects";
+import { listLibrary, upsertLibraryItem, deleteLibraryItem, libraryItemFromCab, type LibraryItem } from "./model/library";
 import { loadSettings, saveSettings, type Settings } from "./model/settings";
 import { supabase, isSupabaseConfigured } from "./lib/supabase";
 import { pullProfile, pushProfile, pullProjects, pushProject, deleteProjectCloud } from "./lib/sync";
@@ -138,6 +139,10 @@ export interface AppState {
   // persistence — the project this session is editing + a bump to refresh lists
   currentProjectId: string | null;
   projectsRev: number;
+  // personal block library (Biblioteka → «Mening bloklarim»). localStorage-only for the
+  // demo; libraryRev bumps to refresh any open picker. Global (survives newProject).
+  myLibrary: LibraryItem[];
+  libraryRev: number;
   // global user/app settings (profile · company · preferences), Supabase-ready
   settings: Settings;
   // auth (Supabase). authReady = session checked; authUser = null when signed out.
@@ -284,6 +289,9 @@ export interface AppState {
   newProject: () => void;
   removeProject: (id: string) => void;
   renameProject: (id: string, patch: { name?: string; client?: string }) => void;
+  // library — save the selected module as a personal block / remove one (localStorage)
+  saveToLibrary: (cab: Cabinet) => void;
+  removeLibraryItem: (id: string) => void;
   // settings
   updateSettings: (patch: Partial<Settings>) => void;
   // auth
@@ -365,6 +373,8 @@ export const useStore = create<AppState>((set, get) => ({
   pendingWater: false,
   currentProjectId: null,
   projectsRev: 0,
+  myLibrary: listLibrary(),
+  libraryRev: 0,
   settings: loadSettings(),
   // if Supabase isn't configured, auth is skipped (app runs on localStorage)
   authReady: !isSupabaseConfigured,
@@ -1153,6 +1163,20 @@ export const useStore = create<AppState>((set, get) => ({
     }
     set(() => ({ projectsRev: s.projectsRev + 1 }));
   },
+
+  // ---- library (personal blocks, persisted to localStorage) ----
+  // Mirrors saveCurrent's local-then-cloud shape, but LOCAL ONLY for the demo.
+  saveToLibrary: (cab) => {
+    upsertLibraryItem(libraryItemFromCab(cab));
+    // TODO: Supabase sync (phase 2) — push the personal block to the cloud here
+    set((s) => ({ myLibrary: listLibrary(), libraryRev: s.libraryRev + 1 }));
+  },
+  removeLibraryItem: (id) => {
+    deleteLibraryItem(id);
+    // TODO: Supabase sync (phase 2) — mirror the delete to the cloud here
+    set((s) => ({ myLibrary: listLibrary(), libraryRev: s.libraryRev + 1 }));
+  },
+
   updateSettings: (patch) =>
     set((s) => {
       const settings = { ...s.settings, ...patch };
