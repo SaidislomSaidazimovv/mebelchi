@@ -1,7 +1,7 @@
 // Phase 3 — karkasStore (StructuralModel editing state).
 import { describe, it, expect } from "vitest";
 import { useKarkas } from "../apps/app/src/three/karkasStore.js";
-import { buildLCornerModel } from "../engine/structure/demoModel.js";
+import { buildLCornerModel, buildDemoModel } from "../engine/structure/demoModel.js";
 
 describe("Phase 3 — karkasStore", () => {
   it("boots with a derived demo model (parts + scene populated, closed)", () => {
@@ -27,5 +27,22 @@ describe("Phase 3 — karkasStore", () => {
     expect(useKarkas.getState().selectedId).toBeNull();
     useKarkas.getState().close();
     expect(useKarkas.getState().open).toBe(false);
+  });
+
+  it("add('shelf') adds exactly one panel", () => {
+    useKarkas.getState().setModel(buildDemoModel());
+    const before = useKarkas.getState().parts.length;
+    useKarkas.getState().add("shelf");
+    expect(useKarkas.getState().parts.length).toBe(before + 1);
+  });
+
+  it("divide changes the model; undo reverts it exactly", () => {
+    useKarkas.getState().setModel(buildDemoModel());
+    const before = useKarkas.getState().parts.length;
+    useKarkas.getState().divide();
+    expect(useKarkas.getState().parts.length).not.toBe(before); // an edit happened
+    expect(useKarkas.getState().canUndo()).toBe(true);
+    useKarkas.getState().undo();
+    expect(useKarkas.getState().parts.length).toBe(before); // exact revert
   });
 });

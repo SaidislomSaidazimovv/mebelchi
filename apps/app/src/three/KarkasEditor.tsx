@@ -27,6 +27,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const selectedId = useKarkas((s) => s.selectedId);
   const tapPart = useKarkas((s) => s.tapPart);
   const setModel = useKarkas((s) => s.setModel);
+  const add = useKarkas((s) => s.add);
+  const divide = useKarkas((s) => s.divide);
+  const undo = useKarkas((s) => s.undo);
+  const canUndo = useKarkas((s) => s.past.length > 0);
 
   // ── mount the three.js canvas once ──
   useEffect(() => {
@@ -119,6 +123,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <span style={{ ...mono, color: "#006b3f" }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
         {onClose && <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕ Yopish</button>}
       </div>
+      {/* Phase 4 — edit toolbar: engine operations on the target section (selected panel's, else first leaf) */}
+      <div style={editbar}>
+        <button style={act} onClick={() => add("shelf")} type="button">＋ Polka</button>
+        <button style={act} onClick={() => add("door")} type="button">＋ Eshik</button>
+        <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
+        <button style={act} onClick={() => divide()} type="button">⊟ Bo'lish</button>
+        <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
+      </div>
       <div ref={mountRef} style={{ flex: 1, minHeight: 0 }} />
     </div>
   );
@@ -136,3 +148,5 @@ const overlay: CSSProperties = { position: "fixed", inset: 0, background: "#f0ef
 const bar: CSSProperties = { padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", fontFamily: "system-ui", flexWrap: "wrap" };
 const mono: CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#5c6a61" };
 const pill: CSSProperties = { padding: "6px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer" };
+const editbar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, flexWrap: "wrap" };
+const act: CSSProperties = { padding: "8px 13px", borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer" };
