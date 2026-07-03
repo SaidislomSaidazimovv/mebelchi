@@ -8,7 +8,7 @@
 
 import type { StructuralModel } from "./contracts/structure.js";
 import type { Part, Project } from "./contracts/types.js";
-import { solveStructure } from "./structure/solve.js";
+import { solveStructure, type ThicknessSpec } from "./structure/solve.js";
 import { applyDrilling } from "./structure/drilling.js";
 import { loadHardwareSpec } from "./catalogs/hardwareSpec.js";
 import { validateParts } from "./core/validate.js";
@@ -20,8 +20,8 @@ import { exportSWJ008 } from "./postprocessors/swj008.js";
  * (applyDrilling) using the loaded hardware catalog. The drilled Part[] is ready for
  * validateParts → exportSWJ008.
  */
-export function solveModelToParts(model: StructuralModel): Part[] {
-  return applyDrilling(solveStructure(model), model, loadHardwareSpec());
+export function solveModelToParts(model: StructuralModel, thickness: ThicknessSpec = {}): Part[] {
+  return applyDrilling(solveStructure(model, thickness), model, loadHardwareSpec());
 }
 
 /**
@@ -30,8 +30,8 @@ export function solveModelToParts(model: StructuralModel): Part[] {
  * exporter ordering: nothing exports dirty. Throws MACHINING_VALIDATION_FAILED with the finding
  * codes if the gate rejects, so the UI can surface exactly what blocked the export.
  */
-export function exportModelToSWJ008(model: StructuralModel): string {
-  const parts = solveModelToParts(model);
+export function exportModelToSWJ008(model: StructuralModel, thickness: ThicknessSpec = {}): string {
+  const parts = solveModelToParts(model, thickness);
   const validation = validateParts(parts);
   if (!validation.ok) {
     throw new Error(

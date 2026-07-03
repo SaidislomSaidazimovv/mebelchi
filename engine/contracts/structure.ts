@@ -245,6 +245,13 @@ export interface Component {
    * user can band or bare any edge. Optional/additive — absent = the role default (nothing regresses).
    */
   readonly edgeBands?: readonly [mm10, mm10, mm10, mm10];
+  /**
+   * Per-component board thickness (mm10). Absent = the role default from the solve's
+   * `ThicknessSpec` (16mm by default). Lets a facade be 18mm МДФ while the carcass stays
+   * 16mm ЛДСП, etc. The exporter already writes per-part thickness. Optional/additive —
+   * absent regresses nothing (the solver falls back to the single-stock 16mm law).
+   */
+  readonly thickness_mm10?: mm10;
 }
 
 /** How two edge bands meet at a panel corner (#39). "mitre" 45° geometry is V2-deferred. */

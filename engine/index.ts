@@ -24,6 +24,7 @@ export * from "./contracts/types.js";
 export * from "./contracts/structure.js";
 // Parametric structural solver: model → flat manufacturing Part[] (the bridge).
 export { solveStructure, BOARD_MM10 } from "./structure/solve.js";
+export type { ThicknessSpec } from "./structure/solve.js";
 export { buildDemoModel } from "./structure/demoModel.js";
 export { solveLayout } from "./structure/layout.js";
 export type { PanelPlacement } from "./structure/layout.js";

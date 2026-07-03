@@ -44,19 +44,43 @@ export const EDGE_BAND_MM10: mm10 = 10;
 
 const GRAIN: Grain = "L";
 
+/**
+ * Per-role board thickness (mm10). Any absent role falls back to the 16mm single-stock
+ * default (law L1) — so an empty / all-absent spec reproduces the legacy 16mm-only geometry
+ * byte-for-byte. `carcass` drives the inner-width and the shelf/divider spans.
+ */
+export interface ThicknessSpec {
+  readonly carcass?: mm10;
+  readonly back?: mm10;
+  readonly shelf?: mm10;
+  readonly divider?: mm10;
+  readonly facade?: mm10;
+}
+interface ResolvedT { carcass: mm10; back: mm10; shelf: mm10; divider: mm10; facade: mm10 }
+function resolveThickness(spec: ThicknessSpec = {}): ResolvedT {
+  return {
+    carcass: spec.carcass ?? BOARD_MM10,
+    back: spec.back ?? BOARD_MM10,
+    shelf: spec.shelf ?? BOARD_MM10,
+    divider: spec.divider ?? BOARD_MM10,
+    facade: spec.facade ?? BOARD_MM10,
+  };
+}
+
 function panel(
   id: string,
   name: string,
   length_mm10: mm10,
   width_mm10: mm10,
   edges: Part["edges"] = [0, 0, 0, 0],
+  thickness_mm10: mm10 = BOARD_MM10,
 ): Part {
   return {
     id,
     name,
     length_mm10,
     width_mm10,
-    thickness_mm10: BOARD_MM10,
+    thickness_mm10,
     grain: GRAIN,
     edges,
     operations: [],
@@ -108,9 +132,9 @@ export function doublePanel(base: Part): [Part, Part] {
  * furniture-CAD) confirmed #7 is specified ONLY in v3 Piece 3 — this implements it literally, no
  * invention. (Wiring real pedestal/blade parts to this needs a mounting-relationship field — next.)
  */
-export function undersidePlaneAt(topWidth_mm10: mm10, front_mm10: mm10, y_mm10: mm10): mm10 {
+export function undersidePlaneAt(topWidth_mm10: mm10, front_mm10: mm10, y_mm10: mm10, topThickness_mm10: mm10 = BOARD_MM10): mm10 {
   const stepAt = topWidth_mm10 - front_mm10; // the step's depth position from the back (Y=0)
-  return y_mm10 >= stepAt ? 2 * BOARD_MM10 : BOARD_MM10;
+  return y_mm10 >= stepAt ? 2 * topThickness_mm10 : topThickness_mm10;
 }
 
 export function partialDoublePanels(base: Part, front_mm10: mm10): [Part, Part] {
@@ -173,21 +197,21 @@ function glazedGridParts(idBase: string, name: string, length: mm10, width: mm10
 /** Carcass box: two sides (full height × depth) + top + bottom (inner width × depth). */
 /** Five carcass panels for a rectangular volume (idBase-prefixed). `omitSideR` drops the right
  *  side — used at an L-corner where one leg abuts the other (avoids a doubled wall). */
-function boxCarcass(idBase: string, label: string, w: mm10, h: mm10, d: mm10, omitSideR = false): Part[] {
-  const innerW = w - 2 * BOARD_MM10;
+function boxCarcass(idBase: string, label: string, w: mm10, h: mm10, d: mm10, t: ResolvedT, omitSideR = false): Part[] {
+  const innerW = w - 2 * t.carcass;
   const ps = [
-    panel(`${idBase}__side_l`, `${label}Бок левый`, h, d, frontBand()),
-    panel(`${idBase}__side_r`, `${label}Бок правый`, h, d, frontBand()),
-    panel(`${idBase}__top`, `${label}Верх`, innerW, d, frontBand()),
-    panel(`${idBase}__bottom`, `${label}Низ`, innerW, d, frontBand()),
-    panel(`${idBase}__back`, `${label}Задняя стенка`, w, h), // back is hidden — not banded
+    panel(`${idBase}__side_l`, `${label}Бок левый`, h, d, frontBand(), t.carcass),
+    panel(`${idBase}__side_r`, `${label}Бок правый`, h, d, frontBand(), t.carcass),
+    panel(`${idBase}__top`, `${label}Верх`, innerW, d, frontBand(), t.carcass),
+    panel(`${idBase}__bottom`, `${label}Низ`, innerW, d, frontBand(), t.carcass),
+    panel(`${idBase}__back`, `${label}Задняя стенка`, w, h, [0, 0, 0, 0], t.back), // back is hidden — not banded
   ];
   return omitSideR ? ps.filter((p) => !p.id.endsWith("__side_r")) : ps;
 }
 
-function carcassParts(block: Block): Part[] {
+function carcassParts(block: Block, t: ResolvedT): Part[] {
   const { w, h, d } = block.box;
-  return boxCarcass(block.id, "", w, h, d);
+  return boxCarcass(block.id, "", w, h, d, t);
 }
 
 // Corner-filler width (blocker #6) — the strip that bridges the L junction. GROUNDED: the corner
@@ -211,13 +235,13 @@ export const CORNER_FILLER_W: mm10 = 500; // 50 mm — blind-corner overlap
  * perpendicular and adjacent, NOT overlapping — there is nothing to exclude. Real leg-B interior
  * content (its own shelves/dividers) needs per-leg sections — a separate blocker-#1 task, not this.
  */
-function lCornerParts(block: Block): Part[] {
+function lCornerParts(block: Block, t: ResolvedT): Part[] {
   const fp = block.footprint!;
   const h = block.box.h;
   return [
-    ...boxCarcass(`${block.id}__legA`, "Плечо A · ", fp.legA.length_mm10, h, fp.legA.depth_mm10),
-    ...boxCarcass(`${block.id}__legB`, "Плечо B · ", fp.legB.length_mm10, h, fp.legB.depth_mm10, true),
-    panel(`${block.id}__corner_filler`, "Угловая планка", h, CORNER_FILLER_W, frontBand()),
+    ...boxCarcass(`${block.id}__legA`, "Плечо A · ", fp.legA.length_mm10, h, fp.legA.depth_mm10, t),
+    ...boxCarcass(`${block.id}__legB`, "Плечо B · ", fp.legB.length_mm10, h, fp.legB.depth_mm10, t, true),
+    panel(`${block.id}__corner_filler`, "Угловая планка", h, CORNER_FILLER_W, frontBand(), t.carcass),
   ];
 }
 
@@ -238,9 +262,9 @@ export function sectionOfLine(block: Block, lineId: string): Section | null {
 
 /** A vertical divider (axis "x") stands between top and bottom, spanning the depth of the SECTION
  *  it divides (leg-aware for L-blocks) — not the block's bounding box. */
-function dividerPart(block: Block, line: Line): Part {
+function dividerPart(block: Block, line: Line, t: ResolvedT): Part {
   const box = sectionOfLine(block, line.id)?.box ?? block.box;
-  return panel(`${block.id}__div_${line.id}`, "Перегородка", box.h - 2 * BOARD_MM10, box.d, frontBand());
+  return panel(`${block.id}__div_${line.id}`, "Перегородка", box.h - 2 * t.carcass, box.d, frontBand(), t.divider);
 }
 
 function sectionById(block: Block, sectionId: string): Section | null {
@@ -259,23 +283,23 @@ function componentById(block: Block, componentId: string): Component | null {
 /** One placed instance → its content panel(s), sized from the section it sits in.
  *  Returns two boards when the component is `doubled` (L1), one otherwise, or none for
  *  roles not yet emitted. */
-function instanceParts(block: Block, inst: Instance): Part[] {
+function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
   if (!section || !component) return [];
   // Step-aware mount (#7): a vertical support whose height resolves to the real underside plane of
   // the partially-doubled top above it — shorter under the 32mm front strip, taller behind the step.
   if (component.mount) {
-    const clear = section.box.h - undersidePlaneAt(section.box.d, component.mount.front_mm10, component.mount.y_mm10);
-    return [panel(`${block.id}__inst_${inst.id}`, `${component.name} · опора`, clear, section.box.d, frontBand())];
+    const clear = section.box.h - undersidePlaneAt(section.box.d, component.mount.front_mm10, component.mount.y_mm10, t.carcass);
+    return [panel(`${block.id}__inst_${inst.id}`, `${component.name} · опора`, clear, section.box.d, frontBand(), t.carcass)];
   }
   // First slice handles shelves; other roles return [] until their step.
   if (component.role === "internal_shelf") {
-    const length = section.box.w - 2 * BOARD_MM10; // span between sides / dividers (X)
+    const length = section.box.w - 2 * t.carcass; // span between sides / dividers (X)
     const width = section.box.d; // depth (Y)
     // Banded on the FRONT edge by default (Face 1 = edges[0]); a user #39 kromka override wins.
     const edges = component.edgeBands ? [...component.edgeBands] as Part["edges"] : frontBand();
-    const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges);
+    const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges, component.thickness_mm10 ?? t.shelf);
     if (component.partialDouble) return partialDoublePanels(base, component.partialDouble.front_mm10);
     return component.doubled ? doublePanel(base) : [base];
   }
@@ -289,7 +313,7 @@ function instanceParts(block: Block, inst: Instance): Part[] {
     }
     // A facade is banded on all four visible edges by default; a user #39 kromka override wins.
     const edges = component.edgeBands ? [...component.edgeBands] as Part["edges"] : allBand();
-    const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges);
+    const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges, component.thickness_mm10 ?? t.facade);
     return component.doubled ? doublePanel(base) : [base];
   }
   return [];
@@ -300,12 +324,13 @@ function instanceParts(block: Block, inst: Instance): Part[] {
  * Feed the result to `solveFull` / `solveAndExportSWJ008` (it slots in exactly where
  * hand-authored parts used to).
  */
-export function solveStructure(model: StructuralModel): Part[] {
+export function solveStructure(model: StructuralModel, thickness: ThicknessSpec = {}): Part[] {
+  const t = resolveThickness(thickness);
   const parts: Part[] = [];
   for (const block of model.blocks) {
-    parts.push(...(block.footprint ? lCornerParts(block) : carcassParts(block)));
-    for (const line of block.lines) parts.push(dividerPart(block, line));
-    for (const inst of block.instances) parts.push(...instanceParts(block, inst));
+    parts.push(...(block.footprint ? lCornerParts(block, t) : carcassParts(block, t)));
+    for (const line of block.lines) parts.push(dividerPart(block, line, t));
+    for (const inst of block.instances) parts.push(...instanceParts(block, inst, t));
   }
   return parts;
 }
