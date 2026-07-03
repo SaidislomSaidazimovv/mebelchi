@@ -10,3 +10,31 @@ packages/*/dist/
 # Multi-agent coordination live state (config.json is committed)
 active_tasks.md
 active_files.md
+
+# --- Non-app material: research, business, UI examples, data dumps ---
+# (kept locally; hidden from GitHub)
+MEBELCHI_INVESTMENT_MEMO.md
+ENGINE_README.md
+FACTORY_CHECKLIST.md
+PERF_LEDGER.md
+price_list_chin_wood.xlsx
+joint_decisions.unmatched.txt
+Researches/
+UI Examples liked/
+UI Exploration/
+UI Handover/
+UI image Examples/
+Example sets/
+Print Examples/
+XML output examples/
+sample_exports/
+Handover 03/
+Deck/
+catalog/
+DB/
+CORE 1/
+CORE 2/
+CORE 3/
+bench/
+mined/
+tools/
