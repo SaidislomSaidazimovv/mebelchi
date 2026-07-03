@@ -3,13 +3,16 @@
 // the 3D group when the model changes and re-tints on selection change; taps write back to the
 // store. Opened as a focused overlay from the Biblioteka (Phase 3.3) or the /#karkas dev route —
 // entirely parallel to the kitchen constructor, which it never touches.
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas } from "./karkasStore";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
+import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
+import type { Part } from "../../../../engine/contracts/types.js";
 import { buildStructureGroup, highlightBoard, disposeStructureGroup } from "./structureRenderer";
 import { sceneDimsMm } from "./structureScene";
+import { estimate } from "./estimate";
 
 interface RT {
   renderer: THREE.WebGLRenderer;
@@ -31,6 +34,25 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const divide = useKarkas((s) => s.divide);
   const undo = useKarkas((s) => s.undo);
   const canUndo = useKarkas((s) => s.past.length > 0);
+  const parts = useKarkas((s) => s.parts);
+  const model = useKarkas((s) => s.model);
+  const [showSpec, setShowSpec] = useState(false);
+
+  // Emit byte-exact SWJ008 for the current model and hand it to the browser as a download.
+  // exportModelToSWJ008 runs the safety gate and throws if the model can't be manufactured.
+  const exportCnc = () => {
+    try {
+      const text = exportModelToSWJ008(model);
+      const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "karkas-swj008.txt";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert("SWJ008 eksport xatosi: " + (err instanceof Error ? err.message : String(err)));
+    }
+  };
 
   // ── mount the three.js canvas once ──
   useEffect(() => {
@@ -130,8 +152,45 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={act} onClick={() => divide()} type="button">⊟ Bo'lish</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
+        <button style={{ ...act, marginLeft: "auto", borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spetsifikatsiya</button>
+        <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC · SWJ008</button>
       </div>
-      <div ref={mountRef} style={{ flex: 1, minHeight: 0 }} />
+      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+        <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
+        {showSpec && <SpecPanel parts={parts} onClose={() => setShowSpec(false)} />}
+      </div>
+    </div>
+  );
+}
+
+/** Right-hand «Спецификация» drawer — cut list + sheet / edge / price totals from the solved parts. */
+function SpecPanel({ parts, onClose }: { parts: Part[]; onClose: () => void }) {
+  const e = estimate(parts);
+  return (
+    <div style={specPanel}>
+      <div style={specHead}>
+        <b style={{ fontSize: 15 }}>Спецификация</b>
+        <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
+      </div>
+      <div style={specTotals}>
+        <div style={cell}><span style={mono}>Detallar</span><b>{e.count}</b></div>
+        <div style={cell}><span style={mono}>List</span><b>{e.areaM2.toFixed(2)} m²</b></div>
+        <div style={cell}><span style={mono}>Kromka</span><b>{e.edgeM.toFixed(2)} m</b></div>
+        <div style={cell}><span style={mono}>Narx*</span><b>{e.priceRub.toLocaleString("ru-RU")} ₽</b></div>
+      </div>
+      <div style={{ ...mono, padding: "2px 14px 8px" }}>
+        {e.byThickness.map((g) => `${g.t_mm}mm · ${g.count} dona · ${g.areaM2.toFixed(2)} m²`).join("     ")}
+      </div>
+      <div style={specList}>
+        {e.parts.map((p) => (
+          <div key={p.id} style={specRow}>
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+            <span style={mono}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
+            <span style={{ ...mono, color: "#8a6d1f", letterSpacing: 1 }} title="banded edges (1·2·3·4)">{p.bands.map((b) => (b ? "▪" : "·")).join("")}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ ...mono, padding: "8px 14px", fontSize: 11, borderTop: "1px solid #e6e1d4" }}>* taxminiy narx — material katalogi keyingi fazada</div>
     </div>
   );
 }
@@ -150,3 +209,9 @@ const mono: CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 1
 const pill: CSSProperties = { padding: "6px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer" };
 const editbar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, flexWrap: "wrap" };
 const act: CSSProperties = { padding: "8px 13px", borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer" };
+const specPanel: CSSProperties = { position: "absolute", top: 0, right: 0, bottom: 0, width: "min(380px, 92vw)", background: "#fbfaf6", borderLeft: "1px solid #e0dccf", boxShadow: "-8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };
+const specHead: CSSProperties = { padding: "12px 14px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #e6e1d4", fontFamily: "system-ui" };
+const specTotals: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "#e6e1d4", padding: 1, margin: "10px 14px 6px", borderRadius: 8, overflow: "hidden" };
+const cell: CSSProperties = { background: "#fff", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 2, fontFamily: "system-ui", fontSize: 15 };
+const specList: CSSProperties = { flex: 1, minHeight: 0, overflow: "auto", padding: "4px 14px" };
+const specRow: CSSProperties = { display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f0ece1", fontFamily: "system-ui", fontSize: 13 };
