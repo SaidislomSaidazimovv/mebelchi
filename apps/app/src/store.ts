@@ -3,7 +3,7 @@
 // the same state through model/toProject.ts → priceProject.
 
 import { create } from "zustand";
-import { MATERIALS, mk, type Cabinet, type FinishKey } from "./model/cabinet";
+import { MATERIALS, mk, newCabId, type Cabinet, type FinishKey } from "./model/cabinet";
 import { fillGapSpan, firstFitX, parkX } from "./model/fill";
 import { dockToRun, cabFootprints, footsOverlap } from "./model/footprint";
 import { generateVariants as solveVariants, type GenVariant, type KitchenStyle, type Zone, type FridgeType, type OvenType, type HoodType } from "./model/layout";
@@ -1153,6 +1153,17 @@ export const useStore = create<AppState>((set, get) => ({
     const restored = state as Partial<AppState>;
     if (!restored.screen || menuScreens.includes(restored.screen as string)) {
       restored.screen = "quiz";
+    }
+    // Heal duplicate cab ids from the old counter-based id scheme (designs saved before
+    // the reload-safe uid fix). Two modules sharing an id highlighted + moved as one;
+    // reassign a fresh id to any repeat so each module is independent again.
+    if (restored.cabs) {
+      const seen = new Set<string>();
+      restored.cabs = restored.cabs.map((c) => {
+        if (seen.has(c.id)) return { ...c, id: newCabId() };
+        seen.add(c.id);
+        return c;
+      });
     }
     set({ ...freshDesign(), ...restored, currentProjectId: id, menuOpen: false });
     set((s) => ({ projectsRev: s.projectsRev + 1 }));

@@ -106,7 +106,13 @@ export const FILLS: [Cabinet["fill"], string][] = [
 ];
 
 let _seq = 0;
-const uid = () => `cab-${++_seq}`;
+// Time-seeded so ids survive a page reload without colliding: a saved design keeps its
+// old `cab-…` ids, but this in-memory counter restarts at 0 on reload — a plain counter
+// would then re-mint an already-used id, and the two modules sharing it would highlight
+// and move as one. The timestamp segment differs every session, so a freshly added id
+// never collides with one loaded from storage.
+export const newCabId = () => `cab-${Date.now().toString(36)}-${(++_seq).toString(36)}`;
+const uid = newCabId;
 
 /** Shelf heights as fractions 0..1 from the bottom: the custom `shelfYs` if set,
  *  else `count` shelves spread evenly. Shared by the 3D, the 2D elevation + the fill editor. */
