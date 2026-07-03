@@ -945,56 +945,72 @@ export const useStore = create<AppState>((set, get) => ({
   addCab: (tpl, preferredRun) => {
     const s = get();
     const cab = mk(tpl);
+    // every existing module's 2D footprint (tiled AND free-dragged) — so a new block
+    // avoids overlapping modules the user moved off their run, not just tiled ones.
+    const foots = cabFootprints(s.cabs, s.roomPoints, s.waterWall, s.runLayout, s.openings);
+    const clears = (candidate: Cabinet): boolean => {
+      const [cf] = cabFootprints([candidate], s.roomPoints, s.waterWall, s.runLayout, s.openings);
+      return !cf || !foots.some((o) => o.upper === cf.upper && footsOverlap(o, cf));
+    };
     let placed: Cabinet | null = null;
-    // auto-fit into a wall run with a gap that holds it (corner units +
-    // free-standing furniture can't tile a straight run → skip to free-floating)
+    // auto-fit into a wall run (corner units + free-standing furniture can't tile a
+    // straight run → skip to free-floating)
     if (!cab.corner && !cab.furniture) {
       const runs = planRuns(s.roomPoints, s.waterWall, s.runLayout, s.openings).runs;
       const isUpper = cab.kind === "upper";
-      // try the active wall (e.g. the one shown in the front view) FIRST, so adding
-      // to a switched-to wall lands there instead of always filling the main wall
+      // try the active wall (the one shown in the front view) FIRST
       const order =
         preferredRun != null && preferredRun >= 0 && preferredRun < runs.length
           ? [preferredRun, ...runs.map((_, i) => i).filter((i) => i !== preferredRun)]
           : runs.map((_, i) => i);
+      // 1) slot into a wall-run gap that is free of tiled mates AND clear of any
+      //    dragged-away module's footprint
       for (const r of order) {
         if (runs[r].kind !== "wall") continue;
         const x = firstFitX(s.cabs, r, isUpper, runs[r].len, cab.w);
         if (x != null) {
-          placed = { ...cab, run: r, x };
-          break;
+          const cand = { ...cab, run: r, x };
+          if (clears(cand)) {
+            placed = cand;
+            break;
+          }
         }
       }
-      // no interior gap fit it → DON'T float a wall cabinet in the middle over other
-      // modules. Dock it to a wall: append after the last module on the wall run with
-      // the most trailing free space, so it lands in the empty part of a wall.
+      // 2) no clear gap → dock to a wall: from each run's tiled tail, step outward to the
+      //    first footprint-clear slot (past any freed module sitting on that wall); keep
+      //    the run that needs the least outward push, so it lands in the emptiest wall.
       if (!placed) {
         let best: { run: number; x: number; free: number } | null = null;
         for (const r of order) {
           if (runs[r].kind !== "wall") continue;
-          const endX = rowEndX(s.cabs, r, isUpper);
-          const free = runs[r].len - endX;
-          if (!best || free > best.free) best = { run: r, x: endX, free };
+          let x = rowEndX(s.cabs, r, isUpper);
+          for (let k = 0; k < 24 && !clears({ ...cab, run: r, x }); k++) x += 100;
+          const free = runs[r].len - x;
+          if (!best || free > best.free) best = { run: r, x, free };
         }
         if (best) placed = { ...cab, run: best.run, x: best.x };
       }
     }
-    // still nothing (corner unit / free furniture / no wall run) → free-float. Stagger drops
-    // in a 3×3 grid around the room centre (clamped inside the room) so several
-    // corner/upper/tall blocks don't stack on the exact same point and become
-    // impossible to grab or move individually.
+    // 3) corner unit / free furniture / no wall run → free-float, staggered to a
+    //    footprint-clear spot around the room centre (never on top of another module).
     if (!placed) {
       const b = polygonBoundsMm(s.roomPoints);
-      const freeN = s.cabs.filter((c) => c.px != null && c.pz != null).length;
-      const slot = freeN % 9;
       const step = 350;
-      const dx = ((slot % 3) - 1) * step;
-      const dz = (Math.floor(slot / 3) - 1) * step;
-      const halfW = cab.w / 2 + 50;
-      const halfD = (cab.depth ?? 560) / 2 + 50;
-      const px = Math.max(b.minX + halfW, Math.min(b.maxX - halfW, b.cx + dx));
-      const pz = Math.max(b.minY + halfD, Math.min(b.maxY - halfD, b.cy + dz));
-      placed = { ...cab, px, pz, rot: cab.rot ?? 0 };
+      const at = (slot: number): Cabinet => {
+        const dx = ((slot % 3) - 1) * step;
+        const dz = (Math.floor(slot / 3) - 1) * step;
+        const halfW = cab.w / 2 + 50;
+        const halfD = (cab.depth ?? 560) / 2 + 50;
+        const px = Math.max(b.minX + halfW, Math.min(b.maxX - halfW, b.cx + dx));
+        const pz = Math.max(b.minY + halfD, Math.min(b.maxY - halfD, b.cy + dz));
+        return { ...cab, px, pz, rot: cab.rot ?? 0 };
+      };
+      let cand = at(0);
+      for (let slot = 0; slot < 9; slot++) {
+        cand = at(slot);
+        if (clears(cand)) break;
+      }
+      placed = cand;
     }
     set({ ...cabHist(s), cabs: [...s.cabs, placed], selIdx: s.cabs.length });
     return placed.id;
