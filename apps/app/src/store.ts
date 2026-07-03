@@ -966,10 +966,22 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
     }
-    // nothing fit (or a corner unit) → drop it free-floating at the room centre to drag
+    // nothing fit (or a corner unit) → drop it free-floating. Stagger successive drops
+    // in a 3×3 grid around the room centre (clamped inside the room) so several
+    // corner/upper/tall blocks don't stack on the exact same point and become
+    // impossible to grab or move individually.
     if (!placed) {
       const b = polygonBoundsMm(s.roomPoints);
-      placed = { ...cab, px: b.cx, pz: b.cy, rot: cab.rot ?? 0 };
+      const freeN = s.cabs.filter((c) => c.px != null && c.pz != null).length;
+      const slot = freeN % 9;
+      const step = 350;
+      const dx = ((slot % 3) - 1) * step;
+      const dz = (Math.floor(slot / 3) - 1) * step;
+      const halfW = cab.w / 2 + 50;
+      const halfD = (cab.depth ?? 560) / 2 + 50;
+      const px = Math.max(b.minX + halfW, Math.min(b.maxX - halfW, b.cx + dx));
+      const pz = Math.max(b.minY + halfD, Math.min(b.maxY - halfD, b.cy + dz));
+      placed = { ...cab, px, pz, rot: cab.rot ?? 0 };
     }
     set({ ...cabHist(s), cabs: [...s.cabs, placed], selIdx: s.cabs.length });
     return placed.id;
