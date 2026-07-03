@@ -69,10 +69,11 @@ export function KarkasDemo() {
         new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1),
         camera,
       );
-      const hit = raycaster.intersectObjects(group.children, true)[0];
-      let o = hit?.object as THREE.Object3D | undefined;
-      while (o && o.userData.partId == null && o.parent) o = o.parent;
-      const id = (o?.userData.partId as string) ?? null;
+      // Raycast ONLY the box meshes (group.children), NOT their edge LineSegments children:
+      // three.js line raycasting uses a 1-metre threshold by default, which "hits" far edges and
+      // picks the wrong panel. recursive=false tests only the panel faces → correct front panel.
+      const hit = raycaster.intersectObjects(group.children, false)[0];
+      const id = (hit?.object.userData.partId as string) ?? null;
       highlightBoard(group, id);
       setPicked(id);
     };
