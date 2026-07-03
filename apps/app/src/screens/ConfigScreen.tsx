@@ -4,16 +4,21 @@
 // view switcher and a render-style switcher (realistic / translucent / wireframe).
 // Tapping a module in the scene selects + highlights it and swaps the bottom
 // toolbar to per-item actions (edit / open / duplicate / delete).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
+import { useT } from "../i18n/useT";
 import { priceCabs } from "../model/toProject";
-import { fmtSum } from "../model/format";
+import { useMoney } from "../useMoney";
 import { VariantScene } from "../three/VariantScene";
 import { ConstructorPlan } from "../components/ConstructorPlan";
 import { KitchenElevation } from "../components/KitchenElevation";
 import { FurnitureEditor, emptyCfg, type PartCfg } from "../components/FurnitureEditor";
+import { FillEditor } from "../components/FillEditor";
 import { planRuns } from "../model/runPlan";
+import { fillGapSpan } from "../model/fill";
+import { dockToRun } from "../model/footprint";
 import { type Cabinet } from "../model/cabinet";
+import { CABINET_GROUPS, APPLIANCE_GROUPS, FURNITURE_GROUPS, EXTRA_GROUPS, type AddTemplate } from "../model/addCatalog";
 import { FLOOR_COVERINGS } from "../model/floors";
 import {
   IconCabinets,
@@ -34,39 +39,20 @@ import {
   IconPlan,
 } from "../components/icons";
 
-const APPL_LBL: Record<string, string> = {
-  sink: "Мойка",
-  hob: "Плита",
-  cooktop: "Варочная панель",
-  oven: "Духовой шкаф",
-  fridge: "Холодильник",
-  dishwasher: "Посудомойка",
-  hood: "Вытяжка",
-};
-
 /** A real built-in appliance (excludes plain modules and render-only fillers). */
 const isAppliance = (c: Cabinet) => !!c.appliance && c.appliance !== "none" && c.appliance !== "filler";
-
-function labelFor(c: Cabinet): string {
-  if (isAppliance(c)) return APPL_LBL[c.appliance as string] ?? "Модуль";
-  const k = c.kind === "upper" ? "Верхний" : c.kind === "tall" ? "Пенал" : "Тумба";
-  return `${k} ${c.w}`;
-}
-
-function subFor(c: Cabinet): string {
-  if (isAppliance(c)) return "Встроенная техника";
-  return c.kind === "upper" ? "Навесной шкаф" : c.kind === "tall" ? "Высокий пенал" : "Напольный шкаф";
-}
 
 type Sheet = null | "pickCab" | "pickAppl" | "editor" | "dining" | "extra";
 
 const MODES = [
-  { v: "wire", label: "Линии", Icon: IconLines },
-  { v: "xray", label: "Прозрачный", Icon: IconTransparent },
-  { v: "real", label: "Реалистичный", Icon: IconRealistic },
+  { v: "wire", Icon: IconLines },
+  { v: "xray", Icon: IconTransparent },
+  { v: "real", Icon: IconRealistic },
 ] as const;
 
 export function ConfigScreen() {
+  const t = useT();
+  const money = useMoney();
   const cabs = useStore((s) => s.cabs);
   const selIdx = useStore((s) => s.selIdx);
   const mode = useStore((s) => s.mode);
@@ -82,6 +68,12 @@ export function ConfigScreen() {
   const floorCovering = useStore((s) => s.floorCovering);
   const selectCab = useStore((s) => s.selectCab);
   const patchCab = useStore((s) => s.patchCab);
+  const patchCabLive = useStore((s) => s.patchCabLive);
+  const applyFinishToAll = useStore((s) => s.applyFinishToAll);
+  const patchAllCabs = useStore((s) => s.patchAllCabs);
+  const fillCabGap = useStore((s) => s.fillCabGap);
+  const addCab = useStore((s) => s.addCab);
+  const replaceCab = useStore((s) => s.replaceCab);
   const removeCab = useStore((s) => s.removeCab);
   const duplicateCab = useStore((s) => s.duplicateCab);
   const resizeCab = useStore((s) => s.resizeCab);
@@ -93,10 +85,23 @@ export function ConfigScreen() {
   const canUndoCab = useStore((s) => s.cabsPast.length > 0);
   const canRedoCab = useStore((s) => s.cabsFuture.length > 0);
   const setMode = useStore((s) => s.setMode);
+  const saveCurrent = useStore((s) => s.saveCurrent);
   const flash = useStore((s) => s.flash);
-  const goTo = useStore((s) => s.goTo);
   const back = useStore((s) => s.back);
   const next = useStore((s) => s.next);
+
+  const labelFor = (c: Cabinet): string => {
+    if (c.furniture) return c.furniture === "table" ? `${t.labels.furn.table} ${c.w}` : t.labels.furn[c.furniture] ?? c.furniture;
+    if (isAppliance(c)) return t.labels.appl[c.appliance as string] ?? t.config.module;
+    const k = c.kind === "upper" ? t.config.kindUpper : c.kind === "tall" ? t.config.kindTall : t.config.kindBase;
+    return `${k} ${c.w}`;
+  };
+  const subFor = (c: Cabinet): string => {
+    if (c.furniture) return t.config.subFurn;
+    if (isAppliance(c)) return t.config.subAppl;
+    return c.kind === "upper" ? t.config.subUpper : c.kind === "tall" ? t.config.subTall : t.config.subBase;
+  };
+  const modeLabel = (v: (typeof MODES)[number]["v"]) => (v === "wire" ? t.config.mWire : v === "xray" ? t.config.mXray : t.config.mReal);
 
   const [view, setView] = useState<"3d" | "plan" | "front">("3d");
   const [magnet, setMagnet] = useState(true); // front-view: snapping / reorder on drag
@@ -109,7 +114,10 @@ export function ConfigScreen() {
   const [openIds, setOpenIds] = useState<string[]>([]); // modules with doors/drawers open (3D)
   const [showHint, setShowHint] = useState(true);
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [fillOpen, setFillOpen] = useState(false); // focused full-screen Наполнение editor
   const [sheetClosing, setSheetClosing] = useState(false);
+  // when set, picking a catalog item REPLACES this module (instead of adding a new one)
+  const [replaceId, setReplaceId] = useState<string | null>(null);
   const [ctlMenu, setCtlMenu] = useState<null | "view" | "mode">(null);
   const [menuClosing, setMenuClosing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -131,6 +139,8 @@ export function ConfigScreen() {
   }, [cabs, picked]);
 
   const closeSheet = () => {
+    setReplaceId(null); // leaving the catalog cancels any pending replace
+    setFillOpen(false);
     setSheetClosing(true);
     setTimeout(() => {
       setSheet(null);
@@ -186,24 +196,19 @@ export function ConfigScreen() {
     gripStart.current = null;
   };
 
-  if (!cabs.length) {
-    return (
-      <section className="screen">
-        <h1 className="h1">Конструктор</h1>
-        <p className="sub" style={{ margin: "12px 0 20px" }}>Сначала выберите раскладку.</p>
-        <button className="gen-btn-lg" onClick={() => goTo("variants")} type="button">
-          К раскладкам →
-        </button>
-      </section>
-    );
-  }
-
-  const cabIdxs = cabs.map((_, j) => j).filter((j) => !isAppliance(cabs[j]) && cabs[j].appliance !== "filler");
-  const applIdxs = cabs.map((_, j) => j).filter((j) => isAppliance(cabs[j]));
+  // NOTE: no early return when `cabs` is empty — deleting the last module must keep the
+  // constructor (and the room) on screen so the user can add more. An early return here
+  // was ALSO a React hooks-order crash (a useMemo below it would stop being called →
+  // "rendered fewer hooks" → white screen). Everything below tolerates 0 cabs.
   const i = selIdx >= 0 && selIdx < cabs.length ? selIdx : 0;
   const sel = picked ? cabs.find((c) => c.id === picked) ?? null : null;
   const selIndex = picked ? cabs.findIndex((c) => c.id === picked) : -1;
+  // while the module editor sheet is open, HIDE the on-cabinet selection UI (blue highlight,
+  // dimension arrows, move/resize handles) in every view so material/handle changes read
+  // clearly — the selection still works in the background (edits target `i`/selIdx).
+  const sceneSelId = sheet === "editor" ? null : picked;
   const coveringColor = FLOOR_COVERINGS[floorCovering]?.color ?? "#ecd9b4";
+  const floorId = FLOOR_COVERINGS[floorCovering]?.id;
 
   // select + highlight a module by id (from the scene or a chip)
   const pick = (id: string | null) => {
@@ -213,10 +218,38 @@ export function ConfigScreen() {
       if (idx >= 0) selectCab(idx);
     }
   };
-  // pick a module from a chooser chip, then drop straight into its editor
-  const pickAndEdit = (id: string) => {
-    pick(id);
-    setSheet("editor");
+  // add a NEW module from the catalog: auto-fits into a gap, then selects it so the
+  // toolbar switches to per-item actions and the scene highlights the new piece
+  const addItem = (tpl: AddTemplate) => {
+    if (replaceId) {
+      replaceCab(replaceId, tpl.cab); // keep the id → selection stays valid
+      pick(replaceId);
+      flash(t.config.replaced(tpl.name));
+      setReplaceId(null);
+      closeSheet();
+      return;
+    }
+    // in the front (elevation) view, add to the wall the user is currently looking at
+    const id = addCab(tpl.cab, front ? wall : undefined);
+    if (id) {
+      pick(id);
+      flash(t.config.added(tpl.name));
+    }
+    closeSheet();
+  };
+  // "Заменять" → open the catalog matching this module's category, in replace mode
+  const onReplaceCab = () => {
+    const cab = cabs[i];
+    if (!cab) return;
+    setReplaceId(cab.id);
+    const target: Sheet = cab.furniture
+      ? cab.furniture === "table" || cab.furniture === "chair"
+        ? "dining"
+        : "extra"
+      : isAppliance(cab)
+        ? "pickAppl"
+        : "pickCab";
+    setSheet(target);
   };
 
   // the editor config for the active module + an updater
@@ -224,12 +257,7 @@ export function ConfigScreen() {
   const curCfg = partCfg[curId] ?? emptyCfg();
   const updateCfg = (updater: (c: PartCfg) => PartCfg) => setPartCfg((m) => ({ ...m, [curId]: updater(m[curId] ?? emptyCfg()) }));
 
-  // opening a category chooser: make sure the active selection belongs to that category
-  const openSheet = (kind: Sheet) => {
-    if (kind === "pickCab" && !cabIdxs.includes(i)) selectCab(cabIdxs[0] ?? 0);
-    if (kind === "pickAppl" && !applIdxs.includes(i)) selectCab(applIdxs[0] ?? 0);
-    setSheet(kind);
-  };
+  const openSheet = (kind: Sheet) => setSheet(kind);
 
   // selected-module toolbar actions
   const editSel = () => {
@@ -259,7 +287,22 @@ export function ConfigScreen() {
 
   // front (elevation) view shows one wall run at a time — switchable via the wall bar
   const front = view === "front";
-  const runs = front ? planRuns(points, waterWall, runLayout, openings).runs : [];
+  const allRuns = useMemo(() => planRuns(points, waterWall, runLayout, openings).runs, [points, waterWall, runLayout, openings]);
+  const runs = front ? allRuns : [];
+  // selected module can fill empty space beside it (after a delete, or after being
+  // dragged onto a wall) → contextual chip. A freed (px/pz) module flush to a wall is
+  // re-docked for the gap test so the chip appears there too.
+  const fillSpan = (() => {
+    if (!sel || sheet) return null;
+    let cab = sel;
+    if (cab.px != null && cab.pz != null) {
+      const d = dockToRun(cab, points, waterWall, runLayout, openings);
+      if (!d) return null;
+      cab = { ...cab, run: d.run, x: d.x, px: undefined, pz: undefined, rot: undefined };
+    }
+    const list = cab === sel ? cabs : cabs.map((c) => (c.id === cab.id ? cab : c));
+    return fillGapSpan(list, cab, allRuns[cab.run ?? 0]?.len ?? Infinity);
+  })();
   // run indices that actually carry modules, in order
   const runIdxs = front
     ? Array.from(new Set(cabs.map((c) => c.run ?? 0))).filter((r) => r < runs.length).sort((a, b) => a - b)
@@ -268,7 +311,7 @@ export function ConfigScreen() {
   const wallPos = Math.max(0, runIdxs.indexOf(wall));
   const runLabel = (r: number) => {
     const k = runs[r]?.kind;
-    return k === "island" ? "Остров" : k === "peninsula" ? "Полуостров" : `Стена ${runIdxs.indexOf(r) + 1}`;
+    return k === "island" ? t.config.island : k === "peninsula" ? t.config.peninsula : t.config.wall(runIdxs.indexOf(r) + 1);
   };
   const cycleWall = (dir: 1 | -1) => {
     if (runIdxs.length < 2) return;
@@ -297,6 +340,14 @@ export function ConfigScreen() {
     }
     setFeEdit(null);
   };
+  // ± buttons on the inline editor: step the dimension by 5 cm and apply LIVE (keep the
+  // editor open so the user can keep tapping); onPointerDown-preventDefault keeps the
+  // input focused so the button press doesn't blur→commit→close.
+  const stepFe = (delta: number) => {
+    const v = Math.max(150, Math.min(3000, (parseInt(feVal, 10) || 0) + delta));
+    setFeVal(String(v));
+    feEdit?.apply(v);
+  };
   // commit a front-view drag: row re-tile (x) + the dragged wall unit's mountY
   const onReorder = (updates: { id: string; x: number; mountY?: number }[]) => {
     moveCabsX(
@@ -313,21 +364,21 @@ export function ConfigScreen() {
       {/* price + navigation bar (mirrors the room editor's step bar) */}
       <div className="stepbar cfg-bar">
         <div className="cfg-price">
-          {fmtSum(priceCabs(cabs))}
+          {money(priceCabs(cabs))}
           <span className="cfg-price-i" aria-hidden>ⓘ</span>
         </div>
         <div className="cfg-nav">
-          <button className="cfg-back" onClick={back} type="button" aria-label="Назад">←</button>
-          <button className="step-next" onClick={next} type="button">Дальше →</button>
+          <button className="cfg-back" onClick={back} type="button" aria-label={t.config.back}>←</button>
+          <button className="step-next" onClick={next} type="button">{t.config.next}</button>
         </div>
       </div>
 
       {/* front view: switch which wall run / island is shown + edited */}
       {front && runIdxs.length > 0 && (
         <div className="wall-switcher">
-          <button className="wall-arrow" onClick={() => cycleWall(-1)} disabled={runIdxs.length < 2} type="button" aria-label="Предыдущая стена">←</button>
+          <button className="wall-arrow" onClick={() => cycleWall(-1)} disabled={runIdxs.length < 2} type="button" aria-label={t.config.prevWall}>←</button>
           <span className="wall-label">{runLabel(wall)}</span>
-          <button className="wall-arrow" onClick={() => cycleWall(1)} disabled={runIdxs.length < 2} type="button" aria-label="Следующая стена">→</button>
+          <button className="wall-arrow" onClick={() => cycleWall(1)} disabled={runIdxs.length < 2} type="button" aria-label={t.config.nextWall}>→</button>
         </div>
       )}
 
@@ -338,6 +389,7 @@ export function ConfigScreen() {
             ceiling={ceiling}
             openings={openings}
             coveringColor={coveringColor}
+            floorId={floorId}
             interiorWalls={interiorWalls}
             fittings={fittings}
             wallSurfaces={wallSurfaces}
@@ -349,7 +401,7 @@ export function ConfigScreen() {
             magnet={g3dMagnet}
             nav
             openIds={openIds}
-            selectedId={picked}
+            selectedId={sceneSelId}
             onSelectCab={pick}
             onMovePlan={moveCabPlan}
             onBeginEdit={beginCabEdit}
@@ -357,6 +409,11 @@ export function ConfigScreen() {
               const idx = cabs.findIndex((c) => c.id === id);
               if (idx >= 0) patchCab(idx, { mountY });
             }}
+            onResize={(id, patch) => {
+              const idx = cabs.findIndex((c) => c.id === id);
+              if (idx >= 0) patchCab(idx, patch);
+            }}
+            onReady={() => saveCurrent(true)}
           />
         ) : view === "plan" ? (
           <ConstructorPlan
@@ -370,7 +427,7 @@ export function ConfigScreen() {
             mode={mode}
             grid={planGrid}
             magnet={planMagnet}
-            selectedId={picked}
+            selectedId={sceneSelId}
             onSelectCab={pick}
             onMovePlan={moveCabPlan}
             onBeginEdit={beginCabEdit}
@@ -385,7 +442,7 @@ export function ConfigScreen() {
             mode={mode}
             magnet={magnet}
             guide={guide}
-            selectedId={picked}
+            selectedId={sceneSelId}
             onSelect={pick}
             onEditDim={onEditDim}
             onReorder={onReorder}
@@ -401,30 +458,41 @@ export function ConfigScreen() {
               <span className="item-card-i" aria-hidden>ⓘ</span>
             </div>
             <div className="item-card-desc">{subFor(sel)}</div>
-            <div className="item-card-dim">{sel.w} × {sel.h} мм</div>
+            <div className="item-card-dim">{sel.w} × {sel.h} {t.config.mm}</div>
           </div>
         )}
 
+        {/* contextual "fill empty space" — only when the selected module borders a gap */}
+        {fillSpan && sel && (
+          <button className="fill-chip" onClick={() => fillCabGap(sel.id)} type="button">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M4 5v14M20 5v14" />
+              <path d="M7 12h10M7 12l3-3M7 12l3 3M17 12l-3-3M17 12l-3 3" />
+            </svg>
+            {t.config.fill}
+          </button>
+        )}
+
         {!sel && showHint && (
-          <div className="plan-hint">Коснитесь мебели, чтобы выбрать · выберите категорию ниже</div>
+          <div className="plan-hint">{t.config.hint}</div>
         )}
 
         {/* bottom-left toggles: 3D/2D view + render style */}
         <div className="scene-ctl cfg-toolset">
-          <button className="round-ctl" onClick={() => toggleMenu("view")} type="button" aria-label="Вид">
+          <button className="round-ctl" onClick={() => toggleMenu("view")} type="button" aria-label={t.config.view}>
             <ViewIcon />
           </button>
-          <button className="round-ctl" onClick={() => toggleMenu("mode")} type="button" aria-label="Отображение">
+          <button className="round-ctl" onClick={() => toggleMenu("mode")} type="button" aria-label={t.config.display}>
             <ModeIcon />
           </button>
         </div>
 
         {/* undo/redo for constructor edits (move/rotate/resize/reorder/edit/…) */}
         <div className="scene-ctl undo-redo">
-          <button type="button" onClick={undoCab} disabled={!canUndoCab} aria-label="Отменить">
+          <button type="button" onClick={undoCab} disabled={!canUndoCab} aria-label={t.config.undo}>
             <IconUndo />
           </button>
-          <button type="button" onClick={redoCab} disabled={!canRedoCab} aria-label="Повторить">
+          <button type="button" onClick={redoCab} disabled={!canRedoCab} aria-label={t.config.redo}>
             <IconRedo />
           </button>
         </div>
@@ -438,7 +506,7 @@ export function ConfigScreen() {
                   {view === "3d" && (
                     <>
                       <div className="vm-toggle">
-                        <span>Включить Магнит</span>
+                        <span>{t.config.magnet}</span>
                         <button className={`switch${g3dMagnet ? " on" : ""}`} onClick={() => setG3dMagnet((m) => !m)} type="button" aria-pressed={g3dMagnet}><span className="knob" /></button>
                       </div>
                       <div className="vm-sep" />
@@ -447,11 +515,11 @@ export function ConfigScreen() {
                   {view === "front" && (
                     <>
                       <div className="vm-toggle">
-                        <span>Включить Магнит</span>
+                        <span>{t.config.magnet}</span>
                         <button className={`switch${magnet ? " on" : ""}`} onClick={() => setMagnet((m) => !m)} type="button" aria-pressed={magnet}><span className="knob" /></button>
                       </div>
                       <div className="vm-toggle">
-                        <span>Включить Гид</span>
+                        <span>{t.config.guide}</span>
                         <button className={`switch${guide ? " on" : ""}`} onClick={() => setGuide((g) => !g)} type="button" aria-pressed={guide}><span className="knob" /></button>
                       </div>
                       <div className="vm-sep" />
@@ -460,33 +528,33 @@ export function ConfigScreen() {
                   {view === "plan" && (
                     <>
                       <div className="vm-toggle">
-                        <span>Включить Сетку</span>
+                        <span>{t.config.grid}</span>
                         <button className={`switch${planGrid ? " on" : ""}`} onClick={() => setPlanGrid((g) => !g)} type="button" aria-pressed={planGrid}><span className="knob" /></button>
                       </div>
                       <div className="vm-toggle">
-                        <span>Включить Магнит</span>
+                        <span>{t.config.magnet}</span>
                         <button className={`switch${planMagnet ? " on" : ""}`} onClick={() => setPlanMagnet((m) => !m)} type="button" aria-pressed={planMagnet}><span className="knob" /></button>
                       </div>
                       <div className="vm-sep" />
                     </>
                   )}
                   <button className={view === "3d" ? "vm-on" : ""} onClick={() => pickView("3d")} type="button">
-                    <Icon3D /> 3D-вид
+                    <Icon3D /> {t.config.v3d}
                     {view === "3d" && <span className="vm-check">✓</span>}
                   </button>
                   <button className={view === "front" ? "vm-on" : ""} onClick={() => pickView("front")} type="button">
-                    <IconFront /> Вид спереди
+                    <IconFront /> {t.config.vfront}
                     {view === "front" && <span className="vm-check">✓</span>}
                   </button>
                   <button className={view === "plan" ? "vm-on" : ""} onClick={() => pickView("plan")} type="button">
-                    <IconPlan /> План (2D)
+                    <IconPlan /> {t.config.vplan}
                     {view === "plan" && <span className="vm-check">✓</span>}
                   </button>
                 </>
               ) : (
-                MODES.map(({ v, label, Icon }) => (
+                MODES.map(({ v, Icon }) => (
                   <button key={v} className={mode === v ? "vm-on" : ""} onClick={() => pickMode(v)} type="button">
-                    <Icon /> {label}
+                    <Icon /> {modeLabel(v)}
                     {mode === v && <span className="vm-check">✓</span>}
                   </button>
                 ))
@@ -504,7 +572,7 @@ export function ConfigScreen() {
           onPointerMove={onGripMove}
           onPointerUp={onGripUp}
           onPointerCancel={onGripUp}
-          aria-label="Свернуть панель"
+          aria-label={t.config.collapse}
           type="button"
         />
         <div className="toolbar-row">
@@ -512,38 +580,38 @@ export function ConfigScreen() {
             <>
               <button className="tool-btn" onClick={editSel} type="button">
                 <span className="ico"><IconEditItem /></span>
-                <span className="lbl">Редактировать</span>
+                <span className="lbl">{t.config.edit}</span>
               </button>
               <button className="tool-btn" onClick={openSel} type="button">
                 <span className="ico"><IconOpenItem /></span>
-                <span className="lbl">{picked && openIds.includes(picked) ? "Закрыть" : "Открыть"}</span>
+                <span className="lbl">{picked && openIds.includes(picked) ? t.config.close : t.config.open}</span>
               </button>
               <button className="tool-btn" onClick={dupSel} type="button">
                 <span className="ico"><IconDuplicateItem /></span>
-                <span className="lbl">Дублировать</span>
+                <span className="lbl">{t.config.duplicate}</span>
               </button>
               <button className="tool-btn" onClick={delSel} type="button">
                 <span className="ico"><IconDeleteItem /></span>
-                <span className="lbl">Удалить</span>
+                <span className="lbl">{t.config.del}</span>
               </button>
             </>
           ) : (
             <>
               <button className="tool-btn" onClick={() => openSheet("pickCab")} type="button">
                 <span className="ico"><IconCabinets /></span>
-                <span className="lbl">Шкафы</span>
+                <span className="lbl">{t.config.cabinets}</span>
               </button>
               <button className="tool-btn" onClick={() => openSheet("pickAppl")} type="button">
                 <span className="ico"><IconAppliance /></span>
-                <span className="lbl">Бытовая</span>
+                <span className="lbl">{t.config.appliances}</span>
               </button>
               <button className="tool-btn" onClick={() => openSheet("dining")} type="button">
                 <span className="ico"><IconDining /></span>
-                <span className="lbl">Обеденная</span>
+                <span className="lbl">{t.config.dining}</span>
               </button>
               <button className="tool-btn" onClick={() => openSheet("extra")} type="button">
                 <span className="ico"><IconExtra /></span>
-                <span className="lbl">Дополнительные</span>
+                <span className="lbl">{t.config.extras}</span>
               </button>
             </>
           )}
@@ -553,36 +621,36 @@ export function ConfigScreen() {
       {sheet && (
         <>
           <div className={`sheet-backdrop dim${sheetClosing ? " closing" : ""}`} onClick={closeSheet} />
-          <div className={`bottom-sheet${sheet === "pickCab" || sheet === "pickAppl" || sheet === "editor" ? " tall" : ""}${sheetClosing ? " closing" : ""}`}>
+          <div className={`bottom-sheet${sheet === "pickCab" || sheet === "pickAppl" || sheet === "dining" || sheet === "extra" || sheet === "editor" ? " tall" : ""}${sheetClosing ? " closing" : ""}`}>
             <div className="sheet-grip" />
 
-            {(sheet === "pickCab" || sheet === "pickAppl") && (() => {
-              const list = sheet === "pickCab" ? cabIdxs : applIdxs;
-              const title = sheet === "pickCab" ? "Шкафы" : "Бытовая Техника";
-              const empty = sheet === "pickCab" ? "Нет шкафов для настройки." : "В этой раскладке нет встроенной техники.";
+            {(sheet === "pickCab" || sheet === "pickAppl" || sheet === "dining" || sheet === "extra") && (() => {
+              const groups = sheet === "pickCab" ? CABINET_GROUPS : sheet === "pickAppl" ? APPLIANCE_GROUPS : sheet === "dining" ? FURNITURE_GROUPS : EXTRA_GROUPS;
+              const title = replaceId
+                ? t.config.replaceTo
+                : sheet === "pickCab" ? t.config.addCab : sheet === "pickAppl" ? t.config.addAppl : sheet === "dining" ? t.config.addFurn : t.config.addExtra;
               return (
                 <>
                   <div className="sheet-head">
                     <div className="sheet-title">{title}</div>
-                    <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                    <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.config.close}>✕</button>
                   </div>
-                  {list.length === 0 ? (
-                    <div className="var-blurb">{empty}</div>
-                  ) : (
-                    <div className="cfg-sheet-body">
-                      <div className="pick-hint">Выберите модуль для редактирования</div>
-                      {list.map((j) => (
-                        <button key={cabs[j].id} className="pick-row" onClick={() => pickAndEdit(cabs[j].id)} type="button">
-                          <span className="pick-thumb" />
-                          <span className="pick-meta">
-                            <span className="pick-name">{labelFor(cabs[j])}</span>
-                            <span className="pick-sub">{subFor(cabs[j])}</span>
-                          </span>
-                          <span className="chev">›</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <div className="cfg-sheet-body">
+                    {groups.map((g) => (
+                      <div className="add-group" key={g.heading}>
+                        <div className="add-head">{g.heading}</div>
+                        <div className="add-grid">
+                          {g.items.map((t) => (
+                            <button key={t.id} className="add-chip" onClick={() => addItem(t)} type="button">
+                              <span className="add-glyph" aria-hidden="true">{t.glyph}</span>
+                              <span className="add-name">{t.name}</span>
+                              <span className="add-sub">{t.sub}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </>
               );
             })()}
@@ -595,61 +663,66 @@ export function ConfigScreen() {
                 sub={subFor(cabs[i])}
                 patchCab={patchCab}
                 onResizeWidth={resizeCab}
+                applyFinishToAll={applyFinishToAll}
+                applyToAll={patchAllCabs}
+                style={runStyle}
                 cfg={curCfg}
                 onCfg={updateCfg}
                 onClose={closeSheet}
+                onOpenFill={() => setFillOpen(true)}
+                onReplace={onReplaceCab}
                 flash={flash}
               />
             )}
 
-            {sheet === "dining" && (
-              <>
-                <div className="sheet-head">
-                  <div className="sheet-title">Обеденная зона</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
-                </div>
-                <div className="var-blurb" style={{ padding: "12px 0" }}>
-                  Столы и стулья появятся на следующем этапе.
-                  <span className="soon-tag" style={{ marginLeft: 8 }}>Далее</span>
-                </div>
-              </>
-            )}
-
-            {sheet === "extra" && (
-              <>
-                <div className="sheet-head">
-                  <div className="sheet-title">Дополнительные</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
-                </div>
-                <div className="var-blurb" style={{ padding: "12px 0" }}>
-                  Полки, декор и техника появятся на следующем этапе.
-                  <span className="soon-tag" style={{ marginLeft: 8 }}>Далее</span>
-                </div>
-              </>
-            )}
           </div>
         </>
       )}
 
-      {/* inline dimension editor (front view — tap a measurement number) */}
+      {/* focused full-screen fill (Наполнение) editor — covers the sheet, light bg */}
+      {fillOpen && cabs[i] && (
+        <FillEditor
+          cab={cabs[i]}
+          index={i}
+          name={labelFor(cabs[i])}
+          style={runStyle}
+          patchCab={patchCab}
+          patchCabLive={patchCabLive}
+          beginEdit={beginCabEdit}
+          undo={undoCab}
+          redo={redoCab}
+          canUndo={canUndoCab}
+          canRedo={canRedoCab}
+          onClose={() => setFillOpen(false)}
+        />
+      )}
+
+      {/* inline dimension editor (front / plan view — tap a measurement number).
+          − / + step by 5 cm and apply live; the input stays open for more taps. */}
       {feEdit && (
-        <input
-          className="num-edit"
-          autoFocus
-          inputMode="numeric"
+        <div
+          className="num-stepper"
           style={{
-            left: Math.max(60, Math.min(feEdit.x, window.innerWidth - 60)),
+            left: Math.max(110, Math.min(feEdit.x, window.innerWidth - 110)),
             top: Math.max(96, Math.min(feEdit.y, window.innerHeight - 60)),
           }}
-          value={feVal}
-          onChange={(e) => setFeVal(e.target.value.replace(/[^0-9]/g, ""))}
-          onFocus={(e) => e.currentTarget.select()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitFe();
-            if (e.key === "Escape") setFeEdit(null);
-          }}
-          onBlur={commitFe}
-        />
+        >
+          <button className="num-step" type="button" aria-label="−50 мм" onPointerDown={(e) => e.preventDefault()} onClick={() => stepFe(-50)}>−</button>
+          <input
+            className="num-edit"
+            autoFocus
+            inputMode="numeric"
+            value={feVal}
+            onChange={(e) => setFeVal(e.target.value.replace(/[^0-9]/g, ""))}
+            onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitFe();
+              if (e.key === "Escape") setFeEdit(null);
+            }}
+            onBlur={commitFe}
+          />
+          <button className="num-step" type="button" aria-label="+50 мм" onPointerDown={(e) => e.preventDefault()} onClick={() => stepFe(50)}>+</button>
+        </div>
       )}
     </div>
   );

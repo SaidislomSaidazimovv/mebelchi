@@ -3,9 +3,24 @@
 // reasonable decomposition until the real Eman.uz BOM is wired in; the editor
 // drives it generically so swapping in the real part list later is a data change.
 
-import type { Cabinet } from "./cabinet";
+import type { Cabinet, FinishKey } from "./cabinet";
 
 export type PartAction = "edit" | "style" | "delete";
+
+/** Which render colour a part's material drives. The front is the facade; hardware
+ *  (handle/rail) is the handle colour; the worktop its own; everything else the body. */
+export const PART_FINISH: Record<string, FinishKey> = {
+  front: "facade",
+  handle: "handle",
+  rail: "handle",
+  worktop: "worktop",
+  legs: "carcass",
+  "cover-right": "carcass",
+  carcass: "carcass",
+  frame: "carcass",
+  drawer: "carcass",
+  shelf: "carcass",
+};
 
 export interface Part {
   id: string;
@@ -18,29 +33,36 @@ export interface Part {
 const isAppliance = (c: Cabinet) => !!c.appliance && c.appliance !== "none" && c.appliance !== "filler";
 
 export function cabinetParts(c: Cabinet): Part[] {
-  const parts: Part[] = [];
-  const drawers = c.fill === "drawers";
-
-  // facade / front
-  if (isAppliance(c)) {
-    if (c.appliance === "fridge" || c.appliance === "oven" || c.appliance === "dishwasher") {
-      parts.push({ id: "front", name: "Передняя панель", actions: ["edit", "style", "delete"], editLabel: "Зазор" });
-    }
-  } else {
-    parts.push({ id: "front", name: drawers ? "Передняя панель ящика" : "Фасад", actions: ["edit", "style", "delete"], editLabel: "Зазор" });
+  // free-standing furniture (table/chair) isn't a cabinet — the only meaningful setting
+  // is its colour/finish (the front→facade colour drives the wood in the 3D)
+  if (c.furniture) {
+    return [{ id: "front", name: "Цвет", actions: ["style"] }];
   }
 
-  if (c.handle !== 3) parts.push({ id: "handle", name: "Ручка", actions: ["edit", "style", "delete"], editLabel: "Положение" });
-  if (c.kind === "base") parts.push({ id: "worktop", name: "Столешница", actions: ["edit", "style", "delete"], editLabel: "Выступ" });
-  if (c.kind !== "upper") parts.push({ id: "legs", name: "Ножки И Постаменты", actions: ["edit", "style", "delete"], editLabel: "Высота" });
+  // Only the parts that map to a REAL, DISTINCT recolourable surface in the 3D (facade /
+  // handle / worktop / carcass) are shown. The old list also had legs, right-cover, frame,
+  // drawer, shelf, rail — but those ALL shared the one "carcass" material (so changing one
+  // changed the others) and several had no distinct visual (placeholder BOM); they confused
+  // users, so they're folded into "Корпус" (the body is one material).
+  const parts: Part[] = [];
 
-  parts.push({ id: "cover-right", name: "Правая Крышка", actions: ["edit", "style", "delete"], editLabel: "Выступ" });
-  parts.push({ id: "carcass", name: "Корпус", actions: ["edit", "style", "delete"], editLabel: "Толщина" });
-  parts.push({ id: "frame", name: "Рамка", actions: ["style"] });
+  if (isAppliance(c)) {
+    if (c.appliance === "fridge" || c.appliance === "oven" || c.appliance === "dishwasher") {
+      parts.push({ id: "front", name: "Передняя панель", actions: ["edit", "style"], editLabel: "Зазор" });
+    }
+    parts.push({ id: "handle", name: "Ручка", actions: ["edit", "style"], editLabel: "Тип" });
+    return parts;
+  }
 
-  if (drawers) parts.push({ id: "drawer", name: "Ящик среднего размера", actions: ["style", "delete"] });
-  if (c.fill === "shelves") parts.push({ id: "shelf", name: "Полка", actions: ["style", "delete"] });
-  parts.push({ id: "rail", name: "Подвесная направляющая", actions: ["style", "delete"] });
+  // door & drawer fronts are the same part ("Передняя панель ящика"); only its material
+  // (style) is editable here — the gap/reveal isn't a user setting.
+  parts.push({ id: "front", name: "Передняя панель ящика", actions: ["style"] });
+  // handle: edit → door opening + handle placement (as in the Fill Editor); style → handle
+  // TYPE (Скоба/Профиль/…) + metal colour.
+  parts.push({ id: "handle", name: "Ручка", actions: ["edit", "style"] });
+  if (c.kind === "base") parts.push({ id: "worktop", name: "Столешница", actions: ["style"] });
+  // carcass is one material — nothing dimensional to edit, only its finish.
+  parts.push({ id: "carcass", name: "Корпус", actions: ["style"] });
 
   return parts;
 }

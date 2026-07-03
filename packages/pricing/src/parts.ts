@@ -35,9 +35,10 @@ export function drawerCount(m: Module): number {
   return m.fill === "drawers" ? Math.max(0, m.count) : 0;
 }
 
-/** Does this module carry a facade (door or drawer fronts)? */
+/** Does this module carry a facade (door or drawer fronts)? An "open" module has none. */
 export function hasFacade(m: Module): boolean {
-  return drawerCount(m) > 0 || (m.fill !== "drawers" && m.door.style !== "none");
+  if (m.fill === "open") return false;
+  return drawerCount(m) > 0 || m.door.style !== "none";
 }
 
 /**

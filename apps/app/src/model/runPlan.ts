@@ -42,7 +42,13 @@ export interface PlannedRun {
   placement: Placement;
 }
 
-export const CORNER_MM = 560;
+// Corner units (size guide): the BASE corner is 1.5× the base depth on each side
+// (an L-shaped unit with an L-door); the UPPER corner is 1.75× the upper depth (a
+// chamfered unit with a single diagonal door). Each wall run clears its own corner
+// span so the adjacent regular cabinets butt the corner unit flush — base runs clear
+// CORNER_MM, the corner-most upper is widened by (CORNER_MM − CORNER_UPPER_MM).
+export const CORNER_MM = 840; // 1.5 × base depth (560)
+export const CORNER_UPPER_MM = 613; // 1.75 × upper depth (350), rounded
 const AISLE_MM = 1100;
 const BASE_DEPTH_MM = 560;
 const ISLAND_DEPTH_MM = 600;
@@ -167,9 +173,9 @@ function pickWalls(points: Pt[], waterWall: number | null, layout: KitchenLayout
     const m = (excluded + 2) % 4;
     const b = (excluded + 3) % 4;
     const walls: WallRun[] = [
-      { wall: a, cornerStart: false, cornerEnd: true }, // left arm, corner at B
-      { wall: m, cornerStart: false, cornerEnd: false }, // middle owns both corners
-      { wall: b, cornerStart: true, cornerEnd: false }, // right arm, corner at A
+      { wall: a, cornerStart: false, cornerEnd: true }, // left arm, corner where it meets the middle
+      { wall: m, cornerStart: true, cornerEnd: true }, // middle clears BOTH corners → a diagonal unit in each
+      { wall: b, cornerStart: true, cornerEnd: false }, // right arm, corner where it meets the middle
     ];
     const waterRun = valid ? walls.findIndex((r) => r.wall === waterWall) : 1;
     return { walls, waterRun: waterRun >= 0 ? waterRun : 1 };
@@ -252,9 +258,78 @@ export function computePlacements(points: Pt[], waterWall: number | null, layout
   return planRuns(points, waterWall, layout, openings).runs.map((r) => r.placement);
 }
 
-/** Diagonal corner unit(s) for L (and later U) — a free transform (px/pz absolute
- *  mm, rot deg) + footprint w×depth, sitting in the cleared corner with its diagonal
- *  door facing the room. Phase 1: L only (one corner). */
+// ---- cabinets backed against a user-drawn interior wall ----
+const IW_MIN_SEG = 700; // ignore segments too short to hold a cabinet (mm)
+const IW_HALF_THICK = 50; // half the drawn-wall thickness (3D IWT = 100mm)
+const IW_LADDER = [600, 500, 450, 400];
+
+function packLadder(total: number, ladder: number[]): number[] {
+  const out: number[] = [];
+  let rem = Math.round(total);
+  const min = ladder[ladder.length - 1];
+  while (rem >= min) {
+    const w = ladder.find((x) => x <= rem) ?? min;
+    out.push(w);
+    rem -= w;
+  }
+  return out;
+}
+
+/** A base + upper module spec for each drawn-wall segment, placed FREE (px/pz absolute
+ *  room mm, rot degrees so the facade faces the room). These render through the existing
+ *  free-placement path (3D / plan / footprint / pricing) — no run-planning changes — so a
+ *  wall the user draws inside the room gets a real cabinet row backed against it. */
+export interface WallCab {
+  px: number;
+  pz: number;
+  rot: number;
+  w: number;
+  kind: "base" | "upper";
+  depth: number;
+}
+export function interiorWallCabs(points: Pt[], interiorWalls: Pt[][]): WallCab[] {
+  const b = polygonBoundsMm(points);
+  const out: WallCab[] = [];
+  for (const poly of interiorWalls) {
+    for (let i = 0; i + 1 < poly.length; i++) {
+      const A = poly[i];
+      const B = poly[i + 1];
+      const dx = B.x - A.x;
+      const dy = B.y - A.y;
+      const L = Math.hypot(dx, dy);
+      if (L < IW_MIN_SEG) continue;
+      const ux = dx / L;
+      const uy = dy / L;
+      // inward normal: perpendicular to the wall, pointing toward the room centroid (the
+      // open side the cabinets face)
+      let nx = -uy;
+      let ny = ux;
+      const mx = (A.x + B.x) / 2;
+      const my = (A.y + B.y) / 2;
+      if ((b.cx - mx) * nx + (b.cy - my) * ny < 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+      const rot = Math.round((Math.atan2(-nx, ny) * 180) / Math.PI * 10) / 10; // facade faces the room
+      let s = 0;
+      for (const w of packLadder(L, IW_LADDER)) {
+        const sc = s + w / 2;
+        const fx = A.x + ux * sc;
+        const fy = A.y + uy * sc;
+        for (const [kind, depth] of [["base", 560], ["upper", 350]] as const) {
+          const off = IW_HALF_THICK + depth / 2; // centre = wall face + half the module depth
+          out.push({ px: Math.round(fx + nx * off), pz: Math.round(fy + ny * off), rot, w, kind, depth });
+        }
+        s += w;
+      }
+    }
+  }
+  return out;
+}
+
+/** Diagonal corner unit(s) — a free transform (px/pz absolute mm, rot deg) + footprint
+ *  w×depth, sitting in a cleared corner with its diagonal door facing the room. One per
+ *  inside corner: L has 1, U has 2 (each arm meets the middle run). */
 export interface CornerSpec {
   px: number;
   pz: number;
@@ -262,28 +337,33 @@ export interface CornerSpec {
   w: number;
   depth: number;
 }
-export function cornerUnits(points: Pt[], waterWall: number | null, layout: KitchenLayout, openings: Opening[] = []): CornerSpec[] {
-  if (layout !== "l") return [];
+export function cornerUnits(points: Pt[], waterWall: number | null, layout: KitchenLayout, openings: Opening[] = [], sideMm = CORNER_MM): CornerSpec[] {
+  if (layout !== "l" && layout !== "u") return [];
   const { runs } = planRuns(points, waterWall, layout, openings);
-  const ra = runs.find((r) => r.kind === "wall" && r.cornerEnd);
-  const rb = runs.find((r) => r.kind === "wall" && r.cornerStart);
-  if (!ra || !rb) return [];
+  const wallRuns = runs.filter((r) => r.kind === "wall");
   const b = polygonBoundsMm(points);
-  const V = { x: rb.placement.ax, z: rb.placement.az }; // corner vertex (metres)
-  // room-facing diagonal = bisector of the two inward normals
-  let dx = ra.placement.ix + rb.placement.ix;
-  let dz = ra.placement.iz + rb.placement.iz;
-  const dl = Math.hypot(dx, dz) || 1;
-  dx /= dl; dz /= dl;
-  const off = (CORNER_MM / 1000) / Math.SQRT2; // centre of the corner square, from V along the diagonal
-  const cx = V.x + dx * off;
-  const cz = V.z + dz * off;
-  const rot = (Math.atan2(-dx, dz) * 180) / Math.PI; // local +z (door) faces the diagonal
-  return [{
-    px: Math.round(cx * 1000 + b.cx),
-    pz: Math.round(cz * 1000 + b.cy),
-    rot: Math.round(rot * 10) / 10,
-    w: CORNER_MM, // footprint = the full corner square (rotated 45° → fits the corner exactly)
-    depth: CORNER_MM,
-  }];
+  const off = (sideMm / 1000) / Math.SQRT2; // centre of the corner square, from the vertex along the diagonal
+  const out: CornerSpec[] = [];
+  // each adjacent pair of wall runs that both clear their shared end forms an inside corner
+  for (let i = 0; i + 1 < wallRuns.length; i++) {
+    const r1 = wallRuns[i];
+    const r2 = wallRuns[i + 1];
+    if (!r1.cornerEnd || !r2.cornerStart) continue;
+    const V = { x: r2.placement.ax, z: r2.placement.az }; // shared corner vertex (metres)
+    let dx = r1.placement.ix + r2.placement.ix; // room-facing diagonal = bisector of inward normals
+    let dz = r1.placement.iz + r2.placement.iz;
+    const dl = Math.hypot(dx, dz) || 1;
+    dx /= dl; dz /= dl;
+    // rot aligns the footprint square with the walls (not the diagonal) so it sits exactly
+    // in the corner square; the 3D builds the diagonal door from the room-centre direction.
+    const rot = (Math.atan2(r1.placement.uz, r1.placement.ux) * 180) / Math.PI;
+    out.push({
+      px: Math.round((V.x + dx * off) * 1000 + b.cx),
+      pz: Math.round((V.z + dz * off) * 1000 + b.cy),
+      rot: Math.round(rot * 10) / 10,
+      w: sideMm, // wall-aligned corner square (base 1.5× = 840 / upper 1.75× = 613)
+      depth: sideMm,
+    });
+  }
+  return out;
 }

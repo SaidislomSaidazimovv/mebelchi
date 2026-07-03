@@ -1,8 +1,8 @@
 {
   "id": "d5044143-95d8-4994-bdaa-55d915b6ac87",
   "currency": "UZS",
-  "effectiveDate": "2026-06-20",
-  "source": "placeholder seed — replace numbers with a real eman.uz snapshot",
+  "effectiveDate": "2026-05-14",
+  "source": "Chin Wood прайс 2026-05-14 — РЕАЛЬНЫЕ: распил, кромка (ПВХ HUALI, с клеем) и ЧПУ/доп.услуги. ОЦЕНОЧНЫЕ (нет в прайсе Chin Wood — нужен прайс поставщика плиты/фурнитуры): плита (pricePerM2), фурнитура (pricePerUnit), столешница (pricePerM), сборка и доставка.",
   "materials": {
     "cca8dc43-3ec6-4c8c-980d-05bf4625cc16": {
       "name": "ЛДСП 16мм, белый",
@@ -22,12 +22,12 @@
   },
   "edge": {
     "3f5c7d17-561b-4d84-bb87-4367cfcb769d": {
-      "name": "Кромка ПВХ 2мм (видимая)",
-      "pricePerM": 3500
+      "name": "Кромка ПВХ HUALI 19/2мм (видимая, с клеем 773)",
+      "pricePerM": 5500
     },
     "ea86c841-0136-43ea-b06e-8fa8f5977408": {
-      "name": "Кромка 0.4мм (скрытая)",
-      "pricePerM": 1200
+      "name": "Кромка ПВХ HUALI 19/0.4мм (скрытая, с клеем 773)",
+      "pricePerM": 3500
     }
   },
   "worktop": {
@@ -59,9 +59,9 @@
     }
   },
   "operations": {
-    "drillPerHole": 250,
-    "cutPerPanel": 4000,
-    "edgebandPerM": 1800
+    "drillPerHole": 800,
+    "cutPerPanel": 2200,
+    "edgebandPerM": 0
   },
   "labor": {
     "assemblyPerModule": 80000,

@@ -12,9 +12,15 @@
 
 import { useRef, useState } from "react";
 import { GEOM } from "../model/layout";
-import type { Cabinet } from "../model/cabinet";
+import { cabinetLayout, cellSizes, isLeaf, type Cabinet, type Cell, type FinishKey, type HandlePos } from "../model/cabinet";
 import { useSvgZoom } from "./useSvgZoom";
 import { ICON_VMOVE_PATH, ICON_DRAG_PATH } from "./icons";
+
+/** a module's per-part finish colour (set in the editor) as a CSS hex, else fallback */
+const finC = (c: Cabinet, key: FinishKey, fallback: string) => {
+  const n = c.finish?.[key];
+  return n != null ? `#${n.toString(16).padStart(6, "0")}` : fallback;
+};
 
 const C = {
   facade: "#e7ddc9",
@@ -43,37 +49,66 @@ interface Box {
   h: number;
 }
 
-/** A facade carved into drawer fronts / a door / glass, drawn inside a carcass box. */
-function Facade({ box, cab }: { box: Box; cab: Cabinet }) {
+/** A handle bar on the chosen edge of a front box. */
+function handleBar(box: Box, pos: HandlePos | undefined, fill: string, key: string): React.ReactNode {
+  const { x, y, w, h } = box, m = 22;
+  const p = pos ?? "right";
+  if (p === "none") return null; // handleless push-to-open
+  if (p === "center") return <circle key={key} cx={x + w / 2} cy={y + h / 2} r={14} fill={fill} />;
+  if (p === "top") return <rect key={key} x={x + w / 2 - Math.min(70, w / 4)} y={y + m - 5} width={Math.min(140, w / 2)} height={9} rx={4} fill={fill} />;
+  if (p === "bottom") return <rect key={key} x={x + w / 2 - Math.min(70, w / 4)} y={y + h - m - 4} width={Math.min(140, w / 2)} height={9} rx={4} fill={fill} />;
+  if (p === "left") return <rect key={key} x={x + m - 4} y={y + h / 2 - Math.min(70, h / 4)} width={9} height={Math.min(140, h / 2)} rx={4} fill={fill} />;
+  return <rect key={key} x={x + w - m - 5} y={y + h / 2 - Math.min(70, h / 4)} width={9} height={Math.min(140, h / 2)} rx={4} fill={fill} />;
+}
+
+/** The front placed on a cell — a door (with handle placement) or a drawer, in a box. */
+function cellFront(box: Box, cell: Cell, cab: Cabinet, key: string): React.ReactNode[] {
   const { x, y, w, h } = box;
-  const inset = 14;
-  const fx = x + inset;
-  const fw = w - inset * 2;
+  const inset = Math.min(14, w / 6, h / 6);
+  const facade = finC(cab, "facade", C.facade);
+  const handle = finC(cab, "handle", C.handle);
+  const bx = { x: x + inset, y: y + inset, w: w - inset * 2, h: h - inset * 2 };
   const parts: React.ReactNode[] = [];
+  if (cell.front === "drawer") {
+    parts.push(<rect key={`${key}dr`} x={bx.x} y={bx.y} width={bx.w} height={bx.h} rx={6} fill={facade} stroke={C.facadeLine} strokeWidth={4} />);
+    parts.push(handleBar(bx, cell.handle ?? "top", handle, `${key}h`));
+  } else {
+    parts.push(<rect key={`${key}dr`} x={bx.x} y={bx.y} width={bx.w} height={bx.h} rx={6} fill={facade} stroke={C.facadeLine} strokeWidth={4} />);
+    const opening = cell.opening ?? "left";
+    parts.push(handleBar(bx, cell.handle ?? (opening === "left" ? "right" : opening === "right" ? "left" : opening === "top" ? "bottom" : "top"), handle, `${key}h`));
+  }
+  return parts;
+}
 
-  if (cab.fill === "drawers" && cab.count > 0) {
-    const gap = 12;
-    const fh = (h - inset * 2 - gap * (cab.count - 1)) / cab.count;
-    for (let i = 0; i < cab.count; i++) {
-      const fy = y + inset + i * (fh + gap);
-      parts.push(<rect key={`d${i}`} x={fx} y={fy} width={fw} height={fh} rx={6} fill={C.facade} stroke={C.facadeLine} strokeWidth={4} />);
-      parts.push(<rect key={`dh${i}`} x={fx + fw / 2 - 70} y={fy + fh - 26} width={140} height={9} rx={4} fill={C.handle} />);
+/** A facade for the whole module — recurses the cell tree: a node with a `front` draws ONE
+ *  front over its box (covering its cells); an un-fronted split recurses; open leaf = back. */
+function Facade({ box, cab }: { box: Box; cab: Cabinet }) {
+  const render = (cell: Cell, b: Box, key: string): React.ReactNode[] => {
+    if (cell.front) return cellFront(b, cell, cab, key);
+    if (isLeaf(cell)) return [<rect key={`${key}bk`} x={b.x + 6} y={b.y + 6} width={b.w - 12} height={b.h - 12} fill="#0000000d" />];
+    const sizes = cellSizes(cell);
+    const out: React.ReactNode[] = [];
+    let acc = 0;
+    // y is physical-up here (the whole elevation is drawn under a scale(1 -1) flip), so
+    // children[0] is the BOTTOM row and y grows upward.
+    for (let i = 0; i < cell.children!.length; i++) {
+      const f = sizes[i];
+      const sub: Box = cell.split === "rows"
+        ? { x: b.x, y: b.y + b.h * acc, w: b.w, h: b.h * f }
+        : { x: b.x + b.w * acc, y: b.y, w: b.w * f, h: b.h };
+      out.push(...render(cell.children![i], sub, `${key}-${i}`));
+      acc += f;
+      if (i < cell.children!.length - 1) {
+        if (cell.split === "rows") { const ry = b.y + b.h * acc; out.push(<line key={`${key}r${i}`} x1={b.x} y1={ry} x2={b.x + b.w} y2={ry} stroke={C.facadeLine} strokeWidth={4} />); }
+        else { const rx = b.x + b.w * acc; out.push(<line key={`${key}c${i}`} x1={rx} y1={b.y} x2={rx} y2={b.y + b.h} stroke={C.facadeLine} strokeWidth={4} />); }
+      }
     }
-    return <>{parts}</>;
-  }
-
-  if (cab.fill === "open") {
-    parts.push(<rect key="bk" x={fx} y={y + inset} width={fw} height={h - inset * 2} fill="#0000000d" />);
-    for (let i = 1; i <= 2; i++) parts.push(<line key={`s${i}`} x1={fx} y1={y + (h * i) / 3} x2={fx + fw} y2={y + (h * i) / 3} stroke={C.facadeLine} strokeWidth={4} />);
-    return <>{parts}</>;
-  }
-
-  const glass = cab.door === 2;
-  parts.push(<rect key="door" x={fx} y={y + inset} width={fw} height={h - inset * 2} rx={6} fill={glass ? C.glass : C.facade} stroke={glass ? C.glassLine : C.facadeLine} strokeWidth={4} />);
-  if (glass) parts.push(<line key="gl" x1={fx + fw / 2} y1={y + inset} x2={fx + fw / 2} y2={y + h - inset} stroke={C.glassLine} strokeWidth={3} />);
-  const hx = x + w - inset - 18;
-  parts.push(<rect key="h" x={hx - 9} y={y + h / 2 - 70} width={9} height={140} rx={4} fill={C.handle} />);
-  return <>{parts}</>;
+    return out;
+  };
+  const cds = (cab.combinedDoors ?? []).flatMap((cd, k) =>
+    cellFront({ x: box.x + box.w * cd.fx0, y: box.y + box.h * cd.fy0, w: box.w * (cd.fx1 - cd.fx0), h: box.h * (cd.fy1 - cd.fy0) }, { front: "door", opening: cd.opening, handle: cd.handle }, cab, `cd${k}`),
+  );
+  return <>{[...render(cabinetLayout(cab), box, "f"), ...cds]}</>;
 }
 
 function carcass(b: Box, key: string, fill = C.carcass) {
@@ -93,7 +128,7 @@ function moduleLocal(c: Cabinet, mountY: number): React.ReactNode[] {
       n.push(<rect key="fh1" x={c.w - 34} y={split + 40} width={10} height={b.y + b.h - split - 90} rx={5} fill={C.handle} />);
       n.push(<rect key="fh2" x={c.w - 34} y={b.y + 60} width={10} height={split - b.y - 110} rx={5} fill={C.handle} />);
     } else {
-      n.push(carcass(b, "ca"));
+      n.push(carcass(b, "ca", finC(c, "carcass", C.carcass)));
       n.push(<Facade key="fc" box={b} cab={c} />);
     }
     return n;
@@ -105,7 +140,7 @@ function moduleLocal(c: Cabinet, mountY: number): React.ReactNode[] {
       return n;
     }
     const b: Box = { x: 0, y: mountY, w: c.w, h: c.h };
-    n.push(carcass(b, "ca"));
+    n.push(carcass(b, "ca", finC(c, "carcass", C.carcass)));
     n.push(<Facade key="fc" box={b} cab={c} />);
     return n;
   }
@@ -116,7 +151,7 @@ function moduleLocal(c: Cabinet, mountY: number): React.ReactNode[] {
   const b: Box = { x: 0, y: GEOM.plinth, w: c.w, h };
   n.push(<rect key="pl" x={0} y={0} width={c.w} height={GEOM.plinth} fill={C.plinth} />);
   n.push(carcass(b, "ca"));
-  n.push(<rect key="wt" x={0} y={worktopY} width={c.w} height={GEOM.worktop} fill={C.worktop} />);
+  n.push(<rect key="wt" x={0} y={worktopY} width={c.w} height={GEOM.worktop} fill={finC(c, "worktop", C.worktop)} />);
   if (c.appliance === "sink") {
     n.push(<Facade key="fc" box={b} cab={{ ...c, fill: "shelves" }} />);
     n.push(<rect key="sb" x={40} y={worktopY + 6} width={c.w - 80} height={GEOM.worktop - 12} rx={6} fill={C.steel} stroke={C.steelLine} strokeWidth={3} />);
@@ -141,23 +176,32 @@ function moduleLocal(c: Cabinet, mountY: number): React.ReactNode[] {
   return n;
 }
 
-/** Interior structure (shelves + a vertical divider) in LOCAL coords — drawn as a
- *  reveal layer over a transparent/wireframe cabinet so you can see inside. */
+/** Interior structure (the hybrid cell tree: split dividers + leaf shelves) in LOCAL
+ *  coords — a reveal layer over a transparent/wireframe cabinet so you can see inside.
+ *  y is physical-up (the elevation is drawn under a scale(1 -1) flip). */
 function interiorLocal(c: Cabinet, mountY: number): React.ReactNode[] {
   const ap = c.appliance && c.appliance !== "none" && c.appliance !== "filler";
   if (ap) return []; // appliances have no shelf interior to reveal
-  const y = c.kind === "upper" ? mountY : GEOM.plinth;
-  const h = c.h;
-  const w = c.w;
-  const inset = 16;
+  const y0 = c.kind === "upper" ? mountY : GEOM.plinth;
+  const h = c.h, w = c.w;
   const out: React.ReactNode[] = [];
-  if (c.fill === "shelves" && c.count > 0) {
-    for (let i = 1; i <= c.count; i++) {
-      const sy = y + (h * i) / (c.count + 1);
-      out.push(<line key={`sh${i}`} x1={inset} y1={sy} x2={w - inset} y2={sy} stroke={C.facadeLine} strokeWidth={8} />);
+  // draw every split boundary (the separators/interior structure) in fraction space
+  const walk = (cell: Cell, fx0: number, fy0: number, fx1: number, fy1: number, key: string) => {
+    if (isLeaf(cell)) return;
+    const sizes = cellSizes(cell);
+    let acc = 0;
+    for (let i = 0; i < cell.children!.length; i++) {
+      const f = sizes[i];
+      if (cell.split === "rows") walk(cell.children![i], fx0, fy0 + (fy1 - fy0) * acc, fx1, fy0 + (fy1 - fy0) * (acc + f), `${key}${i}`);
+      else walk(cell.children![i], fx0 + (fx1 - fx0) * acc, fy0, fx0 + (fx1 - fx0) * (acc + f), fy1, `${key}${i}`);
+      acc += f;
+      if (i < cell.children!.length - 1) {
+        if (cell.split === "rows") { const fy = fy0 + (fy1 - fy0) * acc; out.push(<line key={`${key}r${i}`} x1={w * fx0} y1={y0 + h * fy} x2={w * fx1} y2={y0 + h * fy} stroke={C.facadeLine} strokeWidth={8} />); }
+        else { const fx = fx0 + (fx1 - fx0) * acc; out.push(<line key={`${key}c${i}`} x1={w * fx} y1={y0 + h * fy0} x2={w * fx} y2={y0 + h * fy1} stroke={C.facadeLine} strokeWidth={8} />); }
+      }
     }
-  }
-  if (c.div) out.push(<line key="dv" x1={w / 2} y1={y + inset} x2={w / 2} y2={y + h - inset} stroke={C.facadeLine} strokeWidth={8} />);
+  };
+  walk(cabinetLayout(c), 0, 0, 1, 1, "i");
   return out;
 }
 
@@ -239,13 +283,19 @@ export function KitchenElevation({
   const cabsById: Record<string, Cabinet> = {};
   cabs.forEach((c) => (cabsById[c.id] = c));
 
+  // A corner unit is diagonal/L-shaped, so its full footprint (840 base / 613 upper)
+  // doesn't belong on a flat wall elevation — it reads as one over-long blank block.
+  // Draw it at just its door-face width instead (≈ a regular door, even base↔upper).
+  const cabW = (c: Cabinet) => (c.corner ? 360 : c.w);
+  const drawCab = (c: Cabinet) => (c.corner ? { ...c, w: cabW(c) } : c);
+
   // committed layout x for every module (left→right per kind lane)
   const baseX: Record<string, number> = {};
   {
     const cur: Record<string, number> = { base: 0, tall: 0, upper: 0 };
     for (const c of cabs) {
       baseX[c.id] = c.x ?? cur[c.kind];
-      cur[c.kind] = baseX[c.id] + c.w;
+      cur[c.kind] = baseX[c.id] + cabW(c);
     }
   }
 
@@ -269,7 +319,7 @@ export function KitchenElevation({
     let run = rowStart;
     for (const c of order) {
       out[c.id] = run;
-      run += c.w;
+      run += cabW(c);
     }
     return out;
   };
@@ -292,44 +342,44 @@ export function KitchenElevation({
 
   cabs.forEach((c) => {
     if (c.appliance === "filler") return; // scribe panels handled by the gap pass
-    if (c.corner) return; // diagonal corner units don't map onto a flat wall elevation
     const x = dispX(c);
+    const w = cabW(c);
     const mountY = dispMount(c);
     nodes.push(
       <g key={c.id} style={{ transform: `translate(${x}px, 0)`, transition: dragPos && dragPos.id === c.id ? "none" : ANIM }}>
-        {moduleLocal(c, mountY)}
+        {moduleLocal(drawCab(c), mountY)}
       </g>,
     );
-    const inside = interiorLocal(c, mountY);
+    const inside = interiorLocal(drawCab(c), mountY);
     if (inside.length) interiorNodes.push(<g key={`int${c.id}`} transform={`translate(${x} 0)`}>{inside}</g>);
     if (c.kind === "tall") {
       maxTop = Math.max(maxTop, GEOM.plinth + c.h);
-      floorMods.push({ id: c.id, x0: x, x1: x + c.w });
-      hits.push({ id: c.id, x, y: 0, w: c.w, h: GEOM.plinth + c.h });
-      rects.push({ id: c.id, kind: "tall", x0: x, x1: x + c.w, cyLow: GEOM.plinth, cyHigh: GEOM.plinth + c.h, w: c.w, h: c.h });
+      floorMods.push({ id: c.id, x0: x, x1: x + w });
+      hits.push({ id: c.id, x, y: 0, w, h: GEOM.plinth + c.h });
+      rects.push({ id: c.id, kind: "tall", x0: x, x1: x + w, cyLow: GEOM.plinth, cyHigh: GEOM.plinth + c.h, w, h: c.h });
     } else if (c.kind === "upper") {
       if (c.appliance === "hood") {
         const topY = mountY + 360;
         maxTop = Math.max(maxTop, topY);
-        hits.push({ id: c.id, x: x + c.w * 0.2, y: mountY, w: c.w * 0.6, h: topY - mountY });
-        rects.push({ id: c.id, kind: "upper", x0: x, x1: x + c.w, cyLow: mountY, cyHigh: topY, w: c.w, h: topY - mountY });
+        hits.push({ id: c.id, x: x + w * 0.2, y: mountY, w: w * 0.6, h: topY - mountY });
+        rects.push({ id: c.id, kind: "upper", x0: x, x1: x + w, cyLow: mountY, cyHigh: topY, w, h: topY - mountY });
       } else {
         maxTop = Math.max(maxTop, mountY + c.h);
-        upperMods.push({ id: c.id, x0: x, x1: x + c.w });
-        hits.push({ id: c.id, x, y: mountY, w: c.w, h: c.h });
-        rects.push({ id: c.id, kind: "upper", x0: x, x1: x + c.w, cyLow: mountY, cyHigh: mountY + c.h, w: c.w, h: c.h });
+        upperMods.push({ id: c.id, x0: x, x1: x + w });
+        hits.push({ id: c.id, x, y: mountY, w, h: c.h });
+        rects.push({ id: c.id, kind: "upper", x0: x, x1: x + w, cyLow: mountY, cyHigh: mountY + c.h, w, h: c.h });
       }
     } else {
       const worktopY = GEOM.plinth + c.h;
       maxTop = Math.max(maxTop, worktopY + GEOM.worktop);
-      floorMods.push({ id: c.id, x0: x, x1: x + c.w });
-      hits.push({ id: c.id, x, y: 0, w: c.w, h: worktopY + GEOM.worktop });
-      rects.push({ id: c.id, kind: "base", x0: x, x1: x + c.w, cyLow: GEOM.plinth, cyHigh: worktopY, w: c.w, h: c.h });
+      floorMods.push({ id: c.id, x0: x, x1: x + w });
+      hits.push({ id: c.id, x, y: 0, w, h: worktopY + GEOM.worktop });
+      rects.push({ id: c.id, kind: "base", x0: x, x1: x + w, cyLow: GEOM.plinth, cyHigh: worktopY, w, h: c.h });
     }
   });
 
   // filler / scribe panels (absolute, no reorder) — drawn into fillerNodes below
-  const covered = floorCabs.map((c) => [baseX[c.id], baseX[c.id] + c.w] as [number, number]).sort((a, b) => a[0] - b[0]);
+  const covered = floorCabs.map((c) => [baseX[c.id], baseX[c.id] + cabW(c)] as [number, number]).sort((a, b) => a[0] - b[0]);
   const fillerTop = GEOM.plinth + GEOM.baseH + GEOM.worktop;
 
   // ---- layout + zoom ----

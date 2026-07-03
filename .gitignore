@@ -6,3 +6,7 @@ joint_decisions*.json
 dist/
 .vite/
 packages/*/dist/
+
+# Multi-agent coordination live state (config.json is committed)
+active_tasks.md
+active_files.md

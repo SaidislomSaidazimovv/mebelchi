@@ -1,52 +1,97 @@
-import { useStore, type Screen } from "./store";
+import { useStore } from "./store";
 import { MenuButton } from "./components/MenuButton";
 import { Footer } from "./components/Footer";
 import { Toast } from "./components/Toast";
 import { Menu } from "./components/Menu";
 import { QuizScreen } from "./screens/QuizScreen";
-import { SummaryScreen } from "./screens/SummaryScreen";
 import { SpaceScreen } from "./screens/SpaceScreen";
 import { RoomScene } from "./screens/RoomScene";
 import { VariantsScreen } from "./screens/VariantsScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
+import { SettingsScreen } from "./screens/SettingsScreen";
 import { ConfigScreen } from "./screens/ConfigScreen";
-import { Placeholder } from "./screens/Placeholder";
-
-// Screens not yet built render as placeholders (one phase at a time).
-const PLACEHOLDERS: Record<
-  Exclude<Screen, "home" | "projects" | "quiz" | "summary" | "space" | "details" | "variants" | "configure">,
-  { phase: string; title: string }
-> = {
-  engineering: { phase: "Фаза Г · Инженерия", title: "Узлы и усиления" },
-  cost: { phase: "Фаза Д · Смета", title: "Смета и оптимизация" },
-  handoff: { phase: "Фаза Е · Передача", title: "Готово к станку" },
-};
+import { PreviewScreen } from "./screens/PreviewScreen";
+import { EngineeringScreen } from "./screens/EngineeringScreen";
+import { CostScreen } from "./screens/CostScreen";
+import { HandoffScreen } from "./screens/HandoffScreen";
+import { AuthScreen } from "./screens/AuthScreen";
+import { SetPasswordScreen } from "./screens/SetPasswordScreen";
+import { SyncIndicator } from "./components/SyncIndicator";
+import { LoginNudge } from "./components/LoginNudge";
+import { SettingsModal } from "./components/SettingsModal";
+import { isSupabaseConfigured } from "./lib/supabase";
 
 export default function App() {
   const screen = useStore((s) => s.screen);
+  const authReady = useStore((s) => s.authReady);
+  const recovery = useStore((s) => s.recovery);
 
-  // the room scene + constructor carry their own chrome (step/price bar + toolbar),
-  // no standard footer
-  if (screen === "details" || screen === "configure") {
+  // GUEST-FIRST: no login wall. While Supabase checks for an existing session, show a brief
+  // splash; a password-recovery link still forces the "set a new password" screen. Otherwise
+  // the app runs for guests (localStorage) — sign in from the menu / the nudge to sync.
+  if (isSupabaseConfigured) {
+    if (!authReady) {
+      return (
+        <div className="app">
+          <main className="body">
+            <div className="auth-splash">Загрузка…</div>
+          </main>
+        </div>
+      );
+    }
+    if (recovery) {
+      return (
+        <div className="app">
+          <main className="body">
+            <SetPasswordScreen />
+          </main>
+        </div>
+      );
+    }
+  }
+
+  // login / registration — reachable from the menu (or the soft nudge), not forced
+  if (screen === "auth") {
     return (
       <div className="app">
-        <MenuButton />
-        {screen === "details" ? <RoomScene /> : <ConfigScreen />}
+        <main className="body">
+          <AuthScreen />
+        </main>
         <Toast />
-        <Menu />
       </div>
     );
   }
 
-  // home / projects sit outside the journey — no step footer
-  if (screen === "home" || screen === "projects") {
+  // the room scene + constructor carry their own chrome (step/price bar + toolbar),
+  // no standard footer
+  if (screen === "details" || screen === "configure" || screen === "preview") {
     return (
       <div className="app">
         <MenuButton />
-        <main className="body">{screen === "home" ? <HomeScreen /> : <ProjectsScreen />}</main>
+        {screen === "details" ? <RoomScene /> : screen === "configure" ? <ConfigScreen /> : <PreviewScreen />}
+        <SyncIndicator />
         <Toast />
         <Menu />
+        <SettingsModal />
+        <LoginNudge />
+      </div>
+    );
+  }
+
+  // home / projects / settings sit outside the journey — no step footer
+  if (screen === "home" || screen === "projects" || screen === "settings") {
+    return (
+      <div className="app">
+        <MenuButton />
+        <main className="body">
+          {screen === "home" ? <HomeScreen /> : screen === "projects" ? <ProjectsScreen /> : <SettingsScreen />}
+        </main>
+        <SyncIndicator />
+        <Toast />
+        <Menu />
+        <SettingsModal />
+        <LoginNudge />
       </div>
     );
   }
@@ -57,19 +102,22 @@ export default function App() {
       <main className="body">
         {screen === "quiz" ? (
           <QuizScreen />
-        ) : screen === "summary" ? (
-          <SummaryScreen />
         ) : screen === "space" ? (
           <SpaceScreen />
         ) : screen === "variants" ? (
           <VariantsScreen />
-        ) : (
-          <Placeholder {...PLACEHOLDERS[screen]} />
-        )}
+        ) : screen === "engineering" ? (
+          <EngineeringScreen />
+        ) : screen === "cost" ? (
+          <CostScreen />
+        ) : screen === "handoff" ? (
+          <HandoffScreen />
+        ) : null}
       </main>
       <Footer />
       <Toast />
       <Menu />
+      <SettingsModal />
     </div>
   );
 }

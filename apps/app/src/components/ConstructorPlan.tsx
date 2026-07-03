@@ -186,6 +186,7 @@ export function ConstructorPlan({
   const overlap = new Set<string>();
   for (let i = 0; i < foot.length; i++) {
     for (let j = i + 1; j < foot.length; j++) {
+      if (foot[i].furniture || foot[j].furniture) continue; // free decor — chair under table is fine
       if (foot[i].upper !== foot[j].upper) continue; // a wall unit over a base is fine
       if (rectsOverlap(foot[i], foot[j])) {
         overlap.add(foot[i].id);
@@ -194,6 +195,7 @@ export function ConstructorPlan({
     }
   }
   for (const f of foot) {
+    if (f.furniture) continue; // furniture isn't pinned to the walls
     const corners = rectCorners(f.cx, f.cy, f.ux, f.uy, f.ix, f.iy, f.w * 0.9, f.depth * 0.9);
     if (corners.some((p) => !pointInPoly(p.x, p.y, inner))) overlap.add(f.id);
   }
@@ -231,11 +233,29 @@ export function ConstructorPlan({
     return { x: sx, y: sy, gvx, gvy };
   };
 
+  // four oriented corners of a footprint rectangle
+  const footCorners = (f: Foot) => {
+    const hw = f.w / 2, hd = f.depth / 2;
+    return SIGNS.map(([su, si]) => ({ x: f.cx + f.ux * su * hw + f.ix * si * hd, y: f.cy + f.uy * su * hw + f.iy * si * hd }));
+  };
+  // Corner-unit outline: a square with its ROOM-FACING corner removed — BASE via an
+  // inner notch (L-shape, L-door), UPPER via a single 45° chamfer (pentagon, diagonal
+  // door). `cut` is how far the run-butt edge sits past centre (armDepth − halfSide).
+  const cornerGeom = (f: Foot) => {
+    const cs = footCorners(f);
+    let ri = 0, rd = Infinity;
+    cs.forEach((p, i) => { const d = Math.hypot(p.x - c.x, p.y - c.y); if (d < rd) { rd = d; ri = i; } });
+    const [su, si] = SIGNS[ri];
+    const hw = f.w / 2, armDepth = f.upper ? 350 : 560, cut = armDepth - hw;
+    const P = (uu: number, ii: number) => ({ x: f.cx + f.ux * uu + f.ix * ii, y: f.cy + f.uy * uu + f.iy * ii });
+    const buttA = P(su * hw, si * cut), buttB = P(su * cut, si * hw), notch = P(su * cut, si * cut);
+    const ring = [P(-su * hw, -si * hw), P(su * hw, -si * hw), buttA, ...(f.upper ? [] : [notch]), buttB, P(-su * hw, si * hw)];
+    const doorSegs = f.upper ? [[buttA, buttB]] : [[buttA, notch], [notch, buttB]];
+    return { ring, doorSegs };
+  };
   const quadPts = (f: Foot) => {
-    const hw = f.w / 2;
-    const hd = f.depth / 2;
-    const corner = (su: number, si: number) => `${f.cx + f.ux * su * hw + f.ix * si * hd},${f.cy + f.uy * su * hw + f.iy * si * hd}`;
-    return `${corner(1, 1)} ${corner(-1, 1)} ${corner(-1, -1)} ${corner(1, -1)}`;
+    if (!f.corner) return footCorners(f).map((p) => `${p.x},${p.y}`).join(" ");
+    return cornerGeom(f).ring.map((p) => `${p.x},${p.y}`).join(" ");
   };
 
   // ---- pointer + drag/rotate ----
@@ -391,12 +411,15 @@ export function ConstructorPlan({
       {/* footprint bodies — render style (Lines/Transparent) applied here only */}
       <g className={mode === "wire" ? "svg-wire plan-wire" : mode === "xray" ? "svg-xray" : undefined}>
         {foot.map((f) => {
-          const typeFill = f.appliance === "fridge" || f.appliance === "oven" || f.appliance === "dishwasher" ? C.steel : f.appliance === "sink" || f.appliance === "hob" ? C.carcass : C.facade;
+          const appl = f.appliance === "fridge" || f.appliance === "oven" || f.appliance === "dishwasher" ? C.steel : f.appliance === "sink" || f.appliance === "hob" ? C.carcass : null;
+          // a picked facade finish recolours the footprint (appliances keep their look)
+          const typeFill = appl ?? (f.finish?.facade != null ? `#${f.finish.facade.toString(16).padStart(6, "0")}` : C.facade);
           const along = (mm: number) => ({ x: f.ux * mm, y: f.uy * mm });
           const into = (mm: number) => ({ x: f.ix * mm, y: f.iy * mm });
           return (
             <g key={f.id} pointerEvents="none">
               <polygon points={quadPts(f)} fill={f.upper ? "none" : typeFill} stroke={f.upper ? "#9aa0a6" : C.facadeLine} strokeWidth={f.upper ? 7 : 8} strokeDasharray={f.upper ? `${70} ${45}` : undefined} />
+              {f.corner && cornerGeom(f).doorSegs.map((s, si) => <line key={`dr${si}`} x1={s[0].x} y1={s[0].y} x2={s[1].x} y2={s[1].y} stroke={f.upper ? "#9aa0a6" : C.facadeLine} strokeWidth={f.upper ? 7 : 9} />)}
               {!f.upper && f.appliance === "sink" && [-0.12, 0.12].map((k, ki) => { const o = along(k * f.w); return <circle key={ki} cx={f.cx + o.x} cy={f.cy + o.y} r={Math.min(f.w * 0.16, 160)} fill="none" stroke={C.steelLine} strokeWidth={10} />; })}
               {!f.upper && f.appliance === "hob" && [-0.18, 0.18].flatMap((au) => [-0.16, 0.16].map((ai) => { const o1 = along(au * f.w); const o2 = into(ai * f.depth); return <circle key={`${au}-${ai}`} cx={f.cx + o1.x + o2.x} cy={f.cy + o1.y + o2.y} r={70} fill="#2c3035" />; }))}
               {!f.upper && f.appliance === "fridge" && (() => { const o = into(f.depth * 0.32); return <circle cx={f.cx + o.x} cy={f.cy + o.y} r={70} fill="#111417" />; })()}

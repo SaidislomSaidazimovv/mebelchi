@@ -18,5 +18,12 @@ export default defineConfig({
   server: {
     host: true,
     fs: { allow: [r("../../")] },
+    // proxy kie.ai in the browser dev server so the AI-render fetch isn't CORS-blocked
+    // (render.ts uses these bases in DEV). The jobs API and the file-upload service are
+    // on different hosts. On device the app calls the real hosts directly.
+    proxy: {
+      "/kie-upload": { target: "https://kieai.redpandaai.co", changeOrigin: true, secure: true, rewrite: (p) => p.replace(/^\/kie-upload/, "") },
+      "/kie-api": { target: "https://api.kie.ai", changeOrigin: true, secure: true, rewrite: (p) => p.replace(/^\/kie-api/, "") },
+    },
   },
 });

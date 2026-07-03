@@ -14,6 +14,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { makeRoom, makeWoodTexture, type WallInfo } from "./ThreeScene";
+import { PBR, applyPbrFloor, onTexturesReady } from "./pbr";
 import { buildKitchen } from "./kitchen3d";
 import { planRuns, type KitchenLayout } from "../model/runPlan";
 import { polygonBoundsMm, offsetPolygon, type Pt, type Opening, type Fitting } from "../model/room";
@@ -22,18 +23,24 @@ import type { Surface } from "../model/walls";
 import type { KitchenStyle } from "../model/layout";
 import type { Cabinet } from "../model/cabinet";
 import { ICON_DRAG_PATH, ICON_ROTATE_PATH, ICON_VMOVE_PATH } from "../components/icons";
+import { registerCapture } from "../lib/thumbnailCapture";
 
-interface Api {
+export interface SceneApi {
   setKitchen: (cabs: Cabinet[], style: KitchenStyle) => void;
   setView: (v: KitchenView) => void;
   syncGizmo: () => void;
   invalidate: () => void;
+  /** render the current frame and return it as a PNG data URL (for the AI render) */
+  captureDataUrl: () => string;
   /** screen point → horizontal plane at height yM (metres) → world x/z, or null */
   floorMetres: (clientX: number, clientY: number, yM?: number) => { x: number; z: number } | null;
   /** world point (metres) → screen px (relative to the canvas) */
   project: (x: number, y: number, z: number) => { x: number; y: number };
   /** move/rotate the live selected module group (px/pz absolute mm, rot degrees) */
   applyTransform: (id: string, pxMm: number, pzMm: number, rotDeg: number, depthM: number) => void;
+  /** live-resize preview: rebuild the kitchen with one module's width/height overridden
+   *  (real geometry via buildKitchen, so it matches the commit exactly — no jump) */
+  previewResize: (id: string, wMm?: number, hMm?: number) => void;
   /** shift a wall-unit group up/down by dyM metres (live vertical drag) */
   setUpperY: (id: string, dyM: number) => void;
   /** tint a module's meshes: a hex colour (red warn / blue selected) or null to clear */
@@ -118,6 +125,13 @@ const COUNTER_TOP_MM = 860; // worktop surface (BASE_TOP + WORKTOP) — gap refe
 const DEG = 180 / Math.PI;
 const RED = 0xe53935;
 const BLUE = 0x2a6df0;
+// module resize (drag the face arrows) — 5 cm steps, sane cabinet bounds (mm)
+const RESIZE_STEP = 50;
+const W_MIN = 150;
+const W_MAX = 1200;
+const H_MIN = 200;
+const H_MAX = 1200;
+const snapStep = (mm: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(mm / RESIZE_STEP) * RESIZE_STEP));
 
 // nearest room-wall edge to a point, with its inward normal + foot point (all mm).
 // `pts` is the inner-wall polygon; (cx,cy) is a room-interior reference for the normal.
@@ -154,12 +168,16 @@ interface Geom {
   inner: Pt[];
   selMountY: number; // selected wall-unit bottom (mm)
   selH: number; // selected module height (mm)
+  selW: number; // selected module width (mm)
+  selUpper: boolean; // selected is a wall unit (only these have a c.h-driven 3D height)
+  selResizable: boolean; // resize handles allowed (not a corner unit)
+  selFree: boolean; // free (px/pz) placement → resize grows about the centre
   selCenterY: number; // handle height for the selected module (m)
   upperLevels: number[]; // other wall units' snap heights (mm) for the up/down drag
 }
 
 type Drag = {
-  mode: "move" | "rotate" | "vertical";
+  mode: "move" | "rotate" | "vertical" | "resizeW" | "resizeH";
   id: string;
   depthM: number;
   px: number; // live centre (absolute mm)
@@ -181,6 +199,16 @@ type Drag = {
   mountY0: number;
   vy0: number; // pointer clientY at down
   pxPerM: number; // screen px per world metre (vertical)
+  // resize (width along the module's local X, height along Y) — snapped to 5 cm
+  w0: number; // width at grab (mm)
+  h0: number; // height at grab (mm)
+  liveW: number; // last committed preview width (mm)
+  liveH: number; // last committed preview height (mm)
+  axX: number; // module local +x world unit (XZ), for width drag
+  axZ: number;
+  startMmX: number; // grab point on the handle-height plane (absolute mm)
+  startMmZ: number;
+  free: boolean; // free (px/pz) module → grows about its centre (factor 2), else left-anchored
 };
 
 // snap a dragged footprint centre to walls + neighbours (magnet), then ALWAYS clamp
@@ -225,6 +253,7 @@ export function VariantScene({
   ceiling,
   openings,
   coveringColor,
+  floorId,
   interiorWalls,
   fittings,
   wallSurfaces,
@@ -242,11 +271,15 @@ export function VariantScene({
   onMovePlan,
   onBeginEdit,
   onMountY,
+  onResize,
+  onApi,
+  onReady,
 }: {
   points: Pt[];
   ceiling: number;
   openings: Opening[];
   coveringColor: string;
+  floorId?: string;
   interiorWalls: Pt[][];
   fittings: Fitting[];
   wallSurfaces: Record<number, Surface>;
@@ -274,9 +307,16 @@ export function VariantScene({
   onBeginEdit?: () => void;
   /** commit a wall-unit's bottom height (mm) — vertical handle drag */
   onMountY?: (id: string, mountY: number) => void;
+  /** commit a module resize (width / height in mm, snapped to 5 cm) — face-arrow drag */
+  onResize?: (id: string, patch: { w?: number; h?: number }) => void;
+  /** hands the imperative scene API to the parent (used by the Preview/Render step) */
+  onApi?: (api: SceneApi | null) => void;
+  /** fired ONCE when the scene has settled (first render + textures) — the constructor
+   *  uses it to grab a single, consistent project thumbnail on entry */
+  onReady?: () => void;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<Api | null>(null);
+  const apiRef = useRef<SceneApi | null>(null);
   // overlay handles (positioned imperatively each frame to track the 3D module)
   const moveHRef = useRef<SVGGElement>(null);
   const rotHRef = useRef<SVGGElement>(null);
@@ -287,6 +327,18 @@ export function VariantScene({
   const rotLabelRef = useRef<SVGGElement>(null);
   const rotTextRef = useRef<SVGTextElement>(null);
   const vertHRef = useRef<SVGGElement>(null);
+  // resize DIMENSION lines (like the front view's measurements, but draggable + arrowed):
+  // width runs along the bottom edge, height up the right edge of a wall unit
+  const resizeWRef = useRef<SVGGElement>(null);
+  const resizeHRef = useRef<SVGGElement>(null);
+  const dimWLineRef = useRef<SVGLineElement>(null);
+  const dimWHitRef = useRef<SVGLineElement>(null);
+  const dimWChipRef = useRef<SVGGElement>(null);
+  const dimWTextRef = useRef<SVGTextElement>(null);
+  const dimHLineRef = useRef<SVGLineElement>(null);
+  const dimHHitRef = useRef<SVGLineElement>(null);
+  const dimHChipRef = useRef<SVGGElement>(null);
+  const dimHTextRef = useRef<SVGTextElement>(null);
   const vertDimRef = useRef<SVGGElement>(null);
   const vertDimLineRef = useRef<SVGLineElement>(null);
   const vertDimChipRef = useRef<SVGGElement>(null);
@@ -303,12 +355,14 @@ export function VariantScene({
   const openTargetRef = useRef<Map<string, number>>(new Map());
   const openCurRef = useRef<Map<string, number>>(new Map());
 
-  const cbRef = useRef({ onSelectCab, onMovePlan, onBeginEdit, onMountY, magnet });
-  cbRef.current = { onSelectCab, onMovePlan, onBeginEdit, onMountY, magnet };
+  const cbRef = useRef({ onSelectCab, onMovePlan, onBeginEdit, onMountY, onResize, magnet });
+  cbRef.current = { onSelectCab, onMovePlan, onBeginEdit, onMountY, onResize, magnet };
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   // keep latest room inputs without re-initialising the scene
-  const propsRef = useRef({ points, ceiling, openings, coveringColor, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId });
-  propsRef.current = { points, ceiling, openings, coveringColor, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId };
+  const propsRef = useRef({ points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId });
+  propsRef.current = { points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId };
 
   // footprints + selection geometry, recomputed when the run/selection changes
   const geomRef = useRef<Geom | null>(null);
@@ -339,6 +393,11 @@ export function VariantScene({
       inner: offsetPolygon(points, 100),
       selMountY,
       selH,
+      selW: selFoot?.w ?? selCab?.w ?? 600,
+      selUpper: selCab?.kind === "upper",
+      // corner units have bespoke diagonal geometry → don't offer resize on them
+      selResizable: !!selCab && !selCab.corner,
+      selFree: selCab?.px != null && selCab?.pz != null,
       // handle height (m): mid-height of a wall unit, else mid-base
       selCenterY: selFoot?.upper ? (selMountY + selH / 2) / 1000 : GIZMO_Y,
       upperLevels,
@@ -377,7 +436,8 @@ export function VariantScene({
   // live overlap warning: tint the dragged module red when it clashes with another
   // same-layer module, else blue (selected). Wall clashes can't happen (push-back).
   const tintClash = (g: Geom, id: string, df: Foot) => {
-    const clash = g.foots.some((o) => o.id !== id && o.upper === df.upper && footsOverlap(df, o));
+    // furniture (tables/chairs) is free decor → never a clash (a chair under a table is fine)
+    const clash = !df.furniture && g.foots.some((o) => o.id !== id && !o.furniture && o.upper === df.upper && footsOverlap(df, o));
     apiRef.current?.setTint(id, clash ? RED : BLUE);
   };
   // vertical gap dimension (counter worktop → wall-unit bottom) while dragging height
@@ -504,6 +564,44 @@ export function VariantScene({
     api.invalidate();
   };
 
+  // width resize: drag the bottom dimension line along the module's local X, snap to 5 cm.
+  // A free (px/pz) module grows about its centre (the finger tracks the face → ×2);
+  // a run module is left-anchored (right face follows the finger → ×1). The live preview
+  // rebuilds real geometry (previewResize) only when the snapped value crosses a 5 cm step.
+  const resizeWTo = (clientX: number, clientY: number) => {
+    const dr = dragRef.current;
+    const g = geomRef.current;
+    const api = apiRef.current;
+    if (!dr || dr.mode !== "resizeW" || !g || !api) return;
+    const fl = api.floorMetres(clientX, clientY, g.selCenterY);
+    if (!fl) return;
+    const dxMm = fl.x * 1000 + g.cx - dr.startMmX;
+    const dzMm = fl.z * 1000 + g.cy - dr.startMmZ;
+    const along = dxMm * dr.axX + dzMm * dr.axZ; // displacement along the width axis (mm)
+    const w = snapStep(dr.w0 + (dr.free ? 2 : 1) * along, W_MIN, W_MAX);
+    if (w !== dr.liveW) {
+      dr.liveW = w;
+      dr.moved = true;
+      api.previewResize(dr.id, w, undefined);
+    }
+    api.invalidate(); // repositions the arrow + chip (updateGizmo)
+  };
+  // height resize (wall units only): drag the top arrow, snap to 5 cm, bottom stays put
+  const resizeHTo = (clientY: number) => {
+    const dr = dragRef.current;
+    const g = geomRef.current;
+    const api = apiRef.current;
+    if (!dr || dr.mode !== "resizeH" || !g?.selFoot || !api) return;
+    const hi = Math.min(H_MAX, Math.max(H_MIN, propsRef.current.ceiling - dr.mountY));
+    const h = snapStep(dr.h0 + (dr.vy0 - clientY) * (1000 / dr.pxPerM), H_MIN, hi);
+    if (h !== dr.liveH) {
+      dr.liveH = h;
+      dr.moved = true;
+      api.previewResize(dr.id, undefined, h);
+    }
+    api.invalidate();
+  };
+
   const beginDrag = (e: React.PointerEvent, mode: Drag["mode"]) => {
     const g = geomRef.current;
     const api = apiRef.current;
@@ -515,7 +613,7 @@ export function VariantScene({
     try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ }
     const f = g.selFoot;
     const fl = api.floorMetres(e.clientX, e.clientY, g.selCenterY); // plane at handle height
-    const base = { id: f.id, depthM: f.depth / 1000, px: f.cx, pz: f.cy, rot: f.rotDeg, moved: false, px0: f.cx, pz0: f.cy, downX: 0, downZ: 0, startRot: f.rotDeg, prevA: 0, accum: 0, a0Screen: 0, mountY: g.selMountY, mountY0: g.selMountY, vy0: e.clientY, pxPerM: 200 };
+    const base = { id: f.id, depthM: f.depth / 1000, px: f.cx, pz: f.cy, rot: f.rotDeg, moved: false, px0: f.cx, pz0: f.cy, downX: 0, downZ: 0, startRot: f.rotDeg, prevA: 0, accum: 0, a0Screen: 0, mountY: g.selMountY, mountY0: g.selMountY, vy0: e.clientY, pxPerM: 200, w0: g.selW, h0: g.selH, liveW: g.selW, liveH: g.selH, axX: f.ux, axZ: f.uy, startMmX: fl ? fl.x * 1000 + g.cx : f.cx, startMmZ: fl ? fl.z * 1000 + g.cy : f.cy, free: g.selFree };
     if (mode === "move") {
       dragRef.current = { ...base, mode: "move", downX: fl ? fl.x * 1000 + g.cx : f.cx, downZ: fl ? fl.z * 1000 + g.cy : f.cy };
     } else if (mode === "rotate") {
@@ -527,6 +625,12 @@ export function VariantScene({
       showRing(true);
       drawArc(aScreen, aScreen);
       showAngle(f.rotDeg);
+    } else if (mode === "resizeW") {
+      dragRef.current = { ...base, mode: "resizeW" };
+    } else if (mode === "resizeH") {
+      // vertical pixels per world-metre at the module top, for screen→mm
+      const pxPerM = api.pxPerMeterY((f.cx - g.cx) / 1000, g.selCenterY, (f.cy - g.cy) / 1000);
+      dragRef.current = { ...base, mode: "resizeH", pxPerM: pxPerM || 200 };
     } else {
       // vertical (wall units): pixels per world-metre at the module, for screen→mm
       const pxPerM = api.pxPerMeterY((f.cx - g.cx) / 1000, g.selCenterY, (f.cy - g.cy) / 1000);
@@ -541,6 +645,8 @@ export function VariantScene({
       ev.preventDefault();
       if (dr.mode === "move") moveTo(ev.clientX, ev.clientY);
       else if (dr.mode === "rotate") rotateTo(ev.clientX, ev.clientY);
+      else if (dr.mode === "resizeW") resizeWTo(ev.clientX, ev.clientY);
+      else if (dr.mode === "resizeH") resizeHTo(ev.clientY);
       else verticalTo(ev.clientY);
     };
     // hard block of touch-scroll for the duration of the gesture (some WebViews
@@ -555,6 +661,8 @@ export function VariantScene({
       const cb2 = cbRef.current;
       if (dr && dr.moved) {
         if (dr.mode === "vertical") cb2.onMountY?.(dr.id, dr.mountY); // patchCab → own undo step
+        else if (dr.mode === "resizeW") cb2.onResize?.(dr.id, { w: dr.liveW });
+        else if (dr.mode === "resizeH") cb2.onResize?.(dr.id, { h: dr.liveH });
         else if (cb2.onMovePlan) {
           cb2.onBeginEdit?.(); // one undo step for the whole gesture
           cb2.onMovePlan(dr.id, { px: dr.px, pz: dr.pz, rot: dr.rot });
@@ -573,6 +681,8 @@ export function VariantScene({
   const onMoveDown = (e: React.PointerEvent) => beginDrag(e, "move");
   const onRotDown = (e: React.PointerEvent) => beginDrag(e, "rotate");
   const onVertDown = (e: React.PointerEvent) => beginDrag(e, "vertical");
+  const onResizeWDown = (e: React.PointerEvent) => beginDrag(e, "resizeW");
+  const onResizeHDown = (e: React.PointerEvent) => beginDrag(e, "resizeH");
 
   // ---- camera-walk joystick: drag the knob, the render loop walks the camera ----
   const JOY_R = 28; // knob travel radius (px, == svg units at 1:1)
@@ -612,7 +722,7 @@ export function VariantScene({
     const mount = mountRef.current;
     if (!mount) return;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     const w0 = mount.clientWidth || 320;
     const h0 = mount.clientHeight || 420;
@@ -696,6 +806,7 @@ export function VariantScene({
         const m = o as THREE.Mesh;
         if (m.isMesh) m.receiveShadow = true; // floor + walls catch the kitchen's shadow
       });
+      applyPbrFloor(room, s.coveringColor, s.floorId); // real floor material (shared with the room editor)
       scene.add(room);
       invalidate();
     };
@@ -729,14 +840,22 @@ export function VariantScene({
       const grp = kitchen?.children.find((o) => o.userData.cabId === id);
       if (!grp) return;
       grp.traverse((o) => {
-        const od = o.userData.openable as { kind: string; maxRad?: number; maxZ?: number } | undefined;
+        const od = o.userData.openable as { kind: string; axis?: string; rad?: number; maxRad?: number; maxZ?: number } | undefined;
         if (!od) return;
-        if (od.kind === "door") o.rotation.y = -amount * (od.maxRad ?? 0);
-        else o.position.z = amount * (od.maxZ ?? 0);
+        if (od.kind === "door") {
+          const rad = od.rad ?? -(od.maxRad ?? 0); // legacy maxRad = left hinge (−y)
+          if (od.axis === "x") o.rotation.x = amount * rad; // top/bottom hydraulic lift
+          else o.rotation.y = amount * rad;
+        } else o.position.z = amount * (od.maxZ ?? 0);
       });
     };
 
+    // last kitchen inputs — so a live resize preview can rebuild off the real cabs/style
+    let lastCabs: Cabinet[] = cabs;
+    let lastStyle: KitchenStyle = style;
     const setKitchen = (next: Cabinet[], nextStyle: KitchenStyle) => {
+      lastCabs = next;
+      lastStyle = nextStyle;
       if (kitchen) {
         scene.remove(kitchen);
         disposeGroup(kitchen);
@@ -808,6 +927,11 @@ export function VariantScene({
       return { x: (p.x * 0.5 + 0.5) * rect.width, y: (-p.y * 0.5 + 0.5) * rect.height };
     };
     const setDisp = (el: SVGElement | null, on: boolean) => { if (el) el.style.display = on ? "" : "none"; };
+    const setLine = (el: SVGLineElement | null, x1: number, y1: number, x2: number, y2: number) => {
+      if (!el) return;
+      el.setAttribute("x1", `${x1}`); el.setAttribute("y1", `${y1}`);
+      el.setAttribute("x2", `${x2}`); el.setAttribute("y2", `${y2}`);
+    };
     const updateGizmo = () => {
       const cb = cbRef.current;
       const g = geomRef.current;
@@ -819,6 +943,9 @@ export function VariantScene({
       setDisp(rotHRef.current, active);
       setDisp(connRef.current, active);
       setDisp(vertHRef.current, active && upper); // up/down handle: wall units only
+      const resizable = active && !!g?.selResizable && !!cb.onResize;
+      setDisp(resizeWRef.current, resizable); // width arrow: every resizable module
+      setDisp(resizeHRef.current, resizable && upper); // height arrow: wall units only (c.h drives their 3D height)
       if (!active || !center || !g) {
         gizmoScreenRef.current = null;
         if (!dr) {
@@ -846,6 +973,34 @@ export function VariantScene({
       }
       ringCircleRef.current?.setAttribute("cx", `${sp.x}`);
       ringCircleRef.current?.setAttribute("cy", `${sp.y}`);
+
+      // resize DIMENSION lines — like the front view's measurements but drawn in the 3D
+      // scene (arrow line + number), draggable to resize. Width runs along the bottom
+      // edge (offset down), height up the right edge of a wall unit (offset right).
+      const DIM_OFF = 24; // screen-px offset so the line sits just outside the box
+      if (resizable && g.selFoot) {
+        const f = g.selFoot;
+        const wNow = dr?.mode === "resizeW" ? dr.liveW : g.selW;
+        const yBotW = upper ? g.selMountY / 1000 : 0; // bottom of the module (floor for base)
+        const lp = project(tmpV.set((f.cx - f.ux * (wNow / 2) - g.cx) / 1000, yBotW, (f.cy - f.uy * (wNow / 2) - g.cy) / 1000));
+        const rp = project(tmpV.set((f.cx + f.ux * (wNow / 2) - g.cx) / 1000, yBotW, (f.cy + f.uy * (wNow / 2) - g.cy) / 1000));
+        setLine(dimWLineRef.current, lp.x, lp.y + DIM_OFF, rp.x, rp.y + DIM_OFF);
+        setLine(dimWHitRef.current, lp.x, lp.y + DIM_OFF, rp.x, rp.y + DIM_OFF);
+        dimWChipRef.current?.setAttribute("transform", `translate(${(lp.x + rp.x) / 2} ${(lp.y + rp.y) / 2 + DIM_OFF})`);
+        if (dimWTextRef.current) dimWTextRef.current.textContent = `${wNow}`;
+        if (upper) {
+          const hNow = dr?.mode === "resizeH" ? dr.liveH : g.selH;
+          const mnt = dr?.mode === "resizeH" ? dr.mountY : g.selMountY;
+          const rxM = (f.cx + f.ux * (g.selW / 2) - g.cx) / 1000; // right edge (width fixed during a height drag)
+          const rzM = (f.cy + f.uy * (g.selW / 2) - g.cy) / 1000;
+          const bp = project(tmpV.set(rxM, mnt / 1000, rzM));
+          const tp = project(tmpV.set(rxM, (mnt + hNow) / 1000, rzM));
+          setLine(dimHLineRef.current, bp.x + DIM_OFF, bp.y, tp.x + DIM_OFF, tp.y);
+          setLine(dimHHitRef.current, bp.x + DIM_OFF, bp.y, tp.x + DIM_OFF, tp.y);
+          dimHChipRef.current?.setAttribute("transform", `translate(${(bp.x + tp.x) / 2 + DIM_OFF} ${(bp.y + tp.y) / 2})`);
+          if (dimHTextRef.current) dimHTextRef.current.textContent = `${hNow}`;
+        }
+      }
     };
 
     const ro = new ResizeObserver(() => {
@@ -955,6 +1110,23 @@ export function VariantScene({
       setView,
       syncGizmo: updateGizmo,
       invalidate,
+      captureDataUrl: () => {
+        renderer.render(scene, camera); // force a fresh frame into the (preserved) buffer
+        // downscale straight from the WebGL canvas — a canvas source draws SYNCHRONOUSLY
+        // and correctly (an <img> data-URL would load async → draw blank). JPEG has no
+        // alpha, so paint the app backdrop first (the alpha:true bg would go black).
+        const src = renderer.domElement;
+        const W = 400, H = 300;
+        const c = document.createElement("canvas");
+        c.width = W;
+        c.height = H;
+        const ctx = c.getContext("2d");
+        if (!ctx) return src.toDataURL("image/jpeg", 0.6);
+        ctx.fillStyle = "#f4f2ee";
+        ctx.fillRect(0, 0, W, H);
+        ctx.drawImage(src, 0, 0, W, H);
+        return c.toDataURL("image/jpeg", 0.6);
+      },
       floorMetres: (clientX, clientY, yM = 0) => {
         raycaster.setFromCamera(ndcAt(clientX, clientY), camera);
         floorPlane.constant = -yM; // horizontal plane at y = yM
@@ -974,6 +1146,14 @@ export function VariantScene({
         const vx = (pxMm - b.cx) / 1000;
         const vz = (pzMm - b.cy) / 1000;
         child.position.set(vx - fwdX * (depthM / 2), 0, vz - fwdZ * (depthM / 2));
+      },
+      previewResize: (id, wMm, hMm) => {
+        // rebuild off the real cabs with just this module's w/h overridden — the run
+        // layout then reflows exactly as it will on commit, so there's no jump on release
+        const patched = lastCabs.map((c) =>
+          c.id === id ? { ...c, ...(wMm != null ? { w: wMm } : {}), ...(hMm != null ? { h: hMm } : {}) } : c,
+        );
+        setKitchen(patched, lastStyle);
       },
       setUpperY: (id, dyM) => {
         if (!kitchen) return;
@@ -1001,8 +1181,31 @@ export function VariantScene({
         if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
       },
     };
+    onApi?.(apiRef.current);
+    // fire onReady ONCE the scene has settled — a fresh render + (with PBR) the textures
+    // loaded — so the constructor grabs a single, consistent, good-looking thumbnail on
+    // entry (capturing the very first frame risks a blank / untextured shot).
+    let readyFired = false;
+    const fireReady = () => {
+      if (readyFired) return;
+      readyFired = true;
+      onReadyRef.current?.();
+    };
+    // re-render once the PBR textures finish loading (render-on-demand → first frame draws
+    // before they arrive, leaving the floor/worktop black until the next redraw); that's
+    // also our cue that the scene is ready to capture
+    const offTextures = PBR ? onTexturesReady(() => { invalidate(); fireReady(); }) : null;
+    // fallback so onReady still fires without PBR (or if textures never load)
+    const readyTimer = setTimeout(fireReady, PBR ? 1200 : 500);
+
+    // Register this scene as the thumbnail capture source for project saves
+    registerCapture(() => apiRef.current?.captureDataUrl() ?? null);
 
     return () => {
+      clearTimeout(readyTimer);
+      offTextures?.();
+      registerCapture(null);
+      onApi?.(null);
       apiRef.current?.dispose();
       apiRef.current = null;
     };
@@ -1038,6 +1241,12 @@ export function VariantScene({
   return (
     <div ref={mountRef} className="scene-canvas cab3d-wrap">
       <svg className="cab3d-overlay">
+        <defs>
+          {/* outward-pointing arrowhead for the resize dimension lines */}
+          <marker id="dimArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#00a961" />
+          </marker>
+        </defs>
         {/* horizontal alignment guide when a wall unit's height lines up with another */}
         <line ref={vertGuideRef} stroke="#2a6df0" strokeWidth={1.5} strokeDasharray="7 5" pointerEvents="none" style={{ display: "none" }} />
         {/* wall-unit height gap (worktop → unit bottom), shown while dragging up/down */}
@@ -1090,6 +1299,34 @@ export function VariantScene({
           <circle r={HANDLE_R} fill="#fff" stroke="#cfcfcf" strokeWidth={2} />
           <g transform={`translate(${-16 * ICON_S} ${-16 * ICON_S}) scale(${ICON_S})`}>
             <path d={ICON_ROTATE_PATH} fill="#1c1b18" />
+          </g>
+        </g>
+        {/* width resize DIMENSION (bottom edge) — draggable arrow line + number, 5 cm steps */}
+        <g
+          ref={resizeWRef}
+          className="cab3d-handle resize-dim"
+          style={{ display: "none" }}
+          onPointerDown={onResizeWDown}
+        >
+          <line ref={dimWHitRef} stroke="rgba(255,255,255,0.01)" strokeWidth={26} strokeLinecap="round" />
+          <line ref={dimWLineRef} stroke="#00a961" strokeWidth={2.5} markerStart="url(#dimArrow)" markerEnd="url(#dimArrow)" />
+          <g ref={dimWChipRef}>
+            <rect x={-27} y={-13} width={54} height={26} rx={7} fill="#fff" stroke="#00a961" strokeWidth={1.5} />
+            <text ref={dimWTextRef} x={0} y={5} textAnchor="middle" fontFamily="Inter, sans-serif" fontSize={13} fontWeight={700} fill="#1c1b18" />
+          </g>
+        </g>
+        {/* height resize DIMENSION (right edge, wall units) — draggable arrow line + number */}
+        <g
+          ref={resizeHRef}
+          className="cab3d-handle resize-dim"
+          style={{ display: "none" }}
+          onPointerDown={onResizeHDown}
+        >
+          <line ref={dimHHitRef} stroke="rgba(255,255,255,0.01)" strokeWidth={26} strokeLinecap="round" />
+          <line ref={dimHLineRef} stroke="#00a961" strokeWidth={2.5} markerStart="url(#dimArrow)" markerEnd="url(#dimArrow)" />
+          <g ref={dimHChipRef}>
+            <rect x={-27} y={-13} width={54} height={26} rx={7} fill="#fff" stroke="#00a961" strokeWidth={1.5} />
+            <text ref={dimHTextRef} x={0} y={5} textAnchor="middle" fontFamily="Inter, sans-serif" fontSize={13} fontWeight={700} fill="#1c1b18" />
           </g>
         </g>
       </svg>

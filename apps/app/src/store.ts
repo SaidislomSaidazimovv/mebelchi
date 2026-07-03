@@ -3,12 +3,19 @@
 // the same state through model/toProject.ts → priceProject.
 
 import { create } from "zustand";
-import { MATERIALS, mk, type Cabinet } from "./model/cabinet";
+import { MATERIALS, mk, type Cabinet, type FinishKey } from "./model/cabinet";
+import { fillGapSpan, firstFitX, parkX } from "./model/fill";
+import { dockToRun, cabFootprints, footsOverlap } from "./model/footprint";
 import { generateVariants as solveVariants, type GenVariant, type KitchenStyle, type Zone, type FridgeType, type OvenType, type HoodType } from "./model/layout";
-import { planRuns, cornerUnits, type KitchenLayout } from "./model/runPlan";
-import { roomOutlineMm, defaultOpenings, defaultOpeningHeight, fittingKind, wallSegments, interiorSegRef, type Pt, type Opening, type OpeningKind, type Fitting, type FittingCategory } from "./model/room";
+import { planRuns, cornerUnits, interiorWallCabs, type KitchenLayout } from "./model/runPlan";
+import { roomOutlineMm, defaultOpenings, defaultOpeningHeight, fittingKind, wallSegments, interiorSegRef, polygonBoundsMm, type Pt, type Opening, type OpeningKind, type Fitting, type FittingCategory } from "./model/room";
 import { defaultSurface, splitLeaf, colorLeaf, type Surface, type SurfPath } from "./model/walls";
-import { PERSIST_KEYS, loadProjectState, upsertProject, deleteProject, newProjectId, type DesignState } from "./model/projects";
+import { PERSIST_KEYS, loadProjectState, upsertProject, deleteProject, updateProjectMeta, newProjectId, allProjects, replaceAllProjects, type DesignState } from "./model/projects";
+import { loadSettings, saveSettings, type Settings } from "./model/settings";
+import { supabase, isSupabaseConfigured } from "./lib/supabase";
+import { pullProfile, pushProfile, pullProjects, pushProject, deleteProjectCloud } from "./lib/sync";
+import { AI_RENDER } from "./config";
+import { captureThumbnail } from "./lib/thumbnailCapture";
 import { QUIZ } from "./quiz/questions";
 
 const snap100 = (v: number) => Math.round(v / 100) * 100;
@@ -47,27 +54,45 @@ const cabNow = (s: CabHistState): CabSnap => ({ cabs: s.cabs, runStyle: s.runSty
 export type Screen =
   | "home"
   | "projects"
+  | "settings"
+  | "auth"
   | "quiz"
-  | "summary"
   | "space"
   | "details"
   | "variants"
   | "configure"
+  | "preview"
   | "engineering"
   | "cost"
   | "handoff";
 
 export const FLOW: Screen[] = [
   "quiz",
-  "summary",
   "space",
   "details",
   "variants",
   "configure",
+  ...(AI_RENDER ? (["preview"] as Screen[]) : []), // AI render (Preview) held for v1
   "engineering",
   "cost",
   "handoff",
 ];
+
+/** Hardware grade picked in the Инженерия step (фаза Г). */
+export type HwGrade = "eco" | "std" | "premium";
+
+/** The signed-in user (Supabase auth). Null when signed out / auth disabled. */
+export interface AuthUser {
+  id: string;
+  email: string;
+}
+
+/** RU labels for the hardware grade — shared by the Инженерия + Передача screens. */
+export const HW_GRADE_LABEL: Record<HwGrade, string> = {
+  eco: "Эконом",
+  std: "Стандарт",
+  premium: "Премиум",
+};
 
 export interface AppState {
   // journey
@@ -104,9 +129,27 @@ export interface AppState {
   toast: string | null;
   // navbar hamburger drawer
   menuOpen: boolean;
+  // Настройки popup — an overlay (not a screen) so it opens over any journey step
+  // without unmounting the work in progress
+  settingsOpen: boolean;
+  // set when the variants "add water?" prompt sends the user to the room to place it →
+  // RoomScene opens its water-picker on entry
+  pendingWater: boolean;
   // persistence — the project this session is editing + a bump to refresh lists
   currentProjectId: string | null;
   projectsRev: number;
+  // global user/app settings (profile · company · preferences), Supabase-ready
+  settings: Settings;
+  // auth (Supabase). authReady = session checked; authUser = null when signed out.
+  // The app is GUEST-FIRST: no login wall at launch — sign in from the menu / the nudge.
+  authReady: boolean;
+  authUser: AuthUser | null;
+  recovery: boolean; // in a password-recovery session (opened from the reset email)
+  authReturn: Screen; // where the auth screen returns to on close
+  loginNudge: boolean; // one-time soft "sign in to sync" prompt after the first project
+  // cloud sync status (for the subtle indicator): in-flight writes + last-write-failed
+  syncBusy: number;
+  syncError: boolean;
   // run
   variant: number;
   /** Phase-B generated layouts (empty until "Сгенерировать раскладки" runs). */
@@ -127,19 +170,19 @@ export interface AppState {
   // engineering / cost / handoff
   xray: boolean;
   hardened: boolean;
+  hwGrade: HwGrade;
   recFixed: boolean;
   adviceApplied: boolean;
   exported: boolean;
 
   // actions — quiz
   pickQuiz: (id: string, v: string) => void;
-  noPref: () => void;
-  editQuiz: (index: number) => void;
-  finishEdit: () => void;
   // actions — nav
   next: () => void;
   back: () => void;
   goTo: (s: Screen) => void;
+  requestWater: () => void; // go to the room + auto-open the water picker
+  clearPendingWater: () => void;
   // actions — space
   setShape: (v: "i" | "l") => void;
   setWater: (v: AppState["water"]) => void;
@@ -149,6 +192,8 @@ export interface AppState {
   setRoomName: (v: string) => void;
   setRoomType: (v: string) => void;
   setFloorCovering: (i: number) => void;
+  setHardened: (v: boolean) => void;
+  setHwGrade: (v: HwGrade) => void;
   // room polygon editing
   beginEdit: () => void; // snapshot before a drag/edit gesture (for undo)
   undo: () => void;
@@ -161,6 +206,7 @@ export interface AppState {
   setOpeningWidth: (id: string, width: number) => void;
   setOpeningHeight: (id: string, height: number) => void;
   setOpeningSill: (id: string, sill: number) => void;
+  setOpeningFinish: (id: string, finish: string) => void;
   addOpening: (item: OpeningKind, wall?: number) => string;
   removeOpening: (id: string) => void;
   duplicateOpening: (id: string) => string | null;
@@ -193,10 +239,24 @@ export interface AppState {
   // phase C — constructor (per-module editing)
   selectCab: (i: number) => void;
   patchCab: (i: number, patch: Partial<Cabinet>) => void;
+  /** live patch (NO undo entry) — for continuous gestures; pair with beginCabEdit() */
+  patchCabLive: (i: number, patch: Partial<Cabinet>) => void;
+  /** merge a finish (part → colour) into every module — the editor's "apply to all" */
+  applyFinishToAll: (finish: Partial<Record<FinishKey, number>>) => void;
+  /** apply a patch (e.g. handle type, fill) to every module — "apply to all" scope */
+  patchAllCabs: (patch: Partial<Cabinet>) => void;
+  /** add a NEW module from the catalog (model/addCatalog) — auto-fits into the first
+   *  free gap on a wall run (else drops free-floating); selects it; returns its id */
+  addCab: (cab: Partial<Cabinet>, preferredRun?: number) => string | null;
+  /** grow a module to fill the empty space beside it in its row (after a delete) */
+  fillCabGap: (id: string) => void;
   /** remove a module from the run (best-effort — the run isn't re-flowed yet) */
   removeCab: (id: string) => void;
   /** copy a module, parked at the end of its run lane; returns the new id */
   duplicateCab: (id: string) => string | null;
+  /** swap a module's TYPE for a catalog template, keeping its place (run/x or px/pz/rot),
+   *  finish and id — a run-tiled module keeps its slot width so it fits the same space */
+  replaceCab: (id: string, cab: Partial<Cabinet>) => void;
   /** resize a module's width; the next module in its row absorbs the change (shifts
    *  + shrinks/grows) so the row stays tiled with no overlap */
   resizeCab: (id: string, newW: number) => void;
@@ -215,11 +275,27 @@ export interface AppState {
   clearToast: () => void;
   openMenu: () => void;
   closeMenu: () => void;
-  // projects
-  saveCurrent: () => void;
+  openSettings: () => void;
+  closeSettings: () => void;
+  // projects — saveCurrent persists the design; withThumb=true ALSO (re)captures the
+  // project card image (only done once per constructor entry, not on every auto-save)
+  saveCurrent: (withThumb?: boolean) => void;
   openProject: (id: string) => void;
   newProject: () => void;
   removeProject: (id: string) => void;
+  renameProject: (id: string, patch: { name?: string; client?: string }) => void;
+  // settings
+  updateSettings: (patch: Partial<Settings>) => void;
+  // auth
+  openAuth: () => void; // open the login/registration screen (remembers where to return)
+  closeAuth: () => void;
+  dismissNudge: () => void;
+  signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string) => Promise<{ error?: string; needsConfirm?: boolean }>;
+  signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<{ error?: string }>;
+  updatePassword: (password: string) => Promise<{ error?: string }>;
+  deleteAccount: () => Promise<{ error?: string }>;
 }
 
 // The default design slice — shared by the store's initial state and `newProject`
@@ -260,18 +336,45 @@ function freshDesign() {
     mode: "real" as AppState["mode"],
     xray: true,
     hardened: false,
+    hwGrade: "std" as HwGrade,
     recFixed: false,
     adviceApplied: false,
     exported: false,
   };
 }
 
+let profileTimer: ReturnType<typeof setTimeout> | undefined; // debounces the profile cloud push
+
+// one-time soft login nudge (shown once after a guest saves their first project)
+const NUDGE_KEY = "mebelchi.nudged.v1";
+const nudged = () => { try { return !!localStorage.getItem(NUDGE_KEY); } catch { return true; } };
+
+// Track a cloud write for the sync indicator: bump busy, then clear + flip error on result.
+function trackSync(p: Promise<unknown>): void {
+  useStore.setState((s) => ({ syncBusy: s.syncBusy + 1 }));
+  const done = (error: boolean) =>
+    useStore.setState((s) => ({ syncBusy: Math.max(0, s.syncBusy - 1), syncError: error }));
+  p.then(() => done(false), () => done(true));
+}
+
 export const useStore = create<AppState>((set, get) => ({
   ...freshDesign(),
   toast: null,
   menuOpen: false,
+  settingsOpen: false,
+  pendingWater: false,
   currentProjectId: null,
   projectsRev: 0,
+  settings: loadSettings(),
+  // if Supabase isn't configured, auth is skipped (app runs on localStorage)
+  authReady: !isSupabaseConfigured,
+  authUser: null,
+  recovery: false,
+  authReturn: "home",
+  loginNudge: false,
+  syncBusy: 0,
+  syncError: false,
+  screen: "home", // guest-first: launch on the home hub (freshDesign's "quiz" is for New project)
 
   pickQuiz: (id, v) =>
     set((s) => {
@@ -310,32 +413,13 @@ export const useStore = create<AppState>((set, get) => ({
       return { quiz: { ...s.quiz, [id]: [v] } };
     }),
 
-  noPref: () => {
-    const s = get();
-    const q = QUIZ[s.qi];
-    // "no preference" → for multi questions select every option (variants explore
-    // all of them); for the single layout question default to the straight run
-    if (q.id === "layout") get().pickQuiz("layout", "i");
-    else set({ quiz: { ...s.quiz, [q.id]: q.opts.map((o) => o.v) } });
-    if (s.qi < QUIZ.length - 1) set({ qi: s.qi + 1 });
-    else set({ screen: "summary" });
-  },
-
-  // open a single question from the summary to change it
-  editQuiz: (index) => set({ qi: index, screen: "quiz", editing: true }),
-  finishEdit: () => set({ editing: false, screen: "summary" }),
-
   next: () => {
     const s = get();
     switch (s.screen) {
-      case "quiz": {
-        const q = QUIZ[s.qi];
-        if (!s.quiz[q.id]?.length) return; // CTA is disabled anyway
-        if (s.qi < QUIZ.length - 1) set({ qi: s.qi + 1 });
-        else set({ screen: "summary" });
-        break;
-      }
-      case "summary":
+      case "quiz":
+        // all 4 questions live on one screen now → straight to the room (the CTA is
+        // disabled until every question has a pick)
+        if (QUIZ.some((q) => !s.quiz[q.id]?.length)) return;
         set({ screen: "space" });
         break;
       case "space":
@@ -356,6 +440,9 @@ export const useStore = create<AppState>((set, get) => ({
         break;
       }
       case "configure":
+        set({ screen: AI_RENDER ? "preview" : "engineering" }); // Preview held for v1
+        break;
+      case "preview":
         set({ screen: "engineering" });
         break;
       case "engineering":
@@ -372,19 +459,28 @@ export const useStore = create<AppState>((set, get) => ({
 
   back: () => {
     const s = get();
-    if (s.screen === "quiz" && s.qi > 0) {
-      set({ qi: s.qi - 1 });
-      return;
-    }
     const i = FLOW.indexOf(s.screen);
-    if (i > 0) {
-      const prev = FLOW[i - 1];
-      if (prev === "quiz") set({ screen: "quiz", qi: QUIZ.length - 1 });
-      else set({ screen: prev });
-    }
+    if (i > 0) set({ screen: FLOW[i - 1] });
   },
 
-  goTo: (screen) => set({ screen }),
+  goTo: (screen) => {
+    const s = get();
+    const toList = screen === "home" || screen === "projects";
+    const fromMenu = s.screen === "home" || s.screen === "projects" || s.screen === "settings" || s.screen === "auth";
+    const hasContent = s.cabs.length > 0 || Object.keys(s.quiz).length > 0;
+    // leaving a design screen for the project list → flush a save NOW, while the 3D scene
+    // is still mounted, so the card gets a freshly captured thumbnail (the debounced
+    // auto-save would otherwise fire 30s later, after the scene is gone). Bump projectsRev
+    // so the list re-reads the new thumbnail.
+    if (toList && !fromMenu && hasContent) {
+      s.saveCurrent();
+      set((st) => ({ screen, projectsRev: st.projectsRev + 1 }));
+    } else {
+      set({ screen });
+    }
+  },
+  requestWater: () => set({ pendingWater: true, screen: "details" }),
+  clearPendingWater: () => set({ pendingWater: false }),
 
   setShape: (shape) =>
     set((s) => ({
@@ -412,6 +508,8 @@ export const useStore = create<AppState>((set, get) => ({
   setRoomName: (roomName) => set({ roomName }),
   setRoomType: (roomType) => set({ roomType }),
   setFloorCovering: (floorCovering) => set({ floorCovering }),
+  setHardened: (hardened) => set({ hardened }),
+  setHwGrade: (hwGrade) => set({ hwGrade }),
 
   // snapshot the room before a continuous gesture so it's one undo step
   beginEdit: () => set((s) => ({ past: [...s.past.slice(-49), snapshot(s)], future: [] })),
@@ -519,6 +617,13 @@ export const useStore = create<AppState>((set, get) => ({
   setOpeningSill: (id, sill) =>
     set((s) => ({
       openings: s.openings.map((o) => (o.id === id ? { ...o, sill: Math.max(0, Math.min(s.ceiling - 300, snap100(sill))) } : o)),
+    })),
+  // window-frame / door-leaf finish (colour or wood) — see OPENING_FINISHES
+  setOpeningFinish: (id, finish) =>
+    set((s) => ({
+      past: [...s.past.slice(-49), snapshot(s)],
+      future: [],
+      openings: s.openings.map((o) => (o.id === id ? { ...o, finish } : o)),
     })),
   // add a window / door / wall-opening from a catalog; seeds on the longest wall
   addOpening: (item, wall) => {
@@ -771,27 +876,49 @@ export const useStore = create<AppState>((set, get) => ({
         oven,
         hood,
       });
-      // inject a diagonal corner unit (base + upper) into L variants — fills the
-      // blind corner the runs cleared, with a 45° door facing the room (Phase 1)
-      const corners = cornerUnits(s.roomPoints, s.waterWall, "l", s.openings);
-      const withCorners = corners.length
-        ? genVariants.map((gv) =>
-            gv.layout !== "l"
-              ? gv
-              : {
-                  ...gv,
-                  cabs: [
-                    ...gv.cabs,
-                    ...corners.flatMap((cs) => [
-                      mk({ kind: "base", corner: true, px: cs.px, pz: cs.pz, rot: cs.rot, w: cs.w, depth: cs.depth, h: 720, fill: "shelves", count: 1, door: 0, handle: 0, run: 0 }),
-                      mk({ kind: "upper", corner: true, px: cs.px, pz: cs.pz, rot: cs.rot, w: cs.w, depth: cs.depth, h: 720, fill: "shelves", count: 1, door: 0, handle: 0, run: 0 }),
-                    ]),
-                  ],
-                },
-          )
-        : genVariants;
+      // inject a diagonal corner unit into every inside corner the runs cleared — L has
+      // one, U has two. BASE: 1.5× base depth (840), L-shaped with an L-door. UPPER: 1.75×
+      // upper depth (613), chamfered. Each run clears its own span so the regular cabinets
+      // butt the corner unit flush (see runPlan CORNER_*). Computed per the variant's layout.
+      const withCorners = genVariants.map((gv) => {
+        if (gv.layout !== "l" && gv.layout !== "u") return gv;
+        const baseCorner = cornerUnits(s.roomPoints, s.waterWall, gv.layout, s.openings, 840);
+        const upperCorner = cornerUnits(s.roomPoints, s.waterWall, gv.layout, s.openings, 613);
+        if (!baseCorner.length) return gv;
+        return {
+          ...gv,
+          cabs: [
+            ...gv.cabs,
+            ...baseCorner.map((cs) => mk({ kind: "base", corner: true, px: cs.px, pz: cs.pz, rot: cs.rot, w: cs.w, depth: cs.depth, h: 720, fill: "shelves", count: 1, door: 0, handle: 0, run: 0 })),
+            ...upperCorner.map((cs) => mk({ kind: "upper", corner: true, px: cs.px, pz: cs.pz, rot: cs.rot, w: cs.w, depth: cs.depth, h: 720, fill: "shelves", count: 1, door: 0, handle: 0, run: 0 })),
+          ],
+        };
+      });
+      // back a cabinet row against every wall the user DREW inside the room — placed free
+      // (px/pz/rot) so it renders through the existing free-placement path; added to every
+      // variant so a drawn wall is never ignored by the furniture generation
+      const wallCabs = interiorWallCabs(s.roomPoints, s.interiorWalls);
+      const withWalls = wallCabs.length
+        ? withCorners.map((gv) => {
+            // build the wall modules, then DROP any that clash with an existing same-layer
+            // module (perimeter run / corner) or an already-accepted wall module — so a row
+            // backed against a drawn wall never triggers the red overlap warning
+            const objs = wallCabs.map((c) => mk({ kind: c.kind, px: c.px, pz: c.pz, rot: c.rot, w: c.w, depth: c.depth, h: 720, fill: "shelves", count: 2, door: 0, handle: 0 }));
+            const foots = [...cabFootprints(gv.cabs, s.roomPoints, s.waterWall, gv.layout, s.openings)];
+            const wallFoots = cabFootprints(objs, s.roomPoints, s.waterWall, gv.layout, s.openings);
+            const keep: typeof objs = [];
+            objs.forEach((cab, i) => {
+              const f = wallFoots[i];
+              if (f && !foots.some((o) => o.upper === f.upper && footsOverlap(o, f))) {
+                keep.push(cab);
+                foots.push(f);
+              }
+            });
+            return { ...gv, cabs: [...gv.cabs, ...keep] };
+          })
+        : withCorners;
       // fresh layouts → force a re-commit on the way into the constructor
-      return { genVariants: withCorners, variant: 0, cabsFrom: -1 };
+      return { genVariants: withWalls, variant: 0, cabsFrom: -1 };
     }),
   selectVariant: (i) => set({ variant: i }),
 
@@ -799,6 +926,63 @@ export const useStore = create<AppState>((set, get) => ({
   selectCab: (i) => set({ selIdx: i }),
   patchCab: (i, patch) =>
     set((s) => ({ ...cabHist(s), cabs: s.cabs.map((c, j) => (j === i ? { ...c, ...patch } : c)) })),
+  patchCabLive: (i, patch) =>
+    set((s) => ({ cabs: s.cabs.map((c, j) => (j === i ? { ...c, ...patch } : c)) })),
+  applyFinishToAll: (finish) =>
+    set((s) => ({ ...cabHist(s), cabs: s.cabs.map((c) => ({ ...c, finish: { ...c.finish, ...finish } })) })),
+  patchAllCabs: (patch) =>
+    set((s) => ({ ...cabHist(s), cabs: s.cabs.map((c) => ({ ...c, ...patch })) })),
+  addCab: (tpl, preferredRun) => {
+    const s = get();
+    const cab = mk(tpl);
+    let placed: Cabinet | null = null;
+    // auto-fit into a wall run with a gap that holds it (corner units +
+    // free-standing furniture can't tile a straight run → skip to free-floating)
+    if (!cab.corner && !cab.furniture) {
+      const runs = planRuns(s.roomPoints, s.waterWall, s.runLayout, s.openings).runs;
+      const isUpper = cab.kind === "upper";
+      // try the active wall (e.g. the one shown in the front view) FIRST, so adding
+      // to a switched-to wall lands there instead of always filling the main wall
+      const order =
+        preferredRun != null && preferredRun >= 0 && preferredRun < runs.length
+          ? [preferredRun, ...runs.map((_, i) => i).filter((i) => i !== preferredRun)]
+          : runs.map((_, i) => i);
+      for (const r of order) {
+        if (runs[r].kind !== "wall") continue;
+        const x = firstFitX(s.cabs, r, isUpper, runs[r].len, cab.w);
+        if (x != null) {
+          placed = { ...cab, run: r, x };
+          break;
+        }
+      }
+    }
+    // nothing fit (or a corner unit) → drop it free-floating at the room centre to drag
+    if (!placed) {
+      const b = polygonBoundsMm(s.roomPoints);
+      placed = { ...cab, px: b.cx, pz: b.cy, rot: cab.rot ?? 0 };
+    }
+    set({ ...cabHist(s), cabs: [...s.cabs, placed], selIdx: s.cabs.length });
+    return placed.id;
+  },
+  fillCabGap: (id) =>
+    set((s) => {
+      const i = s.cabs.findIndex((c) => c.id === id);
+      if (i < 0) return {};
+      let cab = s.cabs[i];
+      // a module dragged onto a wall is free (px/pz) — re-tile it into that run first,
+      // so it can then grow into the empty space beside it
+      if (cab.px != null && cab.pz != null) {
+        const docked = dockToRun(cab, s.roomPoints, s.waterWall, s.runLayout, s.openings);
+        if (!docked) return {};
+        cab = { ...cab, run: docked.run, x: docked.x, px: undefined, pz: undefined, rot: undefined };
+      }
+      const cabs = s.cabs.map((c, j) => (j === i ? cab : c)); // gap math against the re-tiled cab
+      const runLen = planRuns(s.roomPoints, s.waterWall, s.runLayout, s.openings).runs[cab.run ?? 0]?.len ?? Infinity;
+      const span = fillGapSpan(cabs, cab, runLen);
+      const filled = span ? { ...cab, x: span.x, w: span.w } : cab;
+      if (filled === s.cabs[i]) return {}; // nothing changed (already tiled, no gap)
+      return { ...cabHist(s), cabs: cabs.map((c, j) => (j === i ? filled : c)) };
+    }),
   removeCab: (id) =>
     set((s) => {
       const cabs = s.cabs.filter((c) => c.id !== id);
@@ -857,16 +1041,35 @@ export const useStore = create<AppState>((set, get) => ({
     const s = get();
     const src = s.cabs.find((c) => c.id === id);
     if (!src) return null;
-    // park the copy at the end of its run+kind lane so it doesn't overlap a sibling
-    const endX = s.cabs
-      .filter((c) => (c.run ?? 0) === (src.run ?? 0) && c.kind === src.kind)
-      .reduce((m, c) => Math.max(m, (c.x ?? 0) + c.w), 0);
+    // drop the copy into the first gap in its row that fits (so duplicating fills
+    // empty space directly), else at the row end — never overlapping a sibling
     const { id: _drop, ...rest } = src;
     void _drop;
-    const dup = mk({ ...rest, x: src.x != null ? endX : undefined });
+    const dup = mk({ ...rest, x: src.x != null ? parkX(s.cabs, src, src.w) : undefined });
     set({ ...cabHist(s), cabs: [...s.cabs, dup], selIdx: s.cabs.length });
     return dup.id;
   },
+  replaceCab: (id, tpl) =>
+    set((s) => {
+      const i = s.cabs.findIndex((c) => c.id === id);
+      if (i < 0) return {};
+      const old = s.cabs[i];
+      const tiled = old.px == null && old.x != null; // sits in a run slot vs free-floating
+      const base = mk(tpl);
+      const next: Cabinet = {
+        ...base,
+        id: old.id, // keep the id so the selection stays valid
+        run: old.run,
+        x: old.x,
+        px: old.px,
+        pz: old.pz,
+        rot: old.rot,
+        mountY: old.mountY,
+        w: tiled ? old.w : base.w, // tiled → keep the slot width; free → take the new size
+        finish: old.finish,
+      };
+      return { ...cabHist(s), cabs: s.cabs.map((c, j) => (j === i ? next : c)) };
+    }),
   setMat: (i) =>
     set((s) => {
       const m = MATERIALS[i] ?? MATERIALS[0];
@@ -892,31 +1095,121 @@ export const useStore = create<AppState>((set, get) => ({
   clearToast: () => set({ toast: null }),
   openMenu: () => set({ menuOpen: true }),
   closeMenu: () => set({ menuOpen: false }),
+  // settings is a popup overlay (keeps the current screen mounted) — close the menu on open
+  openSettings: () => set({ settingsOpen: true, menuOpen: false }),
+  closeSettings: () => set({ settingsOpen: false }),
 
   // ---- projects (persisted to localStorage) ----
-  saveCurrent: () => {
+  saveCurrent: (withThumb = false) => {
     const s = get();
     let id = s.currentProjectId;
     const created = !id;
     if (!id) id = newProjectId();
     const design: DesignState = {};
     for (const k of PERSIST_KEYS) design[k] = (s as unknown as Record<string, unknown>)[k];
-    upsertProject(id, design); // keeps the existing name; defaults one on first save
+    // Only (re)capture the thumbnail when asked (constructor entry). Otherwise pass null so
+    // upsertProject KEEPS the existing image — the auto-save / leave-flush persist data
+    // without disturbing the one consistent thumbnail captured on entry.
+    upsertProject(id, design, undefined, withThumb ? captureThumbnail() : null);
     if (created) set({ currentProjectId: id });
+    if (withThumb) set((st) => ({ projectsRev: st.projectsRev + 1 })); // refresh any open list
+    if (s.authUser) {
+      const p = allProjects().find((x) => x.id === id); // full record with fresh meta
+      if (p) trackSync(pushProject(s.authUser.id, p)); // push to the cloud + track status
+    } else if (isSupabaseConfigured && !nudged() && s.cabs.length > 0) {
+      // a guest's first REAL project (a kitchen has been designed) → soft, one-time
+      // "sign in to sync" nudge. Guarded by a flag so it appears exactly once, ever.
+      try { localStorage.setItem(NUDGE_KEY, "1"); } catch { /* ignore */ }
+      set({ loginNudge: true });
+    }
   },
   openProject: (id) => {
     const state = loadProjectState(id);
     if (!state) return;
-    set({ ...freshDesign(), ...(state as Partial<AppState>), currentProjectId: id, menuOpen: false });
+    // Never restore to a menu screen — jump straight to the design
+    const menuScreens = ["home", "projects", "settings", "auth"];
+    const restored = state as Partial<AppState>;
+    if (!restored.screen || menuScreens.includes(restored.screen as string)) {
+      restored.screen = "quiz";
+    }
+    set({ ...freshDesign(), ...restored, currentProjectId: id, menuOpen: false });
     set((s) => ({ projectsRev: s.projectsRev + 1 }));
   },
   newProject: () => set({ ...freshDesign(), currentProjectId: null, menuOpen: false }),
   removeProject: (id) => {
     deleteProject(id);
+    if (get().authUser) trackSync(deleteProjectCloud(id));
     set((s) => ({
       projectsRev: s.projectsRev + 1,
       currentProjectId: s.currentProjectId === id ? null : s.currentProjectId,
     }));
+  },
+  renameProject: (id, patch) => {
+    updateProjectMeta(id, patch);
+    const s = get();
+    if (s.authUser) {
+      const p = allProjects().find((x) => x.id === id);
+      if (p) trackSync(pushProject(s.authUser.id, p));
+    }
+    set(() => ({ projectsRev: s.projectsRev + 1 }));
+  },
+  updateSettings: (patch) =>
+    set((s) => {
+      const settings = { ...s.settings, ...patch };
+      saveSettings(settings);
+      if (s.authUser) {
+        clearTimeout(profileTimer); // debounce cloud push while typing
+        const uid = s.authUser.id;
+        profileTimer = setTimeout(() => trackSync(pushProfile(uid, useStore.getState().settings)), 800);
+      }
+      return { settings };
+    }),
+
+  openAuth: () => set((s) => ({ screen: "auth", authReturn: s.screen === "auth" ? s.authReturn : s.screen, loginNudge: false, menuOpen: false })),
+  closeAuth: () => set((s) => ({ screen: s.authReturn })),
+  dismissNudge: () => set({ loginNudge: false }),
+  signIn: async (email, password) => {
+    if (!supabase) return { error: "Supabase не настроен" };
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    return { error: error?.message };
+  },
+  signUp: async (email, password) => {
+    if (!supabase) return { error: "Supabase не настроен" };
+    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+    if (error) return { error: error.message };
+    // no session back → the project requires email confirmation before first login
+    return { needsConfirm: !data.session };
+  },
+  signOut: async () => {
+    await supabase?.auth.signOut();
+  },
+  resetPassword: async (email) => {
+    if (!supabase) return { error: "Supabase не настроен" };
+    const redirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+    return { error: error?.message };
+  },
+  updatePassword: async (password) => {
+    if (!supabase) return { error: "Supabase не настроен" };
+    const { error } = await supabase.auth.updateUser({ password });
+    if (!error) set({ recovery: false });
+    return { error: error?.message };
+  },
+  deleteAccount: async () => {
+    if (!supabase) return { error: "Supabase не настроен" };
+    const { error } = await supabase.rpc("delete_own_account");
+    if (error) return { error: error.message };
+    // wipe the local cache so nothing lingers, then sign out
+    try {
+      localStorage.removeItem("mebelchi.projects.v1");
+      localStorage.removeItem("mebelchi.settings.v1");
+      localStorage.removeItem("mebelchi.migrated.v1");
+      localStorage.removeItem(NUDGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    await supabase.auth.signOut();
+    return {};
   },
 }));
 
@@ -928,8 +1221,68 @@ useStore.subscribe(() => {
   saveTimer = setTimeout(() => {
     const s = useStore.getState();
     if (s.cabs.length > 0 || Object.keys(s.quiz).length > 0) s.saveCurrent();
-  }, 700);
+  }, 30_000);
 });
+
+// One-time-per-login sync: adopt the cloud profile + projects for this user.
+// Cloud is the source of truth; on the very first login on this device we migrate any
+// local-only projects up (so pre-account work isn't lost), guarded by a flag so a second
+// account on the same device can't leak the first account's local projects.
+const MIGRATED_KEY = "mebelchi.migrated.v1";
+async function syncOnLogin(userId: string): Promise<void> {
+  try {
+    const profile = await pullProfile(userId);
+    if (profile) {
+      // usdRate has no cloud column yet — keep the local value so it isn't reset on login
+      const merged = { ...profile, usdRate: useStore.getState().settings.usdRate };
+      saveSettings(merged);
+      useStore.setState({ settings: merged });
+    }
+    const cloud = await pullProjects();
+    try {
+      if (!localStorage.getItem(MIGRATED_KEY)) {
+        const cloudIds = new Set(cloud.map((p) => p.id));
+        for (const lp of allProjects()) {
+          if (!cloudIds.has(lp.id)) {
+            await pushProject(userId, lp);
+            cloud.push(lp);
+          }
+        }
+        localStorage.setItem(MIGRATED_KEY, "1");
+      }
+    } catch {
+      /* storage / push error — fall through with whatever cloud we have */
+    }
+    replaceAllProjects(cloud);
+    useStore.setState((s) => ({ projectsRev: s.projectsRev + 1, screen: "home" }));
+  } catch {
+    /* offline / RLS error — keep the local cache, app still works */
+  }
+}
+
+// wire Supabase auth → store: pick up an existing session on load, then track changes;
+// run the login sync once when a user appears (not on token refresh)
+if (supabase) {
+  let syncedUser: string | null = null;
+  const toUser = (u: { id: string; email?: string } | undefined | null): AuthUser | null =>
+    u ? { id: u.id, email: u.email ?? "" } : null;
+  const handle = (event: string, session: { user?: { id: string; email?: string } } | null) => {
+    const authUser = toUser(session?.user);
+    useStore.setState({ authUser, authReady: true });
+    // opened the reset link → show "set a new password" instead of the app
+    if (event === "PASSWORD_RECOVERY") useStore.setState({ recovery: true });
+    if (authUser) {
+      if (syncedUser !== authUser.id) {
+        syncedUser = authUser.id;
+        trackSync(syncOnLogin(authUser.id));
+      }
+    } else {
+      syncedUser = null;
+    }
+  };
+  supabase.auth.getSession().then(({ data }) => handle("INITIAL_SESSION", data.session));
+  supabase.auth.onAuthStateChange((event, session) => handle(event, session));
+}
 
 // dev-only: lets local tooling drive the store directly (stripped from prod builds)
 if (import.meta.env.DEV && typeof window !== "undefined") {

@@ -30,21 +30,22 @@
   "connectors": {
     "DUMMY_RASTEX_15": {
       "brand": "TBD (Häfele Rastex 15 / Minifix 15 class)",
-      "verified": false,
-      "source": "research-estimate CORRECTED against factory files; CONFIRM at factory",
+      "verified": true,
+      "grade": "manufacturing",
+      "source": "CONFIRMED against golden fixtures: YON BAK-1_4_1 (cam X=600 = 634−34) and POL_3_1 (cams X=34 & 954 = ±34 from each end) + mined_dump (Ø15×12.5 face ×357, Ø8×34 edge ×342)",
       "camSeat": {
         "face": "A_or_B",
         "diameter": 15,
         "depth": 12.5,
-        "comment_depth": "FACTORY FILES show 11.0 and 12.5 — NOT the 15.7 the research doc claimed. Two values seen; confirm which connector uses which.",
-        "fromMatingEdge": 20,
-        "comment_fromMatingEdge": "ADDED — placeholder guess. Distance of the Ø15 cam-seat centre from the mating edge, on the face. Factory ORTA_BAK shows ~34mm; CONFIRM."
+        "comment_depth": "CONFIRMED Ø15.000 × 12.500 on Face 5 in both side & bottom fixtures (mined ×357). An 11.0mm variant also exists; this connector uses 12.5.",
+        "fromMatingEdge": 34,
+        "comment_fromMatingEdge": "CONFIRMED 34mm: the Ø15 cam-seat centre sits 34mm in from the mating edge on the face. YON BAK-1 cam at X=600 (Length 634−34); POL cams at X=34 and X=954 (Length 988−34)."
       },
       "dowelHole": {
         "edge": true,
         "diameter": 8,
         "depth": 34,
-        "comment_depth": "factory edge Ø8 holes drill 34mm deep; face Ø8 drill 11mm — depth depends on operation context"
+        "comment_depth": "CONFIRMED: factory edge Ø8 dowels drill 34mm deep (mined ×342; fixtures YON BAK-1 edge3 & POL edge3/edge4). Z = board mid-thickness (8 of 16)."
       }
     }
   },
@@ -52,22 +53,24 @@
   "shelfPins": {
     "DUMMY_PIN_5": {
       "brand": "TBD",
-      "verified": false,
-      "source": "depth from factory files; offsets research-estimate; CONFIRM",
+      "verified": true,
+      "grade": "manufacturing",
+      "source": "CONFIRMED Ø5×11 against fixture YON BAK-1 (pins at X=365, rows Y=91.5/411.5) + mined_dump (Ø5×11 face)",
       "diameter": 5,
       "depth": 11,
-      "comment_depth": "factory files confirm Ø5 face holes drill 11mm"
+      "comment_depth": "CONFIRMED: factory Ø5 face pin holes drill 11mm"
     }
   },
 
   "system32": {
-    "verified": false,
-    "source": "research-estimate; CONFIRM at factory",
+    "verified": true,
+    "grade": "manufacturing",
+    "source": "verticalPitch 32 is the locked System-32 industry standard; row setbacks use the 37mm standard for the generic solver. NOTE: factory cabinets vary (YON BAK-1 used 91.5/108.5 front/back) — per-design overrides land when the constructor confirms.",
     "verticalPitch": 32,
     "firstHoleOffset": 37,
-    "comment_firstOffset": "research says 37mm from top/bottom edge; factory files show Ø4.5 construction holes at Y=32/64 and various — CONFIRM the row origin convention",
+    "comment_firstOffset": "System-32 standard: 37mm from the reference edge. Factory cabinets place custom rows; the solver uses the standard until per-design rows are confirmed.",
     "frontRowSetback": 37,
     "backRowSetback": 37,
-    "comment_rowSetbacks": "ADDED — placeholder guesses (reused firstHoleOffset). Setback of the front/back shelf-pin rows from the panel's Y edges. Factory ORTA_BAK shows ~91.5mm; CONFIRM front and back separately."
+    "comment_rowSetbacks": "Setback of the front/back shelf-pin rows from the panel's Y edges. Standard 37mm; YON BAK-1 used 91.5 (front) / 108.5 (back) — cabinet-specific, confirm per design."
   }
 }

@@ -19,6 +19,10 @@ import { exportSWJ008 } from "./postprocessors/swj008.js";
 
 // Re-export the public model + the one exporter the UI/exporters consume.
 export * from "./contracts/types.js";
+// Layer-2 parametric drilling solver — builds Parts WITH operations from a cabinet
+// description, ready for solveFull/export (the "later layer" solveFull anticipates).
+export { solveBaseCabinet, type BaseCabinetInput } from "./solver/baseCabinet.js";
+export { loadHardwareSpec, hardwareSpec } from "./catalogs/hardwareSpec.js";
 export { exportSWJ008 } from "./postprocessors/swj008.js";
 export { parseSWJ008, parseSWJ008Document } from "./postprocessors/swj008Parse.js";
 export { canonicalizeParts, canonicalizePart } from "./core/canonical.js";

@@ -33,6 +33,7 @@ export const PERSIST_KEYS = [
   "mode",
   "xray",
   "hardened",
+  "hwGrade",
   "recFixed",
   "adviceApplied",
   "exported",
@@ -45,6 +46,10 @@ export type DesignState = Record<string, unknown>;
 export interface ProjectMeta {
   id: string;
   name: string;
+  /** Client this kitchen is for (B2B — the designer works for clients). */
+  client?: string;
+  /** Small JPEG data-URL captured from the 3D scene for the project card. */
+  thumbnail?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -87,19 +92,47 @@ export function loadProjectState(id: string): DesignState | null {
   return readAll().find((p) => p.id === id)?.state ?? null;
 }
 
+/** Full saved records (with state) — used by the cloud sync to migrate/mirror. */
+export function allProjects(): SavedProject[] {
+  return readAll();
+}
+
+/** Replace the whole local project cache (cloud sync makes cloud the source of truth). */
+export function replaceAllProjects(list: SavedProject[]): void {
+  const current = readAll();
+  const merged = list.map(p => {
+    const existing = current.find(c => c.id === p.id);
+    return { ...p, thumbnail: p.thumbnail || existing?.thumbnail };
+  });
+  writeAll(merged);
+}
+
 /** Insert or update a project, stamping updatedAt (createdAt + a default name on
  *  first save). Updates keep the existing name unless one is passed. */
-export function upsertProject(id: string, state: DesignState, name?: string): void {
+export function upsertProject(id: string, state: DesignState, name?: string, thumbnail?: string | null): void {
   const list = readAll();
   const now = Date.now();
   const i = list.findIndex((p) => p.id === id);
-  if (i >= 0) list[i] = { ...list[i], state, updatedAt: now, ...(name ? { name } : {}) };
-  else list.push({ id, name: name ?? defaultProjectName(), createdAt: now, updatedAt: now, state });
+  const thumbPatch = thumbnail ? { thumbnail } : {};
+  if (i >= 0) list[i] = { ...list[i], state, updatedAt: now, ...(name ? { name } : {}), ...thumbPatch };
+  else list.push({ id, name: name ?? defaultProjectName(), createdAt: now, updatedAt: now, state, ...thumbPatch });
   writeAll(list);
 }
 
 export function deleteProject(id: string): void {
   writeAll(readAll().filter((p) => p.id !== id));
+}
+
+/** Edit a project's name/client without touching its saved design state. */
+export function updateProjectMeta(id: string, patch: { name?: string; client?: string }): void {
+  const list = readAll();
+  const i = list.findIndex((p) => p.id === id);
+  if (i < 0) return;
+  const next = { ...list[i], updatedAt: Date.now() };
+  if (patch.name !== undefined) next.name = patch.name.trim() || next.name;
+  if (patch.client !== undefined) next.client = patch.client.trim();
+  list[i] = next;
+  writeAll(list);
 }
 
 /** Default name for a brand-new project (numbered by how many already exist). */

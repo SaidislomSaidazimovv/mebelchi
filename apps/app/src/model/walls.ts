@@ -56,6 +56,8 @@ export const WALL_COVERINGS: WallCovering[] = [
   { id: "br2", name: "Кофейный", family: "Коричневый", color: "#7b5e44" },
   { id: "br3", name: "Орех", family: "Коричневый", color: "#8a5a3b" },
   { id: "br4", name: "Какао", family: "Коричневый", color: "#9c7a5b" },
+  { id: "n0", name: "Белый", family: "Нейтральный", color: "#fafaf7" },
+  { id: "n0b", name: "Молочный", family: "Нейтральный", color: "#f1eee7" },
   { id: "n1", name: "Тёплый белый", family: "Нейтральный", color: "#f3efe9" },
   { id: "n2", name: "Кремовый", family: "Нейтральный", color: "#efe6d2" },
   { id: "n3", name: "Светло-серый", family: "Нейтральный", color: "#d9d6d0" },

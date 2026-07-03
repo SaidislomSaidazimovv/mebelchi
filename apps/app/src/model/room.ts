@@ -95,6 +95,26 @@ export interface Opening {
   desc: string;
   flip?: boolean; // mirror the leaf / swing side
   sill?: number; // bottom above floor (mm); undefined = per-kind default
+  finish?: string; // OPENING_FINISHES id (frame / leaf colour or wood); undefined = default
+}
+
+/** Colour / material finishes for a window frame or door leaf (the "Цвет" picker). */
+export interface OpeningFinish {
+  id: string;
+  name: string;
+  color: string; // swatch + tint
+  tex?: string; // PBR texture key (wood) — overrides the flat colour in the 3D
+}
+export const OPENING_FINISHES: OpeningFinish[] = [
+  { id: "white", name: "Белый", color: "#f4f4f4" },
+  { id: "grey", name: "Серый", color: "#b7bbbf" },
+  { id: "anthracite", name: "Антрацит", color: "#3b3f43" },
+  { id: "black", name: "Чёрный", color: "#202225" },
+  { id: "oak", name: "Дуб", color: "#c79a64", tex: "wood_oak" },
+  { id: "walnut", name: "Орех", color: "#6e4a2f", tex: "wood_walnut" },
+];
+export function openingFinish(id: string | undefined): OpeningFinish | null {
+  return id ? OPENING_FINISHES.find((f) => f.id === id) ?? null : null;
 }
 
 /** Default head/pane height (mm) for an opening kind. */

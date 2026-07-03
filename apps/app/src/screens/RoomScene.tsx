@@ -3,6 +3,7 @@
 // edit, drag corners (with 90°/45° magnet) and openings, edit numbers inline.
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
+import { useT } from "../i18n/useT";
 import { ThreeScene, type SceneView } from "../three/ThreeScene";
 import { FloorPlan } from "../components/FloorPlan";
 import { WaterPicker } from "../components/WaterPicker";
@@ -10,8 +11,9 @@ import { OpeningThumb, FittingThumb } from "../components/Thumb";
 import { OptionCard } from "../components/OptionCard";
 import { Illustration } from "../quiz/Illustration";
 import { FLOOR_COVERINGS, ROOM_TYPES } from "../model/floors";
-import { fittingCatalog, fittingKind, openingCatalog, wallSegments, defaultFittingHeight, defaultOpeningSill, type FittingCategory, type OpeningKind, type OpeningKindId, type Pt } from "../model/room";
+import { fittingCatalog, fittingKind, openingCatalog, wallSegments, defaultFittingHeight, defaultOpeningSill, OPENING_FINISHES, type FittingCategory, type OpeningKind, type OpeningKindId, type Pt } from "../model/room";
 import { WALL_COVERINGS, WALL_FAMILIES, familyCount, coveringColor as wallColorHex, dominantColor, leafRects, defaultSurface, type SurfPath } from "../model/walls";
+import { matSwatchStyle } from "../three/pbr";
 import {
   IconRoomShape,
   IconElements,
@@ -50,18 +52,9 @@ type Sheet =
   | "itemEdit"
   | "wallColor"
   | "wallModify"
+  | "openingFinish"
   | FittingCategory
   | OpeningKindId;
-const FIT_TITLES: Record<FittingCategory, string> = {
-  electric: "Добавить Электротовары",
-  heating: "Добавить Радиаторы",
-  vent: "Добавить Вентиляцию",
-};
-const OPEN_TITLES: Record<OpeningKindId, string> = {
-  window: "Добавить Окна",
-  door: "Добавить Двери",
-  opening: "Добавить Проёмы",
-};
 interface Editor {
   x: number;
   y: number;
@@ -70,6 +63,9 @@ interface Editor {
 }
 
 export function RoomScene() {
+  const t = useT();
+  const fitTitle = (c: FittingCategory) => (c === "electric" ? t.room.fitElectric : c === "heating" ? t.room.fitHeating : t.room.fitVent);
+  const openTitle = (k: OpeningKindId) => (k === "window" ? t.room.openWindow : k === "door" ? t.room.openDoor : t.room.openOpening);
   const shape = useStore((s) => s.shape);
   const ceiling = useStore((s) => s.ceiling);
   const roomPoints = useStore((s) => s.roomPoints);
@@ -90,6 +86,8 @@ export function RoomScene() {
   const replaceFitting = useStore((s) => s.replaceFitting);
   const waterWall = useStore((s) => s.waterWall);
   const setWaterWall = useStore((s) => s.setWaterWall);
+  const pendingWater = useStore((s) => s.pendingWater);
+  const clearPendingWater = useStore((s) => s.clearPendingWater);
   const wallSurfaces = useStore((s) => s.wallSurfaces);
   const setWallColor = useStore((s) => s.setWallColor);
   const setAllWallsColor = useStore((s) => s.setAllWallsColor);
@@ -115,6 +113,7 @@ export function RoomScene() {
   const replaceOpening = useStore((s) => s.replaceOpening);
   const setOpeningHeight = useStore((s) => s.setOpeningHeight);
   const setOpeningSill = useStore((s) => s.setOpeningSill);
+  const setOpeningFinish = useStore((s) => s.setOpeningFinish);
   const flipOpening = useStore((s) => s.flipOpening);
   const beginEdit = useStore((s) => s.beginEdit);
   const undo = useStore((s) => s.undo);
@@ -309,7 +308,7 @@ export function RoomScene() {
     setView("plan");
     selectFitting(id);
     closeSheet();
-    flash("Перетащите элемент по стене");
+    flash(t.room.dragAlongWall);
   };
   const openFitSheet = (category: FittingCategory) => {
     setReplacing(null);
@@ -329,7 +328,7 @@ export function RoomScene() {
     setView("plan");
     selectOpening(id);
     closeSheet();
-    flash("Перетащите по стене");
+    flash(t.room.dragOnWall);
   };
   const openOpenSheet = (kind: OpeningKindId) => {
     setReplacing(null);
@@ -345,6 +344,12 @@ export function RoomScene() {
     setSelectedOpening(null);
     closeSheet();
   };
+
+  // arriving from the variants "add water?" prompt → open the water picker straight away
+  useEffect(() => {
+    if (pendingWater) { enterWaterPick(); clearPendingWater(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingWater]);
 
   const enterAddWall = () => {
     setAddWall(true);
@@ -368,6 +373,7 @@ export function RoomScene() {
 
   const ViewIcon = view === "3d" ? Icon3D : view === "front" ? IconFront : IconPlan;
   const coveringColor = FLOOR_COVERINGS[floorCovering]?.color ?? "#ecd9b4";
+  const floorId = FLOOR_COVERINGS[floorCovering]?.id;
 
   let a = 0;
   for (let i = 0; i < roomPoints.length; i++) {
@@ -398,7 +404,7 @@ export function RoomScene() {
   const selFit = selectedFitting ? fittings.find((f) => f.id === selectedFitting) ?? null : null;
   const itemSelected = !!(selOpen || selFit);
   const selKind = selFit ? fittingKind(selFit.category, selFit.kind) : null;
-  const itemName = selOpen ? selOpen.name : selKind?.name ?? "Элемент";
+  const itemName = selOpen ? selOpen.name : selKind?.name ?? t.room.element;
   const itemDesc = selOpen ? selOpen.desc : selKind?.desc ?? "";
 
   const editItem = () => {
@@ -415,7 +421,7 @@ export function RoomScene() {
       const id = duplicateFitting(selFit.id);
       if (id) selectFitting(id);
     }
-    flash("Дубликат создан");
+    flash(t.room.duplicated);
   };
   const deleteItem = () => {
     if (selOpen) removeOpening(selOpen.id);
@@ -454,10 +460,10 @@ export function RoomScene() {
     <div className="roomscene">
       <div className="stepbar">
         <button className="step-back" onClick={back} type="button">
-          ← Назад
+          {t.room.back}
         </button>
         <button className="step-next" onClick={next} type="button">
-          варианты →
+          {t.room.toVariants}
         </button>
       </div>
 
@@ -514,6 +520,7 @@ export function RoomScene() {
             view={view}
             openings={openings}
             coveringColor={coveringColor}
+            floorId={floorId}
             interiorWalls={interiorWalls}
             fittings={fittings}
             wallSurfaces={wallSurfaces}
@@ -544,13 +551,13 @@ export function RoomScene() {
         {wall3D != null && (
           <div className="item-card">
             <div className="item-card-name">
-              Стена {wall3D + 1}
+              {t.room.wall(wall3D + 1)}
               <span className="item-card-i" aria-hidden>ⓘ</span>
             </div>
             <div className="item-card-desc">
               {(() => {
                 const c = dominantColor(wallSurfaces[wall3D] ?? defaultSurface());
-                return c >= 0 ? WALL_COVERINGS[c].name : "Без покрытия";
+                return c >= 0 ? WALL_COVERINGS[c].name : t.room.noCovering;
               })()}
             </div>
           </div>
@@ -564,33 +571,33 @@ export function RoomScene() {
           return (
             <div className="item-card">
               <div className="item-card-name">
-                {k?.name ?? "Элемент"}
+                {k?.name ?? t.room.element}
                 <span className="item-card-i" aria-hidden>ⓘ</span>
               </div>
-              <div className="item-card-desc">Перетащите, чтобы передвинуть по стене</div>
+              <div className="item-card-desc">{t.room.dragToMove}</div>
             </div>
           );
         })()}
 
         {!waterPick && !itemSelected && view === "plan" && !addWall && showHint && (
-          <div className="plan-hint">Тяните углы и стены · двигайте двери/окна · щипок для зума</div>
+          <div className="plan-hint">{t.room.hintPlan}</div>
         )}
         {!waterPick && view === "plan" && addWall && (
-          <div className="plan-hint">Коснитесь, чтобы добавить точки стены · замкните контур и нажмите «Одобрять»</div>
+          <div className="plan-hint">{t.room.hintAddWall}</div>
         )}
 
         {!waterPick && (
-          <button className="scene-ctl plan-toggle" onClick={() => setViewMenu((v) => !v)} type="button" aria-label="Вид">
+          <button className="scene-ctl plan-toggle" onClick={() => setViewMenu((v) => !v)} type="button" aria-label={t.room.view}>
             <ViewIcon />
           </button>
         )}
 
         {!waterPick && (
           <div className="scene-ctl undo-redo">
-            <button onClick={undo} disabled={!canUndo} type="button" aria-label="Отменить">
+            <button onClick={undo} disabled={!canUndo} type="button" aria-label={t.room.undo}>
               <IconUndo />
             </button>
-            <button onClick={redo} disabled={!canRedo} type="button" aria-label="Повторить">
+            <button onClick={redo} disabled={!canRedo} type="button" aria-label={t.room.redo}>
               <IconRedo />
             </button>
           </div>
@@ -601,16 +608,16 @@ export function RoomScene() {
             <div className="sheet-backdrop" onClick={closeMenu} />
             <div className={`view-menu pop-anim${menuClosing ? " closing" : ""}`}>
               <button className="view-disabled" disabled type="button">
-                <IconVirtual /> Виртуальный визит <span className="soon-tag">Далее</span>
+                <IconVirtual /> {t.room.virtualTour} <span className="soon-tag">{t.room.soon}</span>
               </button>
               <button onClick={() => pickView("3d")} type="button">
-                <Icon3D /> 3D-вид
+                <Icon3D /> {t.room.v3d}
               </button>
               <button className="view-disabled" disabled type="button">
-                <IconFront /> Вид спереди <span className="soon-tag">Далее</span>
+                <IconFront /> {t.room.vfront} <span className="soon-tag">{t.room.soon}</span>
               </button>
               <button onClick={() => pickView("plan")} type="button">
-                <IconPlan /> План помещения
+                <IconPlan /> {t.room.vplan}
               </button>
             </div>
           </>
@@ -620,10 +627,10 @@ export function RoomScene() {
       {/* bottom toolbar — collapsible via the grip; add-wall / water-pick modes swap it */}
       {waterPick ? (
         <div className="water-bar">
-          <div className="water-bar-hint">Разместите водоснабжение</div>
+          <div className="water-bar-hint">{t.room.placeWater}</div>
           <div className="water-bar-row">
             <button className="btn btn-back" onClick={() => setWaterPick(false)} type="button">
-              Отмена
+              {t.room.cancel}
             </button>
             <button
               className="btn btn-next"
@@ -633,17 +640,17 @@ export function RoomScene() {
               }}
               type="button"
             >
-              ОК
+              {t.room.ok}
             </button>
           </div>
         </div>
       ) : addWall ? (
         <div className="addwall-bar">
           <button className="btn btn-back" onClick={exitAddWall} type="button">
-            Отмена
+            {t.room.cancel}
           </button>
           <button className="btn btn-next" onClick={commitWall} type="button">
-            ✓ Одобрять
+            {t.room.approve}
           </button>
         </div>
       ) : (
@@ -654,7 +661,7 @@ export function RoomScene() {
             onPointerMove={onGripMove}
             onPointerUp={onGripUp}
             onPointerCancel={onGripUp}
-            aria-label="Свернуть панель"
+            aria-label={t.room.collapse}
             type="button"
           />
           <div className="toolbar-row">
@@ -664,13 +671,13 @@ export function RoomScene() {
                   <span className="ico">
                     <IconDuplicate />
                   </span>
-                  <span className="lbl">Дублировать</span>
+                  <span className="lbl">{t.room.duplicate}</span>
                 </button>
                 <button className="tool-btn" onClick={() => removeFitting(fit3D)} type="button">
                   <span className="ico">
                     <IconTrash />
                   </span>
-                  <span className="lbl">Удалить</span>
+                  <span className="lbl">{t.room.del}</span>
                 </button>
               </>
             ) : wall3D != null ? (
@@ -679,13 +686,13 @@ export function RoomScene() {
                   <span className="ico">
                     <IconCovering />
                   </span>
-                  <span className="lbl">Покрытия</span>
+                  <span className="lbl">{t.room.coverings}</span>
                 </button>
                 <button className="tool-btn" onClick={() => setSheet("wallModify")} type="button">
                   <span className="ico">
                     <IconEdit />
                   </span>
-                  <span className="lbl">Изменить</span>
+                  <span className="lbl">{t.room.edit}</span>
                 </button>
               </>
             ) : itemSelected ? (
@@ -694,19 +701,27 @@ export function RoomScene() {
                   <span className="ico">
                     <IconEdit />
                   </span>
-                  <span className="lbl">Изменить</span>
+                  <span className="lbl">{t.room.edit}</span>
                 </button>
+                {selOpen && (selOpen.kind === "window" || selOpen.kind === "door") && (
+                  <button className="tool-btn" onClick={() => setSheet("openingFinish")} type="button">
+                    <span className="ico">
+                      <IconCovering />
+                    </span>
+                    <span className="lbl">{t.room.color}</span>
+                  </button>
+                )}
                 <button className="tool-btn" onClick={duplicateItem} type="button">
                   <span className="ico">
                     <IconDuplicate />
                   </span>
-                  <span className="lbl">Дублировать</span>
+                  <span className="lbl">{t.room.duplicate}</span>
                 </button>
                 <button className="tool-btn" onClick={deleteItem} type="button">
                   <span className="ico">
                     <IconTrash />
                   </span>
-                  <span className="lbl">Удалить</span>
+                  <span className="lbl">{t.room.del}</span>
                 </button>
               </>
             ) : floorSelected ? (
@@ -715,13 +730,13 @@ export function RoomScene() {
                   <span className="ico">
                     <IconCovering />
                   </span>
-                  <span className="lbl">Покрытия</span>
+                  <span className="lbl">{t.room.coverings}</span>
                 </button>
                 <button className="tool-btn" onClick={() => setSheet("edit")} type="button">
                   <span className="ico">
                     <IconEdit />
                   </span>
-                  <span className="lbl">Изменить</span>
+                  <span className="lbl">{t.room.edit}</span>
                 </button>
               </>
             ) : (
@@ -730,25 +745,25 @@ export function RoomScene() {
                   <span className="ico">
                     <IconRoomShape />
                   </span>
-                  <span className="lbl">Форма комнаты</span>
+                  <span className="lbl">{t.room.roomShape}</span>
                 </button>
                 <button className="tool-btn" onClick={() => setSheet("elements")} type="button">
                   <span className="ico">
                     <IconElements />
                   </span>
-                  <span className="lbl">Элементы</span>
+                  <span className="lbl">{t.room.elements}</span>
                 </button>
                 <button className="tool-btn" onClick={() => setSheet("openings")} type="button">
                   <span className="ico">
                     <IconOpenings />
                   </span>
-                  <span className="lbl">Открытия</span>
+                  <span className="lbl">{t.room.openings}</span>
                 </button>
                 <button className="tool-btn" onClick={() => setSheet("ceiling")} type="button">
                   <span className="ico">
                     <IconCeiling />
                   </span>
-                  <span className="lbl">Высота потолков</span>
+                  <span className="lbl">{t.room.ceiling}</span>
                 </button>
               </>
             )}
@@ -805,17 +820,17 @@ export function RoomScene() {
             {sheet === "wallColor" && (
               <>
                 <div className="sheet-head">
-                  <div className="sheet-title">Изменить Цвет Стен</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <div className="sheet-title">{t.room.wallColorTitle}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <div className="search-box">
-                  <input className="search-input" placeholder="Поиск" value={colorSearch} onChange={(e) => setColorSearch(e.target.value)} />
+                  <input className="search-input" placeholder={t.room.search} value={colorSearch} onChange={(e) => setColorSearch(e.target.value)} />
                   <span className="search-ic"><IconSearch /></span>
                 </div>
                 <div className="color-bar">
-                  <span className="color-count">{filteredColors.length} Товаров</span>
+                  <span className="color-count">{t.room.products(filteredColors.length)}</span>
                   <button className="filter-btn" onClick={() => setColorFilterOpen(true)} type="button">
-                    Все фильтры <IconFilter />
+                    {t.room.allFilters} <IconFilter />
                   </button>
                 </div>
                 <div className="cover-list">
@@ -826,7 +841,7 @@ export function RoomScene() {
                         <span className="color-thumb" style={{ background: w.color }} />
                         <span className="cover-meta">
                           <span className="cover-name">{w.name}</span>
-                          <span className="cover-desc">покраска стен</span>
+                          <span className="cover-desc">{t.room.wallPaint}</span>
                         </span>
                       </button>
                     );
@@ -838,14 +853,14 @@ export function RoomScene() {
             {sheet === "wallModify" && wallSurf && (
               <>
                 <div className="sheet-head">
-                  <div className="sheet-title">Изменить стену</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <div className="sheet-title">{t.room.wallModifyTitle}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <div className="edit-row">
-                  <span className="edit-row-lbl">Текущее покрытие</span>
+                  <span className="edit-row-lbl">{t.room.currentCovering}</span>
                   <span className="cur-color">
                     <span className="color-sw" style={{ background: wallColorHex(dominantColor(wallSurf)) ?? "#e6e6e6" }} />
-                    {dominantColor(wallSurf) >= 0 ? WALL_COVERINGS[dominantColor(wallSurf)].name : "Без покрытия"}
+                    {dominantColor(wallSurf) >= 0 ? WALL_COVERINGS[dominantColor(wallSurf)].name : t.room.noCovering}
                   </span>
                 </div>
                 <button
@@ -854,35 +869,55 @@ export function RoomScene() {
                   onClick={() => { setSurfSel(null); setSurfEdit(true); closeSheet(); }}
                   type="button"
                 >
-                  Настроить поверхность
+                  {t.room.customizeSurface}
                 </button>
+              </>
+            )}
+
+            {sheet === "openingFinish" && selOpen && (
+              <>
+                <div className="sheet-head">
+                  <div className="sheet-title">{t.room.colorOf(selOpen.kind === "window")}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
+                </div>
+                <div className="cover-list">
+                  {OPENING_FINISHES.map((f) => (
+                    <button key={f.id} className={`fit-item${selOpen.finish === f.id ? " sel" : ""}`} onClick={() => { setOpeningFinish(selOpen.id, f.id); closeSheet(); }} type="button">
+                      <span className="color-thumb" style={matSwatchStyle(f.color, f.tex)} />
+                      <span className="cover-meta">
+                        <span className="cover-name">{f.name}</span>
+                        <span className="cover-desc">{f.tex ? t.room.wood : t.room.paint}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </>
             )}
 
             {sheet === "elements" && (
               <>
                 <div className="sheet-head">
-                  <div className="sheet-title">Элементы</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <div className="sheet-title">{t.room.elements}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <button className="elem-row" onClick={() => openFitSheet("electric")} type="button">
                   <span className="ei"><IconElements /></span>
-                  <span className="el">Электричество</span>
+                  <span className="el">{t.room.electric}</span>
                   <span className="chev">›</span>
                 </button>
                 <button className="elem-row" onClick={enterWaterPick} type="button">
                   <span className="ei"><IconWater /></span>
-                  <span className="el">Водоснабжение</span>
+                  <span className="el">{t.room.water}</span>
                   <span className="chev">›</span>
                 </button>
                 <button className="elem-row" onClick={() => openFitSheet("heating")} type="button">
                   <span className="ei"><IconHeating /></span>
-                  <span className="el">Отопление</span>
+                  <span className="el">{t.room.heating}</span>
                   <span className="chev">›</span>
                 </button>
                 <button className="elem-row" onClick={() => openFitSheet("vent")} type="button">
                   <span className="ei"><IconVent /></span>
-                  <span className="el">Вентиляция</span>
+                  <span className="el">{t.room.vent}</span>
                   <span className="chev">›</span>
                 </button>
               </>
@@ -891,12 +926,12 @@ export function RoomScene() {
             {fitCat && (
               <>
                 <div className="sheet-head">
-                  <button className="sheet-back" onClick={() => setSheet("elements")} type="button" aria-label="Назад">‹</button>
-                  <div className="sheet-title">{FIT_TITLES[fitCat]}</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <button className="sheet-back" onClick={() => setSheet("elements")} type="button" aria-label={t.room.back2}>‹</button>
+                  <div className="sheet-title">{fitTitle(fitCat)}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <div className="search-box">
-                  <input className="search-input" placeholder="Поиск" value={fitSearch} onChange={(e) => setFitSearch(e.target.value)} />
+                  <input className="search-input" placeholder={t.room.search} value={fitSearch} onChange={(e) => setFitSearch(e.target.value)} />
                   <span className="search-ic"><IconSearch /></span>
                 </div>
                 <div className="cover-list">
@@ -916,22 +951,22 @@ export function RoomScene() {
             {sheet === "openings" && (
               <>
                 <div className="sheet-head">
-                  <div className="sheet-title">Открытия</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <div className="sheet-title">{t.room.openings}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <button className="elem-row" onClick={() => openOpenSheet("window")} type="button">
                   <span className="ei"><IconOpenings /></span>
-                  <span className="el">Окна</span>
+                  <span className="el">{t.room.windows}</span>
                   <span className="chev">›</span>
                 </button>
                 <button className="elem-row" onClick={() => openOpenSheet("door")} type="button">
                   <span className="ei"><IconDoor /></span>
-                  <span className="el">Двери</span>
+                  <span className="el">{t.room.doors}</span>
                   <span className="chev">›</span>
                 </button>
                 <button className="elem-row" onClick={() => openOpenSheet("opening")} type="button">
                   <span className="ei"><IconWallOpening /></span>
-                  <span className="el">Проёмы в стене</span>
+                  <span className="el">{t.room.wallOpenings}</span>
                   <span className="chev">›</span>
                 </button>
               </>
@@ -940,12 +975,12 @@ export function RoomScene() {
             {openCat && (
               <>
                 <div className="sheet-head">
-                  <button className="sheet-back" onClick={() => setSheet("openings")} type="button" aria-label="Назад">‹</button>
-                  <div className="sheet-title">{OPEN_TITLES[openCat]}</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <button className="sheet-back" onClick={() => setSheet("openings")} type="button" aria-label={t.room.back2}>‹</button>
+                  <div className="sheet-title">{openTitle(openCat)}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <div className="search-box">
-                  <input className="search-input" placeholder="Поиск" value={openSearch} onChange={(e) => setOpenSearch(e.target.value)} />
+                  <input className="search-input" placeholder={t.room.search} value={openSearch} onChange={(e) => setOpenSearch(e.target.value)} />
                   <span className="search-ic"><IconSearch /></span>
                 </div>
                 <div className="cover-list">
@@ -969,15 +1004,15 @@ export function RoomScene() {
                     <div className="sheet-title">{itemName} <span className="item-card-i">ⓘ</span></div>
                     <div className="item-edit-sub">{itemDesc}</div>
                   </div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <div className="item-edit-replace">
-                  <span>Хотите заменить этот продукт?</span>
-                  <button className="replace-btn" onClick={startReplace} type="button">Заменить</button>
+                  <span>{t.room.wantReplace}</span>
+                  <button className="replace-btn" onClick={startReplace} type="button">{t.room.replace}</button>
                 </div>
-                <div className="item-edit-section">Размеры</div>
+                <div className="item-edit-section">{t.room.dimensions}</div>
                 <div className="edit-row">
-                  <span className="edit-row-lbl">Ширина</span>
+                  <span className="edit-row-lbl">{t.room.width}</span>
                   <input
                     className="edit-input dim-input"
                     inputMode="numeric"
@@ -989,7 +1024,7 @@ export function RoomScene() {
                 </div>
                 {(selOpen || (selFit && selFit.category !== "electric")) && (
                   <div className="edit-row">
-                    <span className="edit-row-lbl">Высота</span>
+                    <span className="edit-row-lbl">{t.room.height}</span>
                     <input
                       className="edit-input dim-input"
                       inputMode="numeric"
@@ -1002,7 +1037,7 @@ export function RoomScene() {
                 )}
                 {selOpen && selOpen.kind === "window" && (
                   <div className="edit-row">
-                    <span className="edit-row-lbl">Высота от пола</span>
+                    <span className="edit-row-lbl">{t.room.sill}</span>
                     <input
                       className="edit-input dim-input"
                       inputMode="numeric"
@@ -1015,10 +1050,10 @@ export function RoomScene() {
                 )}
                 {selOpen && selOpen.kind === "door" && (
                   <>
-                    <div className="item-edit-section">Положение</div>
+                    <div className="item-edit-section">{t.room.position}</div>
                     <div className="edit-row">
-                      <span className="edit-row-lbl">Сторона стены</span>
-                      <button className={`side-toggle${selOpen.flip ? " flip" : ""}`} onClick={() => flipOpening(selOpen.id)} type="button" aria-label="Сторона">
+                      <span className="edit-row-lbl">{t.room.wallSide}</span>
+                      <button className={`side-toggle${selOpen.flip ? " flip" : ""}`} onClick={() => flipOpening(selOpen.id)} type="button" aria-label={t.room.side}>
                         <span className="side-leaf">◗</span>
                       </button>
                     </div>
@@ -1030,17 +1065,17 @@ export function RoomScene() {
             {sheet === "shape" && (
               <>
                 <div className="sheet-head">
-                  <div className="sheet-title">Форма комнаты</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <div className="sheet-title">{t.room.roomShape}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <button className="elem-row" onClick={() => setSheet("shapePick")} type="button">
                   <span className="ei"><IconReshape /></span>
-                  <span className="el">Изменить форму комнаты</span>
+                  <span className="el">{t.room.changeShape}</span>
                   <span className="chev">›</span>
                 </button>
                 <button className="elem-row" onClick={enterAddWall} type="button">
                   <span className="ei"><IconAddWall /></span>
-                  <span className="el">Добавить стену</span>
+                  <span className="el">{t.room.addWall}</span>
                   <span className="chev">›</span>
                 </button>
               </>
@@ -1049,14 +1084,14 @@ export function RoomScene() {
             {sheet === "shapePick" && (
               <>
                 <div className="sheet-head">
-                  <div className="sheet-title">Форма помещения</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <div className="sheet-title">{t.room.shapeForm}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <div className="cards">
-                  <OptionCard square selected={shape === "i"} onClick={() => tryShape("i")} title="Прямая">
+                  <OptionCard square selected={shape === "i"} onClick={() => tryShape("i")} title={t.room.straight}>
                     <Illustration kind="shape_i" />
                   </OptionCard>
-                  <OptionCard square selected={shape === "l"} onClick={() => tryShape("l")} title="Угловая">
+                  <OptionCard square selected={shape === "l"} onClick={() => tryShape("l")} title={t.room.corner}>
                     <Illustration kind="shape_l" />
                   </OptionCard>
                 </div>
@@ -1065,11 +1100,11 @@ export function RoomScene() {
 
             {sheet === "ceiling" && (
               <>
-                <div className="sheet-title">Высота потолков</div>
+                <div className="sheet-title">{t.room.ceiling}</div>
                 <div className="stepper">
-                  <button onClick={() => setCeiling(-100)} type="button" aria-label="Меньше">−</button>
-                  <div className="num">{ceiling}<small>мм · шаг 100</small></div>
-                  <button onClick={() => setCeiling(100)} type="button" aria-label="Больше">+</button>
+                  <button onClick={() => setCeiling(-100)} type="button" aria-label={t.room.less}>−</button>
+                  <div className="num">{ceiling}<small>{t.room.ceilingStep}</small></div>
+                  <button onClick={() => setCeiling(100)} type="button" aria-label={t.room.more}>+</button>
                 </div>
               </>
             )}
@@ -1078,20 +1113,20 @@ export function RoomScene() {
               <>
                 <div className="sheet-head">
                   <div>
-                    <div className="edit-area-lbl">Площадь</div>
-                    <div className="edit-area-val">{areaM2} м²</div>
+                    <div className="edit-area-lbl">{t.room.area}</div>
+                    <div className="edit-area-val">{areaM2} {t.labels.m2}</div>
                   </div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
                 <div className="edit-row">
-                  <span className="edit-row-lbl">Название</span>
+                  <span className="edit-row-lbl">{t.room.name}</span>
                   <input className="edit-input" value={roomName} onChange={(e) => setRoomName(e.target.value)} />
                 </div>
                 <div className="edit-row">
-                  <span className="edit-row-lbl">Тип Номера</span>
+                  <span className="edit-row-lbl">{t.room.roomType}</span>
                   <select className="edit-select" value={roomType} onChange={(e) => setRoomType(e.target.value)}>
-                    {ROOM_TYPES.map((t) => (
-                      <option key={t} value={t}>{t}</option>
+                    {ROOM_TYPES.map((rt) => (
+                      <option key={rt} value={rt}>{t.labels.roomTypes[rt] ?? rt}</option>
                     ))}
                   </select>
                 </div>
@@ -1101,19 +1136,19 @@ export function RoomScene() {
             {sheet === "covering" && (
               <>
                 <div className="sheet-head">
-                  <div className="sheet-title">Поменяйте напольное покрытие</div>
-                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label="Закрыть">✕</button>
+                  <div className="sheet-title">{t.room.changeFloor}</div>
+                  <button className="sheet-x" onClick={closeSheet} type="button" aria-label={t.room.close}>✕</button>
                 </div>
-                <input className="cover-search" placeholder="Поиск" value={coverSearch} onChange={(e) => setCoverSearch(e.target.value)} />
+                <input className="cover-search" placeholder={t.room.search} value={coverSearch} onChange={(e) => setCoverSearch(e.target.value)} />
                 <div className="cover-list">
                   {filtered.map((f) => {
                     const idx = FLOOR_COVERINGS.indexOf(f);
                     return (
                       <button key={f.id} className={`cover-item${floorCovering === idx ? " sel" : ""}`} onClick={() => setFloorCovering(idx)} type="button">
-                        <span className="cover-sw" style={{ background: f.color }} />
+                        <span className="cover-sw" style={matSwatchStyle(f.color, f.tex)} />
                         <span className="cover-meta">
-                          <span className="cover-name">{f.name}</span>
-                          <span className="cover-desc">{f.desc}</span>
+                          <span className="cover-name">{t.labels.floors[f.id]?.name ?? f.name}</span>
+                          <span className="cover-desc">{t.labels.floors[f.id]?.desc ?? f.desc}</span>
                         </span>
                       </button>
                     );
@@ -1129,11 +1164,11 @@ export function RoomScene() {
       {confirm && (
         <div className="confirm-overlay" onClick={() => setConfirm(null)}>
           <div className="confirm-box pop-anim" onClick={(e) => e.stopPropagation()}>
-            <div className="confirm-title">Изменить форму комнаты</div>
-            <div className="confirm-body">Перезаписать ваш текущий план помещения?</div>
+            <div className="confirm-title">{t.room.changeShape}</div>
+            <div className="confirm-body">{t.room.overwriteBody}</div>
             <div className="confirm-actions">
               <button className="btn btn-back" onClick={() => setConfirm(null)} type="button">
-                Нет
+                {t.room.no}
               </button>
               <button
                 className="btn btn-next"
@@ -1144,7 +1179,7 @@ export function RoomScene() {
                 }}
                 type="button"
               >
-                Перезаписать
+                {t.room.overwrite}
               </button>
             </div>
           </div>
@@ -1156,8 +1191,8 @@ export function RoomScene() {
         <div className="confirm-overlay" onClick={() => setColorFilterOpen(false)}>
           <div className="filter-sheet pop-anim" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-head">
-              <div className="sheet-title">Фильтр по цвету</div>
-              <button className="sheet-x" onClick={() => setColorFilterOpen(false)} type="button" aria-label="Закрыть">✕</button>
+              <div className="sheet-title">{t.room.filterByColor}</div>
+              <button className="sheet-x" onClick={() => setColorFilterOpen(false)} type="button" aria-label={t.room.close}>✕</button>
             </div>
             {WALL_FAMILIES.map((f) => {
               const on = colorFamilies.includes(f);
@@ -1175,8 +1210,8 @@ export function RoomScene() {
               );
             })}
             <div className="confirm-actions" style={{ marginTop: 12 }}>
-              <button className="btn btn-back" onClick={() => setColorFamilies([])} type="button">Сбросить</button>
-              <button className="btn btn-next" onClick={() => setColorFilterOpen(false)} type="button">Готово</button>
+              <button className="btn btn-back" onClick={() => setColorFamilies([])} type="button">{t.room.reset}</button>
+              <button className="btn btn-next" onClick={() => setColorFilterOpen(false)} type="button">{t.room.done}</button>
             </div>
           </div>
         </div>
@@ -1189,7 +1224,7 @@ export function RoomScene() {
             <div className="confirm-title">
               <span className="color-sw" style={{ background: WALL_COVERINGS[pendingColor].color }} /> {WALL_COVERINGS[pendingColor].name}
             </div>
-            <div className="confirm-body">Применить выбранный цвет?</div>
+            <div className="confirm-body">{t.room.applyColor}</div>
             <div className="confirm-actions">
               <button
                 className="btn btn-back"
@@ -1201,7 +1236,7 @@ export function RoomScene() {
                 }}
                 type="button"
               >
-                К выбранной
+                {t.room.toSelected}
               </button>
               <button
                 className="btn btn-next"
@@ -1212,7 +1247,7 @@ export function RoomScene() {
                 }}
                 type="button"
               >
-                Ко всем
+                {t.room.toAll}
               </button>
             </div>
           </div>
@@ -1223,8 +1258,8 @@ export function RoomScene() {
       {surfEdit && wallSurf && wall3D != null && (
         <div className="surf-editor">
           <div className="surf-head">
-            <button className="step-back" onClick={() => { setSurfEdit(false); setSurfSel(null); }} type="button">← Назад</button>
-            <div className="surf-title">Поверхность · Стена {wall3D + 1}</div>
+            <button className="step-back" onClick={() => { setSurfEdit(false); setSurfSel(null); }} type="button">{t.room.back}</button>
+            <div className="surf-title">{t.room.surfaceWall(wall3D + 1)}</div>
           </div>
           <div className="surf-stage">
             <div className="surf-canvas">
@@ -1251,18 +1286,18 @@ export function RoomScene() {
           </div>
           {surfSel && (
             <div className="surf-menu">
-              <div className="surf-menu-title">Настроить поверхность</div>
+              <div className="surf-menu-title">{t.room.customizeSurface}</div>
               <div className="surf-menu-row">
-                <span>Горизонтальное разделение</span>
-                <button className="btn-change" onClick={() => { splitWallSurface(wall3D, surfSel, "h"); setSurfSel([...surfSel, "a"]); }} type="button">Добавить</button>
+                <span>{t.room.hSplit}</span>
+                <button className="btn-change" onClick={() => { splitWallSurface(wall3D, surfSel, "h"); setSurfSel([...surfSel, "a"]); }} type="button">{t.room.add}</button>
               </div>
               <div className="surf-menu-row">
-                <span>Вертикальное разделение</span>
-                <button className="btn-change" onClick={() => { splitWallSurface(wall3D, surfSel, "v"); setSurfSel([...surfSel, "a"]); }} type="button">Добавить</button>
+                <span>{t.room.vSplit}</span>
+                <button className="btn-change" onClick={() => { splitWallSurface(wall3D, surfSel, "v"); setSurfSel([...surfSel, "a"]); }} type="button">{t.room.add}</button>
               </div>
               <div className="surf-menu-row">
-                <span>Изменить покрытие</span>
-                <button className="btn-change" onClick={() => { setColorSearch(""); setSheet("wallColor"); }} type="button">Изменить</button>
+                <span>{t.room.changeCovering}</span>
+                <button className="btn-change" onClick={() => { setColorSearch(""); setSheet("wallColor"); }} type="button">{t.room.edit}</button>
               </div>
             </div>
           )}

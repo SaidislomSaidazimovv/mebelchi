@@ -6,7 +6,7 @@
 
 import { polygonBoundsMm, type Pt, type Opening } from "./room";
 import { planRuns, type KitchenLayout } from "./runPlan";
-import type { Cabinet } from "./cabinet";
+import type { Cabinet, FinishKey } from "./cabinet";
 
 export const FOOT_DEPTH_MM: Record<Cabinet["kind"], number> = { base: 560, tall: 560, upper: 350 };
 const DEG = 180 / Math.PI;
@@ -26,6 +26,9 @@ export interface Foot {
   hbx: number; // axis-aligned half-extents (for snapping / overlap)
   hby: number;
   upper: boolean; // wall-mounted (drawn dashed, sits over the base)
+  corner?: boolean; // diagonal corner unit (drawn chamfered in the plan)
+  furniture?: boolean; // free-standing table/chair — exempt from overlap warnings
+  finish?: Partial<Record<FinishKey, number>>; // per-module colour overrides
 }
 
 const SIGNS: [number, number][] = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
@@ -63,11 +66,14 @@ export function footsOverlap(a: Foot, b: Foot): boolean {
 }
 
 /** ids of modules clashing with another SAME-LAYER module (a wall unit over a base
- *  is fine). Wall clashes are handled separately (the editor pushes back from walls). */
+ *  is fine). Wall clashes are handled separately (the editor pushes back from walls).
+ *  Free-standing furniture (tables/chairs) is exempt — a chair tucked under a table is
+ *  normal, not a clash. */
 export function objectOverlapIds(foots: Foot[]): Set<string> {
   const set = new Set<string>();
   for (let i = 0; i < foots.length; i++) {
     for (let j = i + 1; j < foots.length; j++) {
+      if (foots[i].furniture || foots[j].furniture) continue;
       if (foots[i].upper !== foots[j].upper) continue;
       if (footsOverlap(foots[i], foots[j])) {
         set.add(foots[i].id);
@@ -102,7 +108,7 @@ export function cabFootprints(
     if (cab.px != null && cab.pz != null) {
       const r = (cab.rot ?? 0) / DEG;
       const ux = Math.cos(r), uy = Math.sin(r), ix = -Math.sin(r), iy = Math.cos(r);
-      foot.push({ id: cab.id, appliance: cab.appliance, cx: cab.px, cy: cab.pz, ux, uy, ix, iy, w: cab.w, depth, rotDeg: cab.rot ?? 0, upper, ...halfExtents(ux, uy, ix, iy, cab.w, depth) });
+      foot.push({ id: cab.id, appliance: cab.appliance, cx: cab.px, cy: cab.pz, ux, uy, ix, iy, w: cab.w, depth, rotDeg: cab.rot ?? 0, upper, corner: cab.corner, furniture: !!cab.furniture, finish: cab.finish, ...halfExtents(ux, uy, ix, iy, cab.w, depth) });
       continue;
     }
     const p = placements[cab.run ?? 0] ?? placements[0];
@@ -112,7 +118,48 @@ export function cabFootprints(
     const cm = toMm(p.ax + p.ux * midS + p.ix * (dM / 2), p.az + p.uz * midS + p.iz * (dM / 2));
     // capture angle so the free i-axis = the placement's inward normal (keeps the
     // facade facing the room after the module is freed, even on mirrored walls)
-    foot.push({ id: cab.id, appliance: cab.appliance, cx: cm.x, cy: cm.y, ux: p.ux, uy: p.uz, ix: p.ix, iy: p.iz, w: cab.w, depth, rotDeg: Math.atan2(-p.ix, p.iz) * DEG, upper, ...halfExtents(p.ux, p.uz, p.ix, p.iz, cab.w, depth) });
+    foot.push({ id: cab.id, appliance: cab.appliance, cx: cm.x, cy: cm.y, ux: p.ux, uy: p.uz, ix: p.ix, iy: p.iz, w: cab.w, depth, rotDeg: Math.atan2(-p.ix, p.iz) * DEG, upper, furniture: !!cab.furniture, finish: cab.finish, ...halfExtents(p.ux, p.uz, p.ix, p.iz, cab.w, depth) });
   }
   return foot;
+}
+
+/** If a freed module (px/pz) is sitting flush against a wall run and aligned to it,
+ *  the run index + run-local left edge (mm) to re-tile it there; else null. Lets the
+ *  editor turn a dragged-to-the-wall cabinet back into a tiled run module (so it shows
+ *  in the elevation and can fill the gap beside it). */
+export function dockToRun(
+  cab: Cabinet,
+  points: Pt[],
+  waterWall: number | null,
+  layout: KitchenLayout,
+  openings: Opening[],
+): { run: number; x: number } | null {
+  if (cab.px == null || cab.pz == null) return null;
+  const b = polygonBoundsMm(points);
+  const runs = planRuns(points, waterWall, layout, openings).runs;
+  const depthM = (cab.depth ?? FOOT_DEPTH_MM[cab.kind] ?? 560) / 1000;
+  const mx = (cab.px - b.cx) / 1000;
+  const mz = (cab.pz - b.cy) / 1000; // module centre, metres (room-centred)
+  let best: { run: number; x: number } | null = null;
+  let bestErr = Infinity;
+  for (let r = 0; r < runs.length; r++) {
+    const run = runs[r];
+    if (run.kind !== "wall") continue;
+    const p = run.placement;
+    const into = (mx - p.ax) * p.ix + (mz - p.az) * p.iz; // inward distance from the wall
+    if (into < 0) continue; // wrong side of the wall
+    const depthErr = Math.abs(into - depthM / 2); // back flush → centre sits depth/2 in
+    if (depthErr > 0.18) continue;
+    const along = (mx - p.ax) * p.ux + (mz - p.az) * p.uz; // distance along the run
+    const localX = (along - p.startS) * 1000 - cab.w / 2; // run-local left edge (mm)
+    if (localX < -60 || localX + cab.w > run.len + 60) continue; // off the run
+    const runRot = Math.atan2(-p.ix, p.iz) * DEG;
+    const dRot = Math.abs((((cab.rot ?? 0) - runRot + 540) % 360) - 180);
+    if (dRot > 30) continue; // not aligned to this wall
+    if (depthErr < bestErr) {
+      bestErr = depthErr;
+      best = { run: r, x: Math.round(Math.max(0, Math.min(run.len - cab.w, localX))) };
+    }
+  }
+  return best;
 }

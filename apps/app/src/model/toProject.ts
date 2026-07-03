@@ -4,7 +4,7 @@
 // entries; that's where a real material→SKU mapping will later plug in.
 
 import { priceProject, seedRateTable } from "@mebelchi/pricing";
-import type { Project, Module, MaterialSelection } from "@mebelchi/schema";
+import type { Project, Module, MaterialSelection, Quote, QuoteGroup } from "@mebelchi/schema";
 import type { AppState } from "../store";
 import type { Cabinet } from "./cabinet";
 
@@ -74,10 +74,12 @@ function makeProject(run: Module[], space: Project["space"]): Project {
 }
 
 export function toProject(s: AppState): Project {
-  const run = s.cabs.map(cabToModule);
+  // free-standing furniture (tables/chairs) isn't a cabinet — keep it out of the BOM
+  const cabs = s.cabs.filter((c) => !c.furniture);
+  const run = cabs.map(cabToModule);
   // global "усиление" flag → a hardening preset on the recommended (first open) module
   if (s.hardened && run.length) {
-    const idx = Math.max(0, s.cabs.findIndex((c) => c.fill === "open"));
+    const idx = Math.max(0, cabs.findIndex((c) => c.fill === "open"));
     run[idx] = { ...run[idx], hardening: ["standard-shelf"] };
   }
   return makeProject(run, {
@@ -95,7 +97,7 @@ export function toProject(s: AppState): Project {
 /** A priceable Project from a bare cabinet run (no room state) — used to quote the
  *  generated Phase-B variants before one is committed to the editable run. */
 export function projectFromCabs(cabs: Cabinet[]): Project {
-  return makeProject(cabs.map(cabToModule), {
+  return makeProject(cabs.filter((c) => !c.furniture).map(cabToModule), {
     source: "manual",
     shape: "i",
     wallLength: 0,
@@ -108,4 +110,31 @@ export function projectFromCabs(cabs: Cabinet[]): Project {
 /** Total price (сум) of a cabinet run against the seed rate table. */
 export function priceCabs(cabs: Cabinet[]): number {
   return cabs.length ? priceProject(projectFromCabs(cabs), seedRateTable).total : 0;
+}
+
+/** Russian labels for the quote groups (the Смета breakdown). */
+export const GROUP_LABEL: Record<QuoteGroup, string> = {
+  carcassFacade: "Корпус и фасады",
+  worktopEdge: "Столешница и кромка",
+  hardware: "Фурнитура",
+  cnc: "ЧПУ и обработка",
+  delivery: "Доставка и сборка",
+};
+
+export interface CabCost {
+  id: string;
+  cost: number;
+}
+
+/** The full quote for the cost screen + a per-module cost (each module's price WITHOUT
+ *  the fixed project delivery, so the per-module list + delivery ≈ the total). */
+export function costBreakdown(cabs: Cabinet[]): { quote: Quote; perCab: CabCost[] } | null {
+  const real = cabs.filter((c) => !c.furniture);
+  if (!real.length) return null;
+  const quote = priceProject(projectFromCabs(real), seedRateTable);
+  const perCab = real.map((c) => {
+    const q = priceProject(projectFromCabs([c]), seedRateTable);
+    return { id: c.id, cost: q.total - q.groups.delivery }; // module cost, minus the fixed delivery base
+  });
+  return { quote, perCab };
 }
