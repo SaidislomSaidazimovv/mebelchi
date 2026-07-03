@@ -6,6 +6,8 @@
 // toolbar to per-item actions (edit / open / duplicate / delete).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
+import { useKarkas } from "../three/karkasStore";
+import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
 import { useT } from "../i18n/useT";
 import { priceCabs } from "../model/toProject";
 import { useMoney } from "../useMoney";
@@ -690,6 +692,10 @@ export function ConfigScreen() {
                   </button>
                   <button className={`lib-tab${libTab === "mine" ? " on" : ""}`} onClick={() => setLibTab("mine")} type="button">
                     {t.config.myBlocks}{myLibrary.length ? ` (${myLibrary.length})` : ""}
+                  </button>
+                  {/* Phase 3: open the parametric StructuralModel editor in-place (karkas engine) */}
+                  <button className="lib-tab" onClick={() => { useKarkas.getState().openWith(buildDemoModel()); closeSheet(); }} type="button">
+                    🔧 Karkas
                   </button>
                 </div>
                 <div className="cfg-sheet-body">
