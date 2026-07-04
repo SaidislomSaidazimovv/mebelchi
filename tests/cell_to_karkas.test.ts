@@ -2,8 +2,9 @@
 import { describe, it, expect } from "vitest";
 import { cellToStructural, cabDepthMm, cellPlan, cellToKarkasBlock } from "../apps/app/src/three/cellToKarkas.js";
 import { mk } from "../apps/app/src/model/cabinet.js";
-import { DEFAULT_PLAN } from "../apps/app/src/three/materials.js";
+import { DEFAULT_PLAN, planThickness } from "../apps/app/src/three/materials.js";
 import { solveStructure } from "../engine/structure/solve.js";
+import { exportModelToSWJ008 } from "../engine/cnc.js";
 
 describe("C.1 — sized carcass box", () => {
   it("converts w × h × (kind-default depth) to the block box (mm → mm10)", () => {
@@ -106,5 +107,24 @@ describe("C.9b — load a converted module into the editor", () => {
     expect(s.parts.filter((p) => p.name.startsWith("Ящик · фасад")).length).toBe(3); // real interior
     expect(s.plan.carcass).toBe("ldsp_graphite"); // converted plan applied
     expect(s.open).toBe(true);
+  });
+});
+
+describe("W4 — full chain: convert an existing module → edit → CNC export", () => {
+  it("a kitchen module converts, edits in the store, and exports a valid SWJ008", async () => {
+    const { useKarkas } = await import("../apps/app/src/three/karkasStore.js");
+    // an existing kitchen module: door + 2 shelves, graphite carcass
+    const { model, plan } = cellToKarkasBlock(mk({ fill: "shelves", count: 2, finish: { carcass: 0x4a4d52 } }));
+    useKarkas.getState().openWith(model, plan);
+    expect(useKarkas.getState().parts.filter((p) => p.role === "internal_shelf").length).toBe(2);
+    // usta edits: add one more shelf into the (only) section
+    const secId = useKarkas.getState().sections.at(-1)!.id;
+    useKarkas.getState().setTarget(secId);
+    useKarkas.getState().add("shelf");
+    expect(useKarkas.getState().parts.filter((p) => p.role === "internal_shelf").length).toBe(3);
+    // the edited model still exports clean CNC (SWJ008 with part rows)
+    const xml = exportModelToSWJ008(useKarkas.getState().model, planThickness(plan));
+    expect(xml).toContain("SWJ008");
+    expect(xml.match(/<Panel\b/g)?.length ?? 0).toBeGreaterThan(5); // carcass + shelves + door
   });
 });
