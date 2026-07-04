@@ -82,6 +82,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const fromCabinet = useKarkas((s) => s.fromCabinet);
   const [showSpec, setShowSpec] = useState(false);
   const [showTree, setShowTree] = useState(false);
+  // compact toolbar: which dropdown (add-variants / overflow) is open
+  const [menu, setMenu] = useState<null | "polka" | "eshik" | "more">(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const id = setTimeout(() => document.addEventListener("click", close), 0); // skip the opening click
+    return () => { clearTimeout(id); document.removeEventListener("click", close); };
+  }, [menu]);
 
   // Save the current from-scratch block into «Mening bloklarim» so the usta can reuse it (Phase K).
   const saveToBiblioteka = () => {
@@ -293,30 +301,52 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <DimField label="Г" value={dims.d} onCommit={(mm) => resize("d", mm)} />
           <span style={{ ...mono, fontSize: 10 }}>mm</span>
         </div>
-        <button onClick={() => setModel(buildDemoModel())} style={pill} type="button">Тумба</button>
-        <button onClick={() => setModel(buildLCornerModel())} style={pill} type="button">L-угол</button>
-        <span style={{ ...mono, color: "#006b3f" }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
-        <button onClick={addToProject} style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }} type="button">{editingBlockId ? "💾 Loyihada yangilash" : fromCabinet ? "＋ Nusxани loyihaga" : "＋ Loyihaga"}</button>
-        <button onClick={saveToBiblioteka} style={{ ...pill, borderColor: "#00a961", color: "#006b3f", fontWeight: 700 }} type="button">📚 Bibliotekaga</button>
-        <button onClick={saveProject} style={pill} type="button">💾 Saqlash</button>
-        <button onClick={() => fileRef.current?.click()} style={pill} type="button">📂 Ochish</button>
+        <span style={{ ...mono, color: "#006b3f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
+        <button onClick={addToProject} style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }} type="button">{editingBlockId ? "💾 Yangilash" : fromCabinet ? "＋ Nusxa" : "＋ Loyihaga"}</button>
+        <div style={popWrap}>
+          <button onClick={(e) => { e.stopPropagation(); setMenu(menu === "more" ? null : "more"); }} style={pill} type="button" aria-label="Ko'proq amallar">⋯</button>
+          {menu === "more" && (
+            <div style={popRight}>
+              <button style={popItem} onClick={saveToBiblioteka} type="button">📚 Bibliotekaga saqlash</button>
+              <button style={popItem} onClick={saveProject} type="button">💾 Faylga saqlash</button>
+              <button style={popItem} onClick={() => fileRef.current?.click()} type="button">📂 Fayldan ochish</button>
+              <div style={popSep} />
+              <button style={popItem} onClick={() => setModel(buildDemoModel())} type="button">▢ Namuna: Тумба</button>
+              <button style={popItem} onClick={() => setModel(buildLCornerModel())} type="button">⌐ Namuna: L-burchak</button>
+              {onClose && <><div style={popSep} /><button style={{ ...popItem, color: "#a01a2e" }} onClick={onClose} type="button">✕ Yopish</button></>}
+            </div>
+          )}
+        </div>
         <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={onFileChange} />
-        {onClose && <button onClick={onClose} style={pill} type="button">✕ Yopish</button>}
       </div>
       {/* Phase 4 — edit toolbar: engine operations on the target section (selected panel's, else first leaf) */}
       <div style={editbar}>
-        <button style={act} onClick={() => add("shelf")} type="button">＋ Polka</button>
-        <button style={adv} onClick={() => add("shelf", { doubled: true })} type="button">＋ Polka 32мм</button>
-        <button style={act} onClick={() => add("door")} type="button">＋ Eshik</button>
-        <button style={adv} onClick={() => add("door", { glazed: true })} type="button">＋ Oyna eshik</button>
-        <button style={adv} onClick={() => add("door", { glazedGrid: { lights: 3 } })} type="button">＋ Витрина</button>
+        <div style={popWrap}>
+          <button style={{ ...act, ...(menu === "polka" ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "polka" ? null : "polka"); }} type="button">＋ Polka ▾</button>
+          {menu === "polka" && (
+            <div style={popover}>
+              <button style={popItem} onClick={() => add("shelf")} type="button">Oddiy polka · 16мм</button>
+              <button style={popItem} onClick={() => add("shelf", { doubled: true })} type="button">Qalin polka · 32мм</button>
+            </div>
+          )}
+        </div>
+        <div style={popWrap}>
+          <button style={{ ...act, ...(menu === "eshik" ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "eshik" ? null : "eshik"); }} type="button">＋ Eshik ▾</button>
+          {menu === "eshik" && (
+            <div style={popover}>
+              <button style={popItem} onClick={() => add("door")} type="button">Oddiy eshik</button>
+              <button style={popItem} onClick={() => add("door", { glazed: true })} type="button">Oyna eshik</button>
+              <button style={popItem} onClick={() => add("door", { glazedGrid: { lights: 3 } })} type="button">Витрина · 3 oyna</button>
+            </div>
+          )}
+        </div>
         <button style={act} onClick={() => add("drawer")} type="button">＋ Yashik</button>
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowDivide((v) => !v)} type="button">⊟ Bo'lish…</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
         <button style={{ ...act, marginLeft: "auto", borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
-        <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spetsifikatsiya</button>
-        <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC · SWJ008</button>
+        <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spec</button>
+        <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC</button>
       </div>
       {/* Placement (#1) — choose which compartment the next add lands in; tapping a part also sets it */}
       {sections.length > 1 && (
@@ -539,8 +569,12 @@ const dimLabel: CSSProperties = { fontFamily: "system-ui", fontSize: 11, fontWei
 const dimInput: CSSProperties = { width: 44, border: "none", outline: "none", background: "transparent", font: "600 13px ui-monospace, monospace", color: "#18241d", textAlign: "right", padding: "3px 2px" };
 const pill: CSSProperties = { padding: "6px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer" };
 const editbar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, flexWrap: "wrap" };
+const popWrap: CSSProperties = { position: "relative", display: "inline-flex", zIndex: 56 };
+const popover: CSSProperties = { position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 176, background: "#fff", border: "1px solid #e0dccf", borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.17)", padding: 6, display: "flex", flexDirection: "column", gap: 2, zIndex: 60 };
+const popRight: CSSProperties = { ...popover, left: "auto", right: 0 };
+const popItem: CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "none", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer", textAlign: "left", whiteSpace: "nowrap" };
+const popSep: CSSProperties = { height: 1, background: "#eee7d8", margin: "4px 2px" };
 const act: CSSProperties = { padding: "8px 13px", borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer" };
-const adv: CSSProperties = { padding: "8px 13px", borderRadius: 10, border: "1px solid #8a52c9", background: "#efe3fa", color: "#5b2a86", font: "650 13px system-ui", cursor: "pointer" };
 const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
 const badge: CSSProperties = { padding: "3px 8px", borderRadius: 999, background: "#e3f3ea", color: "#006b3f", font: "600 11px system-ui" };
 const warnBar: CSSProperties = { margin: "0 14px 10px", padding: "8px 12px", borderRadius: 8, background: "#fdf3e0", border: "1px solid #f0d9a8", color: "#8a5a1f", display: "flex", gap: 10, alignItems: "center", font: "13px system-ui", minWidth: 0 };
