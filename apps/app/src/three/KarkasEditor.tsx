@@ -42,6 +42,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const canUndo = useKarkas((s) => s.past.length > 0);
   const model = useKarkas((s) => s.model);
   const plan = useKarkas((s) => s.plan);
+  const warnings = useKarkas((s) => s.warnings);
+  const selComp = useKarkas((s) => s.selectedComponent());
+  const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const [showSpec, setShowSpec] = useState(false);
 
   // Emit byte-exact SWJ008 for the current model and hand it to the browser as a download. The
@@ -155,13 +158,35 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* Phase 4 — edit toolbar: engine operations on the target section (selected panel's, else first leaf) */}
       <div style={editbar}>
         <button style={act} onClick={() => add("shelf")} type="button">＋ Polka</button>
+        <button style={adv} onClick={() => add("shelf", { doubled: true })} type="button">＋ Polka 32мм</button>
         <button style={act} onClick={() => add("door")} type="button">＋ Eshik</button>
+        <button style={adv} onClick={() => add("door", { glazedGrid: { lights: 3 } })} type="button">＋ Витрина</button>
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={act} onClick={() => divide()} type="button">⊟ Bo'lish</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
         <button style={{ ...act, marginLeft: "auto", borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spetsifikatsiya</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC · SWJ008</button>
       </div>
+      {/* Phase 6 — selected-component actions: doubling / glazing status + load-bearing declaration */}
+      {selComp && (
+        <div style={selBar}>
+          <span style={mono}>{selComp.name}</span>
+          {selComp.doubled && <span style={badge}>32мм</span>}
+          {(selComp.glazed || selComp.glazedGrid) && <span style={badge}>Витрина{selComp.glazedGrid ? ` ×${selComp.glazedGrid.lights}` : ""}</span>}
+          {selComp.loadBearing && <span style={{ ...badge, background: "#e7d6f5", color: "#5b2a86" }}>⚖ Yuk</span>}
+          <button style={{ ...act, marginLeft: "auto", ...(selComp.loadBearing ? { borderColor: "#8a52c9", background: "#efe3fa", color: "#5b2a86" } : {}) }} onClick={toggleLoadBearing} type="button">
+            ⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}
+          </button>
+        </div>
+      )}
+      {/* Phase 6 — non-blocking engineering warnings (stability / motion / hinge) */}
+      {warnings.length > 0 && (
+        <div style={warnBar}>
+          <b style={{ flex: "0 0 auto" }}>⚠ {warnings.length}</b>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{warnings[0]}</span>
+          {warnings.length > 1 && <span style={{ ...mono, flex: "0 0 auto" }}>+{warnings.length - 1}</span>}
+        </div>
+      )}
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
         <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
         {showSpec && <SpecPanel onClose={() => setShowSpec(false)} />}
@@ -251,6 +276,10 @@ const mono: CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 1
 const pill: CSSProperties = { padding: "6px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer" };
 const editbar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, flexWrap: "wrap" };
 const act: CSSProperties = { padding: "8px 13px", borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer" };
+const adv: CSSProperties = { padding: "8px 13px", borderRadius: 10, border: "1px solid #8a52c9", background: "#efe3fa", color: "#5b2a86", font: "650 13px system-ui", cursor: "pointer" };
+const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
+const badge: CSSProperties = { padding: "3px 8px", borderRadius: 999, background: "#e3f3ea", color: "#006b3f", font: "600 11px system-ui" };
+const warnBar: CSSProperties = { margin: "0 14px 10px", padding: "8px 12px", borderRadius: 8, background: "#fdf3e0", border: "1px solid #f0d9a8", color: "#8a5a1f", display: "flex", gap: 10, alignItems: "center", font: "13px system-ui", minWidth: 0 };
 const specPanel: CSSProperties = { position: "absolute", top: 0, right: 0, bottom: 0, width: "min(380px, 92vw)", background: "#fbfaf6", borderLeft: "1px solid #e0dccf", boxShadow: "-8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };
 const specHead: CSSProperties = { padding: "12px 14px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #e6e1d4", fontFamily: "system-ui" };
 const specTotals: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "#e6e1d4", padding: 1, margin: "10px 14px 6px", borderRadius: 8, overflow: "hidden" };

@@ -5,13 +5,16 @@
 // call the engine's PURE immutable operations (divideSection / addInstance) and re-derive.
 
 import { create } from "zustand";
-import type { StructuralModel } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Component, Block, Instance } from "../../../../engine/contracts/structure.js";
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, selectByTap, type AddKind } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, setLoadBearing, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { checkStability } from "../../../../engine/structure/stability.js";
+import { checkMotionClearance } from "../../../../engine/structure/motion.js";
+import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { layoutToScene, type Scene } from "./structureScene";
 import { DEFAULT_PLAN, type MaterialPlan } from "./materials";
 
@@ -20,9 +23,15 @@ interface Derived {
   model: StructuralModel;
   parts: Part[]; // manufacturing leaves (for the future price / cut list / CNC)
   scene: Scene; // positioned render boxes (metres)
+  warnings: string[]; // non-blocking engineering ⚠ (stability + motion + hinge fit), Russian text
 }
 function derive(model: StructuralModel): Derived {
-  return { model, parts: solveStructure(model), scene: layoutToScene(solveLayout(model)) };
+  const warnings = [
+    ...checkStability(model),
+    ...checkMotionClearance(model),
+    ...checkHingeFit(model),
+  ].map((f) => f.message_ru);
+  return { model, parts: solveStructure(model), scene: layoutToScene(solveLayout(model)), warnings };
 }
 
 /** First leaf section of the model (the default edit target when nothing is selected). */
@@ -61,6 +70,23 @@ function firstLeafUnder(s: Section): Section {
   return child ? firstLeafUnder(child) : s;
 }
 
+/**
+ * Resolve a solved part id back to the instance that produced it. Instance parts are emitted as
+ * `${block.id}__inst_${inst.id}` (with `__a`/`__b`, `__stile_l`, … suffixes for doubled / glazed-grid
+ * builds), so we match that prefix. Carcass panels have no instance and return null. This replaces
+ * selectByTap here, which matches against `component.partIds` — empty in the karkas models, so it
+ * never resolved (Phase 4's section targeting silently fell back to the first leaf).
+ */
+function resolveInstance(model: StructuralModel, partId: string): { block: Block; inst: Instance } | null {
+  for (const b of model.blocks) {
+    for (const inst of b.instances) {
+      const base = `${b.id}__inst_${inst.id}`;
+      if (partId === base || partId.startsWith(`${base}__`)) return { block: b, inst };
+    }
+  }
+  return null;
+}
+
 /** Return a copy of the model with the given instances re-pointed to `sectionId`. */
 function rehomeInstances(model: StructuralModel, ids: Set<string>, sectionId: string): StructuralModel {
   return {
@@ -85,8 +111,12 @@ interface KarkasState extends Derived {
   tapPart: (id: string | null) => void;
   /** Split the target section into two (a vertical divider). */
   divide: () => void;
-  /** Add a shelf / door / divider / drawer to the target section. */
-  add: (kind: AddKind) => void;
+  /** Add content to the target section; opts carry the 32mm doubled build / glazed-grid door (P6). */
+  add: (kind: AddKind, opts?: AddOpts) => void;
+  /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
+  selectedComponent: () => Component | null;
+  /** Toggle the selected component's load-bearing declaration (drives the stability ⚠). */
+  toggleLoadBearing: () => void;
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
@@ -97,19 +127,10 @@ export const useKarkas = create<KarkasState>((set, get) => {
   const apply = (next: StructuralModel): void =>
     set((s) => ({ ...derive(next), past: [...s.past.slice(-49), s.model], selectedId: null }));
   // the section an edit targets: the section of the selected panel's instance, else the first leaf.
-  // (Selection carries instanceIds, not a sectionId — we look the instance up to find its section.)
   const targetSection = (): string | undefined => {
     const s = get();
-    if (s.selectedId) {
-      const instId = selectByTap(s.model, s.selectedId)?.instanceIds[0];
-      if (instId) {
-        for (const b of s.model.blocks) {
-          const inst = b.instances.find((i) => i.id === instId);
-          if (inst) return inst.sectionId;
-        }
-      }
-    }
-    return firstLeafId(s.model);
+    const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+    return r ? r.inst.sectionId : firstLeafId(s.model);
   };
   return {
     ...derive(buildDemoModel()),
@@ -137,9 +158,18 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (divided && orphanIds.size) next = rehomeInstances(next, orphanIds, firstLeafUnder(divided).id);
       apply(next);
     },
-    add: (kind) => {
+    add: (kind, opts) => {
       const t = targetSection();
-      if (t) apply(addInstance(get().model, t, kind));
+      if (t) apply(addInstance(get().model, t, kind, opts));
+    },
+    selectedComponent: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      return r ? r.block.components.find((c) => c.id === r.inst.componentId) ?? null : null;
+    },
+    toggleLoadBearing: () => {
+      const comp = get().selectedComponent();
+      if (comp) apply(setLoadBearing(get().model, comp.id, !(comp.loadBearing === true)));
     },
     undo: () =>
       set((s) => {
