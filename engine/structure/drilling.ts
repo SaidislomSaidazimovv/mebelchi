@@ -26,9 +26,10 @@
 // spec is passed IN by the caller (engine/cnc.ts), keeping the JSON import-attribute out of
 // any UI-bundled module (Metro stays clean). Same input in → same parts out; no mutation.
 
-import type { Part, mm10, SawGrooveOp } from "../contracts/types.js";
-import type { HardwareSpec } from "../primitives/types.js";
+import type { Part, mm10, DrillOp, PanelFace, SawGrooveOp } from "../contracts/types.js";
+import type { HardwareSpec, ConnectorSpec } from "../primitives/types.js";
 import type { StructuralModel } from "../contracts/structure.js";
+import { mmToMm10 } from "../core/units.js";
 import { shelfPinPattern } from "../primitives/shelfPinPattern.js";
 import { hingeCupPattern } from "../primitives/hingeCupPattern.js";
 
@@ -241,6 +242,64 @@ function glassRebate(part: Part): SawGrooveOp[] {
   ];
 }
 
+// ── Carcass joinery (cam + dowel) ──────────────────────────────────────────────────────────────
+// Mirrors solver/baseCabinet.ts camDowelJoint so the structural / karkas SWJ008 gets the SAME corner
+// joinery the legacy base-cabinet solver already emits: per outer-carcass corner, a Ø15 cam seat on
+// the SIDE's Face A (fromMatingEdge in from the mating end) + a Ø8 dowel into the top/bottom panel's
+// mating END edge (edge4 for a left side / edge3 for a right side), at two depth columns.
+const CONNECTOR_SKU = "DUMMY_RASTEX_15";
+const JOINT_INSET_MM10: mm10 = 600; // 60mm connector column inset from each depth edge (baseCabinet)
+
+/** One carcass corner: cams onto the SIDE (Face A), dowels into the HORIZONTAL panel's end edge. */
+function camDowelJoint(side: Part, horiz: Part, end: "bottom" | "top", sideKind: "left" | "right", jointYs: mm10[], conn: ConnectorSpec): { camOps: DrillOp[]; dowelOps: DrillOp[] } {
+  const camDia = mmToMm10(conn.camSeat.diameter);
+  const camDepth = mmToMm10(conn.camSeat.depth);
+  const fromEdge = mmToMm10(conn.camSeat.fromMatingEdge);
+  const dowelDia = mmToMm10(conn.dowelHole.diameter);
+  const dowelDepth = mmToMm10(conn.dowelHole.depth);
+  const camX = end === "top" ? side.length_mm10 - fromEdge : fromEdge;
+  const horizEnd = sideKind === "left" ? 0 : horiz.length_mm10;
+  const dowelEdge: PanelFace = sideKind === "left" ? "edge4" : "edge3";
+  const dowelZ = Math.round(horiz.thickness_mm10 / 2); // centred in board thickness
+  const camOps: DrillOp[] = [];
+  const dowelOps: DrillOp[] = [];
+  jointYs.forEach((y, i) => {
+    camOps.push({ op: "drill", id: `cam_${side.id}_${end}_${i}`, face: "A", x_mm10: camX, y_mm10: y, diameter_mm10: camDia, depth_mm10: camDepth, source: "auto" });
+    dowelOps.push({ op: "drill", id: `dowel_${horiz.id}_${sideKind}_${i}`, face: dowelEdge, x_mm10: horizEnd, y_mm10: y, z_mm10: dowelZ, diameter_mm10: dowelDia, depth_mm10: dowelDepth, source: "auto" });
+  });
+  return { camOps, dowelOps };
+}
+
+/** Cam+dowel joinery for every block's OUTER carcass, keyed by part id → ops to append. Built from
+ *  the exact `${block.id}__side_l/__side_r/__top/__bottom` ids, so dividers (`__div_`), drawer sides
+ *  (`__inst_…`) and L-legs (`__legA__…`) never match. Skips L-corner (footprint) blocks and any block
+ *  too shallow for the two depth columns (a later increment / a safety-gate guard). */
+function carcassJoineryByPart(model: StructuralModel, parts: Part[], conn: ConnectorSpec | undefined): Map<string, DrillOp[]> {
+  const out = new Map<string, DrillOp[]>();
+  if (!conn) return out;
+  const byId = new Map(parts.map((p) => [p.id, p]));
+  const add = (id: string, ops: DrillOp[]): void => { if (!ops.length) return; const a = out.get(id) ?? []; a.push(...ops); out.set(id, a); };
+  for (const block of model.blocks) {
+    if (block.footprint) continue; // L-corner legs — a later increment
+    if (block.box.d < 2 * JOINT_INSET_MM10) continue; // too shallow → a column would fall out of bounds
+    const sideL = byId.get(`${block.id}__side_l`);
+    const sideR = byId.get(`${block.id}__side_r`);
+    const top = byId.get(`${block.id}__top`);
+    const bottom = byId.get(`${block.id}__bottom`);
+    if (!top || !bottom) continue;
+    const jointYs: mm10[] = [JOINT_INSET_MM10, block.box.d - JOINT_INSET_MM10];
+    for (const [side, kind] of [[sideL, "left"], [sideR, "right"]] as const) {
+      if (!side) continue;
+      for (const [horiz, end] of [[bottom, "bottom"], [top, "top"]] as const) {
+        const { camOps, dowelOps } = camDowelJoint(side, horiz, end, kind, jointYs, conn);
+        add(side.id, camOps);
+        add(horiz.id, dowelOps);
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Augment a solved part set with automatic machining: shelf-pins on side panels (for the block's
  * shelves), hinge cups on facade/door panels, and the glass rebate groove on glazed facades.
@@ -260,8 +319,12 @@ export function applyDrilling(
   const pin = spec.shelfPins[SHELF_PIN_SKU];
   const system32 = spec.system32;
   const hinge = spec.hinges[HINGE_SKU];
+  // Carcass cam+dowel joinery is computed up front (it writes to MULTIPLE parts per joint — cams on
+  // a side, dowels on a top/bottom — so it can't ride the per-part branches below); it's merged in a
+  // final additive pass that leaves the shelf-pin / hinge / glazed logic byte-for-byte untouched.
+  const joinery = carcassJoineryByPart(model, parts, spec.connectors[CONNECTOR_SKU]);
 
-  return parts.map((part) => {
+  const drilled = parts.map((part) => {
     // Side panel → shelf-pin line for the shelves it bounds (matched by depth, so an L-block's
     // deep leg-A shelf does not drill the shallow leg-B sides).
     if (pin && isSidePanel(part.id)) {
@@ -303,5 +366,13 @@ export function applyDrilling(
       return ops === part.operations ? part : { ...part, operations: ops };
     }
     return part;
+  });
+
+  // Final pass: append carcass joinery (cams onto sides, dowels onto top/bottom). Non-joinery parts
+  // pass through unchanged.
+  if (joinery.size === 0) return drilled;
+  return drilled.map((part) => {
+    const ops = joinery.get(part.id);
+    return ops && ops.length ? { ...part, operations: [...part.operations, ...ops] } : part;
   });
 }
