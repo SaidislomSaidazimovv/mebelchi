@@ -34,6 +34,7 @@ export function exportModelToSWJ008(
   model: StructuralModel,
   thickness: ThicknessSpec = {},
   materialByRole?: Record<string, string>,
+  materialNameById?: Record<string, string>,
 ): string {
   const parts = solveModelToParts(model, thickness);
   const validation = validateParts(parts);
@@ -50,9 +51,10 @@ export function exportModelToSWJ008(
   }
   // Phase 5.C: stamp the SWJ008 Material from a caller-supplied role→decor map (cosmetic; runs after
   // the geometry gates). Absent map or unmapped role → Material="" (unchanged golden output).
-  const named = materialByRole
+  const named = materialByRole || materialNameById
     ? parts.map((p) => {
-        const m = p.role ? materialByRole[p.role] : undefined;
+        // a per-part override (F2) wins over the role → decor name
+        const m = (p.materialId ? materialNameById?.[p.materialId] : undefined) ?? (p.role ? materialByRole?.[p.role] : undefined);
         return m ? { ...p, material: m } : p;
       })
     : parts;

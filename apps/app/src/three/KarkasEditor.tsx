@@ -3,17 +3,17 @@
 // the 3D group when the model changes and re-tints on selection change; taps write back to the
 // store. Opened as a focused overlay from the Biblioteka (Phase 3.3) or the /#karkas dev route —
 // entirely parallel to the kitchen constructor, which it never touches.
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas } from "./karkasStore";
 import { useStore } from "../store";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
-import { buildStructureGroup, highlightBoard, disposeStructureGroup } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup } from "./structureRenderer";
 import { sceneDimsMm } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, boardForRole, partColor, type MaterialPlan } from "./materials";
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
@@ -46,10 +46,20 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const canUndo = useKarkas((s) => s.past.length > 0);
   const model = useKarkas((s) => s.model);
   const plan = useKarkas((s) => s.plan);
+  const parts = useKarkas((s) => s.parts);
   const warnings = useKarkas((s) => s.warnings);
+  // F1 — part id → decor colour (int). Recomputed when parts or the material plan change.
+  const colorFn = useMemo(() => {
+    const m = new Map(parts.map((p) => [p.id, partColor(plan, p.role, p.materialId)]));
+    return (id: string) => m.get(id);
+  }, [parts, plan]);
+  const colorRef = useRef(colorFn);
+  colorRef.current = colorFn;
+  const framedRef = useRef(""); // F3 — last camera-framing signature (centre+radius); reframe only on change
   const selComp = useKarkas((s) => s.selectedComponent());
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const setThickness = useKarkas((s) => s.setThickness);
+  const setMaterial = useKarkas((s) => s.setMaterial);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
@@ -92,7 +102,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // gate and throws if the model can't be manufactured.
   const exportCnc = () => {
     try {
-      const text = exportModelToSWJ008(model, {}, materialMap(plan));
+      const text = exportModelToSWJ008(model, {}, materialMap(plan), Object.fromEntries(BOARDS.map((b) => [b.id, b.name])));
       const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
       const a = document.createElement("a");
       a.href = url;
@@ -220,7 +230,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const r = rt.current;
     if (!r) return;
     if (r.group) { r.scene.remove(r.group); disposeStructureGroup(r.group); }
-    const group = buildStructureGroup(scene);
+    const group = buildStructureGroup(scene, colorRef.current);
     r.scene.add(group);
     r.group = group;
     highlightBoard(group, selectedId);
@@ -232,12 +242,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       r.labels.h.textContent = `${d.h}`;
       r.labels.d.textContent = `${d.d}`;
     }
-    const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
-    const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
-    r.controls.target.copy(ctr);
-    r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z + dist * 0.95);
-    r.camera.lookAt(ctr);
-    r.controls.update();
+    // F3 — reframe the camera ONLY when the block's bounds change (resize / a different block), so a
+    // property edit (material / thickness / load-bearing / add) keeps the user's current orbit.
+    const framing = `${scene.center.map((n) => Math.round(n * 100)).join(",")}|${Math.round(scene.radius * 100)}`;
+    if (framing !== framedRef.current) {
+      framedRef.current = framing;
+      const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
+      const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
+      r.controls.target.copy(ctr);
+      r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z + dist * 0.95);
+      r.camera.lookAt(ctr);
+      r.controls.update();
+    }
     // selectedId intentionally omitted — the next effect owns highlight changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene]);
@@ -246,6 +262,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   useEffect(() => {
     if (rt.current?.group) highlightBoard(rt.current.group, selectedId);
   }, [selectedId]);
+
+  // ── F1: re-colour boards when the material plan changes (no geometry rebuild) ──
+  useEffect(() => {
+    if (rt.current?.group) {
+      recolorBoards(rt.current.group, colorFn);
+      highlightBoard(rt.current.group, selectedId); // recolor clears nothing but re-assert selection
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorFn]);
 
   const dims = sceneDimsMm(scene);
   return (
@@ -274,6 +299,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={act} onClick={() => add("shelf")} type="button">＋ Polka</button>
         <button style={adv} onClick={() => add("shelf", { doubled: true })} type="button">＋ Polka 32мм</button>
         <button style={act} onClick={() => add("door")} type="button">＋ Eshik</button>
+        <button style={adv} onClick={() => add("door", { glazed: true })} type="button">＋ Oyna eshik</button>
         <button style={adv} onClick={() => add("door", { glazedGrid: { lights: 3 } })} type="button">＋ Витрина</button>
         <button style={act} onClick={() => add("drawer")} type="button">＋ Yashik</button>
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
@@ -301,11 +327,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <div style={selBar}>
           <span style={mono}>{selComp.name}</span>
           {selComp.doubled && <span style={badge}>32мм</span>}
-          {(selComp.glazed || selComp.glazedGrid) && <span style={badge}>Витрина{selComp.glazedGrid ? ` ×${selComp.glazedGrid.lights}` : ""}</span>}
+          {selComp.glazedGrid && <span style={badge}>Витрина ×{selComp.glazedGrid.lights}</span>}
+          {selComp.glazed && !selComp.glazedGrid && <span style={badge}>Стекло</span>}
           {selComp.loadBearing && <span style={{ ...badge, background: "#e7d6f5", color: "#5b2a86" }}>⚖ Yuk</span>}
           {/* C4 — per-part thickness (imos Part Thickness) */}
           <span style={{ ...mono, marginLeft: 6 }}>Qalinlik:</span>
           <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
+          {/* F2 — per-part material override (imos Material_O per part) */}
+          <span style={mono}>Material:</span>
+          <select value={selComp.material ?? ""} onChange={(e) => setMaterial(e.target.value || null)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 160 }}>
+            <option value="">Rol bo'yicha</option>
+            {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
           <button style={{ ...act, marginLeft: "auto", ...(selComp.loadBearing ? { borderColor: "#8a52c9", background: "#efe3fa", color: "#5b2a86" } : {}) }} onClick={toggleLoadBearing} type="button">
             ⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}
           </button>

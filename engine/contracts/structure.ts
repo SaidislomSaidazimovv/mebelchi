@@ -259,6 +259,13 @@ export interface Component {
    * absent regresses nothing (the solver falls back to the single-stock 16mm law).
    */
   readonly thickness_mm10?: mm10;
+  /**
+   * Per-component material override (Phase F2): an OPAQUE decor key (the app's material-catalog id).
+   * The engine stays catalog-agnostic — it just carries the key and stamps it onto the emitted parts
+   * (`Part.materialId`) so the app can price / colour / name that part by a decor other than its role
+   * default. Optional/additive — absent = the role's material from the plan (nothing regresses).
+   */
+  readonly material?: string;
 }
 
 /** How two edge bands meet at a panel corner (#39). "mitre" 45° geometry is V2-deferred. */

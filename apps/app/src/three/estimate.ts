@@ -8,7 +8,7 @@
 import type { Part } from "../../../../engine/contracts/types.js";
 import type { StructuralModel, Section } from "../../../../engine/contracts/structure.js";
 import {
-  boardForRole,
+  partBoard,
   edgeById,
   DEFAULT_PLAN,
   HARDWARE,
@@ -73,7 +73,7 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
     const bands: [boolean, boolean, boolean, boolean] = [p.edges[0] > 0, p.edges[1] > 0, p.edges[2] > 0, p.edges[3] > 0];
     // SWJ008 perimeter convention: faces 1 & 3 run along Width, faces 2 & 4 along Length.
     const edgeM = (bands[0] ? w : 0) + (bands[2] ? w : 0) + (bands[1] ? l : 0) + (bands[3] ? l : 0);
-    const board = boardForRole(plan, p.role);
+    const board = partBoard(plan, p.role, p.materialId);
     const priceRub = areaM2 * (board?.pricePerM2 ?? 0) + edgeM * edgeRate;
     return {
       id: p.id,

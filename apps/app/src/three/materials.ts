@@ -101,3 +101,23 @@ export function planSlotForRole(role: string | undefined): keyof Omit<MaterialPl
 export function boardForRole(plan: MaterialPlan, role: string | undefined): BoardMaterial | undefined {
   return boardById(plan[planSlotForRole(role)]);
 }
+
+/** "#rrggbb" → the integer colour three.js wants. */
+export const hexToInt = (hex: string): number => parseInt(hex.replace("#", ""), 16);
+
+/** Light-blue tint for glass panes (F1). */
+export const GLASS_HEX = 0xbfe4f0;
+
+/** The board decor a part is priced/coloured against: a per-part override (F2) wins over the role.
+ *  Glass panes are NOT a board (returns undefined → not billed at a board rate). */
+export function partBoard(plan: MaterialPlan, role: string | undefined, materialId?: string): BoardMaterial | undefined {
+  if (role === "glass") return undefined;
+  return (materialId ? boardById(materialId) : undefined) ?? boardForRole(plan, role);
+}
+
+/** The 3D colour (int) a part is drawn with — per-part override wins over role (F1 + F2). */
+export function partColor(plan: MaterialPlan, role: string | undefined, materialId?: string): number {
+  if (role === "glass") return GLASS_HEX;
+  const b = partBoard(plan, role, materialId);
+  return b ? hexToInt(b.hex) : 0xe7ddc9;
+}

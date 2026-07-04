@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, setLoadBearing, setComponentThickness, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, setLoadBearing, setComponentThickness, setComponentMaterial, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -123,6 +123,8 @@ interface KarkasState extends Derived {
   toggleLoadBearing: () => void;
   /** Set the selected component's per-part board thickness in mm (C4). */
   setThickness: (mm: number) => void;
+  /** Set (or clear with null) the selected component's per-part material decor key (F2). */
+  setMaterial: (id: string | null) => void;
   /** Set the block's width / height / depth in mm (C2). Content reflows proportionally. */
   resize: (dim: "w" | "h" | "d", mm: number) => void;
   /** Revert the last edit. */
@@ -212,6 +214,10 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setThickness: (mm) => {
       const comp = get().selectedComponent();
       if (comp) apply(setComponentThickness(get().model, comp.id, Math.max(1, Math.round(mm)) * 10), true);
+    },
+    setMaterial: (id) => {
+      const comp = get().selectedComponent();
+      if (comp) apply(setComponentMaterial(get().model, comp.id, id), true);
     },
     resize: (dim, mm) => {
       const m = get().model;

@@ -10,14 +10,15 @@ const WOOD = 0xe7ddc9; // carcass face (matches the kitchen runStyle default)
 const EDGE = 0xc9bd9e; // panel edge outline
 const SELECTED = 0x2a6df0; // blue emissive tint (same as kitchen selection)
 
-/** Build the assembled cabinet as a THREE.Group of box meshes — one per render board. */
-export function buildStructureGroup(scene: Scene): THREE.Group {
+/** Build the assembled cabinet as a THREE.Group of box meshes — one per render board. `colorOf`
+ *  (Phase F1) maps a part id → its decor colour (int); absent / undefined falls back to WOOD. */
+export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined): THREE.Group {
   const group = new THREE.Group();
   for (const b of scene.boards) {
     const geom = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
     const mesh = new THREE.Mesh(
       geom,
-      new THREE.MeshStandardMaterial({ color: WOOD, roughness: 0.82, metalness: 0 }),
+      new THREE.MeshStandardMaterial({ color: colorOf?.(b.id) ?? WOOD, roughness: 0.82, metalness: 0 }),
     );
     mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
     mesh.userData.partId = b.id;
@@ -41,6 +42,19 @@ export function highlightBoard(group: THREE.Group, id: string | null): void {
       const on = id != null && mesh.userData.partId === id;
       mat.emissive = new THREE.Color(on ? SELECTED : 0x000000);
       mat.emissiveIntensity = on ? 0.5 : 0;
+      mat.needsUpdate = true;
+    }
+  }
+}
+
+/** Re-colour every board from `colorOf` (Phase F1 — decor changed, no geometry rebuild). Leaves the
+ *  selection emissive untouched, so re-apply highlightBoard after if a part is selected. */
+export function recolorBoards(group: THREE.Group, colorOf: (id: string) => number | undefined): void {
+  for (const child of group.children) {
+    const mesh = child as THREE.Mesh;
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    if (mat && "color" in mat) {
+      mat.color = new THREE.Color(colorOf(mesh.userData.partId as string) ?? WOOD);
       mat.needsUpdate = true;
     }
   }
