@@ -3,7 +3,7 @@
 // the 3D group when the model changes and re-tints on selection change; taps write back to the
 // store. Opened as a focused overlay from the Biblioteka (Phase 3.3) or the /#karkas dev route —
 // entirely parallel to the kitchen constructor, which it never touches.
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas } from "./karkasStore";
@@ -32,6 +32,7 @@ interface RT {
 export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rt = useRef<RT | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const scene = useKarkas((s) => s.scene);
   const selectedId = useKarkas((s) => s.selectedId);
   const tapPart = useKarkas((s) => s.tapPart);
@@ -45,6 +46,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const warnings = useKarkas((s) => s.warnings);
   const selComp = useKarkas((s) => s.selectedComponent());
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
+  const exportProject = useKarkas((s) => s.exportProject);
+  const importProject = useKarkas((s) => s.importProject);
   const [showSpec, setShowSpec] = useState(false);
 
   // Emit byte-exact SWJ008 for the current model and hand it to the browser as a download. The
@@ -62,6 +65,31 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     } catch (err) {
       alert("SWJ008 eksport xatosi: " + (err instanceof Error ? err.message : String(err)));
     }
+  };
+
+  // Save the whole project (model + material plan) as a .json download.
+  const saveProject = () => {
+    const url = URL.createObjectURL(new Blob([exportProject()], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "karkas-project.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  // Load a project from a picked .json file (resets the model + plan + history).
+  const onFileChange = (ev: ChangeEvent<HTMLInputElement>) => {
+    const file = ev.target.files?.[0];
+    ev.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        importProject(String(reader.result));
+      } catch (err) {
+        alert("Loyihani yuklashda xato: " + (err instanceof Error ? err.message : String(err)));
+      }
+    };
+    reader.readAsText(file);
   };
 
   // ── mount the three.js canvas once ──
@@ -153,7 +181,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button onClick={() => setModel(buildDemoModel())} style={pill} type="button">Тумба</button>
         <button onClick={() => setModel(buildLCornerModel())} style={pill} type="button">L-угол</button>
         <span style={{ ...mono, color: "#006b3f" }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
-        {onClose && <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕ Yopish</button>}
+        <button onClick={saveProject} style={{ ...pill, marginLeft: "auto" }} type="button">💾 Saqlash</button>
+        <button onClick={() => fileRef.current?.click()} style={pill} type="button">📂 Ochish</button>
+        <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={onFileChange} />
+        {onClose && <button onClick={onClose} style={pill} type="button">✕ Yopish</button>}
       </div>
       {/* Phase 4 — edit toolbar: engine operations on the target section (selected panel's, else first leaf) */}
       <div style={editbar}>

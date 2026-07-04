@@ -120,6 +120,17 @@ interface KarkasState extends Derived {
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
+  /** Serialize the current project (model + material plan) to a JSON string (P7 save). */
+  exportProject: () => string;
+  /** Load a project from a JSON string; throws on a malformed payload (P7 open). */
+  importProject: (json: string) => void;
+}
+
+/** The on-disk project shape (P7). Versioned so a future schema change can migrate. */
+interface ProjectFile {
+  version: 1;
+  model: StructuralModel;
+  plan: MaterialPlan;
 }
 
 export const useKarkas = create<KarkasState>((set, get) => {
@@ -178,5 +189,17 @@ export const useKarkas = create<KarkasState>((set, get) => {
         return { ...derive(prev), past: s.past.slice(0, -1), selectedId: null };
       }),
     canUndo: () => get().past.length > 0,
+    exportProject: () => {
+      const s = get();
+      const file: ProjectFile = { version: 1, model: s.model, plan: s.plan };
+      return JSON.stringify(file, null, 2);
+    },
+    importProject: (json) => {
+      const data = JSON.parse(json) as Partial<ProjectFile>;
+      if (!data || !data.model || !Array.isArray(data.model.blocks)) {
+        throw new Error("BAD_PROJECT: not a karkas project file");
+      }
+      set({ ...derive(data.model), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [] });
+    },
   };
 });
