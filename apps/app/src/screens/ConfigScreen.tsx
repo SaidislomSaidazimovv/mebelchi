@@ -79,6 +79,7 @@ export function ConfigScreen() {
   const myLibrary = useStore((s) => s.myLibrary);
   const projectBlocks = useStore((s) => s.projectBlocks);
   const removeProjectBlock = useStore((s) => s.removeProjectBlock);
+  const setBlockPosition = useStore((s) => s.setBlockPosition);
   const saveToLibrary = useStore((s) => s.saveToLibrary);
   const removeLibraryItem = useStore((s) => s.removeLibraryItem);
   const replaceCab = useStore((s) => s.replaceCab);
@@ -742,14 +743,17 @@ export function ConfigScreen() {
                       {projectBlocks.length > 0 && (
                         <div className="add-group">
                           <div className="add-head">📐 Loyiha bloklari ({projectBlocks.length})</div>
-                          <div className="add-grid">
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             {projectBlocks.map((b) => (
-                              <button key={b.id} className="add-chip" style={{ position: "relative" }} onClick={() => { useKarkas.getState().importProject(b.karkasJson); closeSheet(); }} type="button">
-                                <span role="button" aria-label={t.config.del} onClick={(e) => { e.stopPropagation(); removeProjectBlock(b.id); }} style={{ position: "absolute", top: 2, right: 6, fontSize: 13, lineHeight: 1, color: "var(--muted)", padding: 2 }}>✕</span>
-                                <span className="add-glyph" aria-hidden="true">🔧</span>
-                                <span className="add-name">{b.name}</span>
-                                <span className="add-sub">Loyihada</span>
-                              </button>
+                              <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px", borderBottom: "1px solid var(--line, #eee)" }}>
+                                <button onClick={() => { useKarkas.getState().importProject(b.karkasJson); closeSheet(); }} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", font: "inherit", cursor: "pointer", textAlign: "left", padding: 0 }} type="button">
+                                  <span aria-hidden="true">🔧</span>
+                                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</span>
+                                </button>
+                                <label style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, color: "var(--muted)" }}>X<input type="number" step={50} defaultValue={b.x} onBlur={(e) => setBlockPosition(b.id, parseInt(e.target.value, 10) || 0, b.z)} style={{ width: 56 }} /></label>
+                                <label style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, color: "var(--muted)" }}>Z<input type="number" step={50} defaultValue={b.z} onBlur={(e) => setBlockPosition(b.id, b.x, parseInt(e.target.value, 10) || 0)} style={{ width: 56 }} /></label>
+                                <span role="button" aria-label={t.config.del} onClick={() => removeProjectBlock(b.id)} style={{ padding: 4, cursor: "pointer", color: "var(--muted)", fontSize: 13 }}>✕</span>
+                              </div>
                             ))}
                           </div>
                         </div>

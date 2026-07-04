@@ -23,29 +23,27 @@ function modelOf(json: string): StructuralModel | null {
 }
 
 /**
- * Build a group holding every project block, floored and laid out in a centred row on X. Returns an
- * empty group when there are no (valid) blocks. Caller owns disposal (the room scene disposes it).
+ * Build a group holding every project block, each floored (base at y=0) and centred at its own room
+ * position (block-centre X/Z in mm, relative to the room origin). Blocks without a position fall back
+ * to an auto-row. Returns an empty group when there are no (valid) blocks. Caller owns disposal.
  */
-export function buildProjectBlocksGroup(blocks: readonly { karkasJson: string }[]): THREE.Group {
+export function buildProjectBlocksGroup(
+  blocks: readonly { karkasJson: string; x?: number; z?: number }[],
+): THREE.Group {
   const root = new THREE.Group();
   root.name = "karkasLayer";
-  let cursorX = 0;
-  for (const b of blocks) {
+  blocks.forEach((b, i) => {
     const model = modelOf(b.karkasJson);
-    if (!model) continue;
+    if (!model) return;
     const g = buildStructureGroup(layoutToScene(solveLayout(model)));
     const box = new THREE.Box3().setFromObject(g);
-    if (box.isEmpty()) continue;
-    const size = new THREE.Vector3();
+    if (box.isEmpty()) return;
     const ctr = new THREE.Vector3();
-    box.getSize(size);
     box.getCenter(ctr);
-    // min.x → cursorX (row), min.y → 0 (base on floor), centre.z → 0 (room centre line)
-    g.position.set(cursorX - box.min.x, -box.min.y, -ctr.z);
+    const x = (b.x ?? i * (800 + GAP_M * 1000)) / 1000; // mm → metres
+    const z = (b.z ?? 0) / 1000;
+    g.position.set(x - ctr.x, -box.min.y, z - ctr.z); // block centre → (x, z), base on floor
     root.add(g);
-    cursorX += size.x + GAP_M;
-  }
-  const totalW = Math.max(0, cursorX - GAP_M);
-  root.position.x = -totalW / 2; // centre the whole row on the room origin
+  });
   return root;
 }

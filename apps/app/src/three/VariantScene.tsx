@@ -29,7 +29,7 @@ import { registerCapture } from "../lib/thumbnailCapture";
 export interface SceneApi {
   setKitchen: (cabs: Cabinet[], style: KitchenStyle) => void;
   /** Phase D2 — (re)build the parallel karkas-blocks layer, alongside the kitchen (never replacing). */
-  setKarkasBlocks: (blocks: readonly { karkasJson: string }[]) => void;
+  setKarkasBlocks: (blocks: readonly { karkasJson: string; x?: number; z?: number }[]) => void;
   setView: (v: KitchenView) => void;
   syncGizmo: () => void;
   invalidate: () => void;
@@ -292,7 +292,7 @@ export function VariantScene({
   style: KitchenStyle;
   cabs: Cabinet[];
   /** Phase D — karkas blocks placed into the project, rendered as a parallel layer (optional). */
-  projectBlocks?: readonly { karkasJson: string }[];
+  projectBlocks?: readonly { karkasJson: string; x?: number; z?: number }[];
   /** constructor render style — defaults to realistic (other screens omit it) */
   mode?: RenderMode;
   /** camera framing — 3/4 orbit or top-down plan (constructor only) */

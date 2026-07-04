@@ -95,11 +95,14 @@ export const HW_GRADE_LABEL: Record<HwGrade, string> = {
   premium: "Премиум",
 };
 
-/** A karkas block placed into the current project (Phase D) — its project JSON + a display name. */
+/** A karkas block placed into the current project (Phase D) — its project JSON + a display name +
+ *  its room placement (block-centre X/Z in mm, relative to the room centre; D3). */
 export interface ProjectBlock {
   id: string;
   name: string;
   karkasJson: string;
+  x: number;
+  z: number;
 }
 
 export interface AppState {
@@ -155,6 +158,8 @@ export interface AppState {
   projectBlocks: ProjectBlock[];
   addProjectBlock: (name: string, json: string) => void;
   removeProjectBlock: (id: string) => void;
+  /** Move a placed karkas block to a room position (block-centre X/Z, mm) — D3. */
+  setBlockPosition: (id: string, x: number, z: number) => void;
   // global user/app settings (profile · company · preferences), Supabase-ready
   settings: Settings;
   // auth (Supabase). authReady = session checked; authUser = null when signed out.
@@ -1246,10 +1251,13 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({
       projectBlocks: [
         ...s.projectBlocks,
-        { id: `pb-${Date.now().toString(36)}-${s.projectBlocks.length.toString(36)}`, name: name.trim() || "Blok", karkasJson: json },
+        // auto-place in a row: each new block ~800mm to the right of the last
+        { id: `pb-${Date.now().toString(36)}-${s.projectBlocks.length.toString(36)}`, name: name.trim() || "Blok", karkasJson: json, x: s.projectBlocks.length * 800, z: 0 },
       ],
     })),
   removeProjectBlock: (id) => set((s) => ({ projectBlocks: s.projectBlocks.filter((b) => b.id !== id) })),
+  setBlockPosition: (id, x, z) =>
+    set((s) => ({ projectBlocks: s.projectBlocks.map((b) => (b.id === id ? { ...b, x, z } : b)) })),
   removeLibraryItem: (id) => {
     deleteLibraryItem(id);
     // TODO: Supabase sync (phase 2) — mirror the delete to the cloud here
