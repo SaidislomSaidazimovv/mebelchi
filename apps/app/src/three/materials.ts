@@ -61,6 +61,27 @@ export const DEFAULT_PLAN: MaterialPlan = {
 export const boardById = (id: string): BoardMaterial | undefined => BOARDS.find((b) => b.id === id);
 export const edgeById = (id: string): EdgeMaterial | undefined => EDGES.find((e) => e.id === id);
 
+/** Hardware unit prices (₽ each), realistic-but-illustrative (Phase 7.2). */
+export const HARDWARE = {
+  hinge: { name: "Петля Clip 110°", priceRub: 45 },
+  pin: { name: "Полкодержатель", priceRub: 4 },
+  cam: { name: "Стяжка Minifix", priceRub: 12 },
+  dowel: { name: "Шкант 8×30", priceRub: 2 },
+} as const;
+
+/** Cam-and-dowel joints per carcass box: top↔side ×2 + bottom↔side ×2 = 4, each 2 cams + 2 dowels. */
+export const CAMS_PER_CARCASS = 8;
+export const DOWELS_PER_CARCASS = 8;
+/** An adjustable shelf rests on 4 pins. */
+export const PINS_PER_SHELF = 4;
+
+/** Hinges for one door leaf, by height (mm) — mirrors the pricing package's rule. */
+export function hingesForDoorHeightMm(heightMm: number): number {
+  if (heightMm <= 900) return 2;
+  if (heightMm <= 1600) return 3;
+  return 4;
+}
+
 /** The plan slot (hence board decor) that governs a given panel role. */
 export function planSlotForRole(role: string | undefined): keyof Omit<MaterialPlan, "edge"> {
   switch (role) {

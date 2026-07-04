@@ -11,7 +11,7 @@ import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/
 import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
 import { buildStructureGroup, highlightBoard, disposeStructureGroup } from "./structureRenderer";
 import { sceneDimsMm } from "./structureScene";
-import { estimate } from "./estimate";
+import { estimate, hardwareEstimate } from "./estimate";
 import { BOARDS, EDGES, boardForRole, type MaterialPlan } from "./materials";
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
@@ -246,8 +246,11 @@ function MatSelect({ label, slot }: { label: string; slot: keyof Omit<MaterialPl
 function SpecPanel({ onClose }: { onClose: () => void }) {
   const parts = useKarkas((s) => s.parts);
   const plan = useKarkas((s) => s.plan);
+  const model = useKarkas((s) => s.model);
   const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
   const e = estimate(parts, plan);
+  const hw = hardwareEstimate(model);
+  const total = e.priceRub + hw.priceRub;
   return (
     <div style={specPanel}>
       <div style={specHead}>
@@ -276,8 +279,17 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
         <div style={cell}><span style={mono}>Kromka</span><b>{e.edgeM.toFixed(2)} m</b></div>
         <div style={cell}><span style={mono}>Narx</span><b>{e.priceRub.toLocaleString("ru-RU")} ₽</b></div>
       </div>
-      <div style={{ ...mono, padding: "2px 14px 8px" }}>
+      <div style={{ ...mono, padding: "2px 14px 6px" }}>
         {e.byMaterial.map((g) => `${g.name}: ${g.count} · ${g.priceRub.toLocaleString("ru-RU")}₽`).join("     ")}
+      </div>
+      {hw.lines.length > 0 && (
+        <div style={{ ...mono, padding: "0 14px 6px" }}>
+          Фурнитура: {hw.lines.map((l) => `${l.name} ×${l.qty}`).join(" · ")} — {hw.priceRub.toLocaleString("ru-RU")}₽
+        </div>
+      )}
+      <div style={totalRow}>
+        <span>Итого</span>
+        <span>{total.toLocaleString("ru-RU")} ₽</span>
       </div>
       <div style={specList}>
         {e.parts.map((p) => (
@@ -317,6 +329,7 @@ const specTotals: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1
 const cell: CSSProperties = { background: "#fff", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 2, fontFamily: "system-ui", fontSize: 15 };
 const specList: CSSProperties = { flex: 1, minHeight: 0, overflow: "auto", padding: "4px 14px" };
 const specRow: CSSProperties = { display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f0ece1", fontFamily: "system-ui", fontSize: 13 };
+const totalRow: CSSProperties = { margin: "0 14px 8px", padding: "8px 12px", borderRadius: 8, background: "#e3f3ea", color: "#00532f", display: "flex", justifyContent: "space-between", alignItems: "center", font: "800 17px system-ui" };
 const picker: CSSProperties = { padding: "10px 14px 2px", display: "flex", flexDirection: "column", gap: 6, borderBottom: "1px solid #eee7d8" };
 const matRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8 };
 const swatch: CSSProperties = { width: 16, height: 16, borderRadius: 4, border: "1px solid rgba(0,0,0,0.15)", flex: "0 0 auto" };

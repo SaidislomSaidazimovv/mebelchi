@@ -6,7 +6,18 @@
 // straight from it. Rates live in materials.ts (realistic-but-illustrative until a live feed lands).
 
 import type { Part } from "../../../../engine/contracts/types.js";
-import { boardForRole, edgeById, DEFAULT_PLAN, type MaterialPlan } from "./materials.js";
+import type { StructuralModel, Section } from "../../../../engine/contracts/structure.js";
+import {
+  boardForRole,
+  edgeById,
+  DEFAULT_PLAN,
+  HARDWARE,
+  hingesForDoorHeightMm,
+  CAMS_PER_CARCASS,
+  DOWELS_PER_CARCASS,
+  PINS_PER_SHELF,
+  type MaterialPlan,
+} from "./materials.js";
 
 const M = (mm10: number): number => mm10 / 10000; // mm10 → metres
 const MM = (mm10: number): number => Math.round(mm10 / 10); // mm10 → whole mm
@@ -98,4 +109,61 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
   const edgeM = sum(specs.map((s) => s.edgeM));
   const priceRub = Math.round(sum(specs.map((s) => s.priceRub)));
   return { parts: specs, count: specs.length, areaM2, edgeM, byThickness, byMaterial, priceRub };
+}
+
+export interface HardwareLine {
+  name: string;
+  qty: number;
+  priceRub: number;
+}
+export interface HardwareEstimate {
+  lines: HardwareLine[];
+  priceRub: number;
+}
+
+/** Height (mm) of the section with `id`, searched over the given zone roots (or null if absent). */
+function sectionHeightMm(roots: Section[], id: string): number | null {
+  for (const root of roots) {
+    const stack: Section[] = [root];
+    while (stack.length) {
+      const s = stack.pop()!;
+      if (s.id === id) return s.box.h / 10;
+      for (const c of s.children) stack.push(c);
+    }
+  }
+  return null;
+}
+
+/**
+ * Count + price the hardware a model needs (Phase 7.2): hinges per door leaf (by height), 4 pins per
+ * adjustable shelf, and one cam-and-dowel carcass kit per block. Computed from the MODEL (instances +
+ * roles + section sizes) rather than the solved parts, so doubled / glazed-grid facades — which emit
+ * many parts per single door — are counted once.
+ */
+export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
+  let hinges = 0;
+  let pins = 0;
+  let cams = 0;
+  let dowels = 0;
+  for (const b of model.blocks) {
+    cams += CAMS_PER_CARCASS;
+    dowels += DOWELS_PER_CARCASS;
+    const roots = b.zones.map((z) => z.root);
+    for (const inst of b.instances) {
+      const comp = b.components.find((c) => c.id === inst.componentId);
+      if (!comp) continue;
+      if (comp.role === "facade") {
+        hinges += hingesForDoorHeightMm(sectionHeightMm(roots, inst.sectionId) ?? 700);
+      } else if (comp.role === "internal_shelf") {
+        pins += PINS_PER_SHELF;
+      }
+    }
+  }
+  const lines = [
+    { name: HARDWARE.hinge.name, qty: hinges, priceRub: hinges * HARDWARE.hinge.priceRub },
+    { name: HARDWARE.pin.name, qty: pins, priceRub: pins * HARDWARE.pin.priceRub },
+    { name: HARDWARE.cam.name, qty: cams, priceRub: cams * HARDWARE.cam.priceRub },
+    { name: HARDWARE.dowel.name, qty: dowels, priceRub: dowels * HARDWARE.dowel.priceRub },
+  ].filter((l) => l.qty > 0);
+  return { lines, priceRub: sum(lines.map((l) => l.priceRub)) };
 }
