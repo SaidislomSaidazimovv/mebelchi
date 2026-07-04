@@ -243,7 +243,7 @@ function lCornerParts(block: Block, t: ResolvedT): Part[] {
   return [
     ...boxCarcass(`${block.id}__legA`, "Плечо A · ", fp.legA.length_mm10, h, fp.legA.depth_mm10, t),
     ...boxCarcass(`${block.id}__legB`, "Плечо B · ", fp.legB.length_mm10, h, fp.legB.depth_mm10, t, true),
-    panel(`${block.id}__corner_filler`, "Угловая планка", h, CORNER_FILLER_W, frontBand(), t.carcass),
+    panel(`${block.id}__corner_filler`, "Угловая планка", h, CORNER_FILLER_W, frontBand(), t.carcass, "carcass_side"),
   ];
 }
 
@@ -266,7 +266,7 @@ export function sectionOfLine(block: Block, lineId: string): Section | null {
  *  it divides (leg-aware for L-blocks) — not the block's bounding box. */
 function dividerPart(block: Block, line: Line, t: ResolvedT): Part {
   const box = sectionOfLine(block, line.id)?.box ?? block.box;
-  return panel(`${block.id}__div_${line.id}`, "Перегородка", box.h - 2 * t.carcass, box.d, frontBand(), t.divider);
+  return panel(`${block.id}__div_${line.id}`, "Перегородка", box.h - 2 * t.carcass, box.d, frontBand(), t.divider, "carcass_side");
 }
 
 function sectionById(block: Block, sectionId: string): Section | null {
@@ -293,7 +293,7 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   // the partially-doubled top above it — shorter under the 32mm front strip, taller behind the step.
   if (component.mount) {
     const clear = section.box.h - undersidePlaneAt(section.box.d, component.mount.front_mm10, component.mount.y_mm10, t.carcass);
-    return [panel(`${block.id}__inst_${inst.id}`, `${component.name} · опора`, clear, section.box.d, frontBand(), t.carcass)];
+    return [panel(`${block.id}__inst_${inst.id}`, `${component.name} · опора`, clear, section.box.d, frontBand(), t.carcass, "carcass_side")];
   }
   // First slice handles shelves; other roles return [] until their step.
   if (component.role === "internal_shelf") {

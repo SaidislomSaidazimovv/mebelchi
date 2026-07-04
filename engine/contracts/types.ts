@@ -114,6 +114,13 @@ export interface Part {
    * as `string` to keep this foundational contract free of an upward dependency on structure.ts.
    */
   role?: string;
+  /**
+   * Material / decor name written to the SWJ008 `Material` attribute (Phase 5.C). Optional/additive:
+   * the exporter stamps it from a caller-supplied role→name map so the cut file carries the real
+   * board decor. Absent = `Material=""` (unchanged golden output). The engine stays catalog-agnostic
+   * — it writes whatever name it is handed, it does not own the material list.
+   */
+  material?: string;
 }
 
 /** User/runtime-level container. A Project is the unit handed to the entry point. */

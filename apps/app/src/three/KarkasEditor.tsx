@@ -12,7 +12,13 @@ import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
 import { buildStructureGroup, highlightBoard, disposeStructureGroup } from "./structureRenderer";
 import { sceneDimsMm } from "./structureScene";
 import { estimate } from "./estimate";
-import { BOARDS, EDGES, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, boardForRole, type MaterialPlan } from "./materials";
+
+/** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
+function materialMap(plan: MaterialPlan): Record<string, string> {
+  const roles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "internal_shelf", "facade"];
+  return Object.fromEntries(roles.map((r) => [r, boardForRole(plan, r)?.name ?? ""]));
+}
 
 interface RT {
   renderer: THREE.WebGLRenderer;
@@ -35,13 +41,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const undo = useKarkas((s) => s.undo);
   const canUndo = useKarkas((s) => s.past.length > 0);
   const model = useKarkas((s) => s.model);
+  const plan = useKarkas((s) => s.plan);
   const [showSpec, setShowSpec] = useState(false);
 
-  // Emit byte-exact SWJ008 for the current model and hand it to the browser as a download.
-  // exportModelToSWJ008 runs the safety gate and throws if the model can't be manufactured.
+  // Emit byte-exact SWJ008 for the current model and hand it to the browser as a download. The
+  // material map carries the chosen decors into the cut file. exportModelToSWJ008 runs the safety
+  // gate and throws if the model can't be manufactured.
   const exportCnc = () => {
     try {
-      const text = exportModelToSWJ008(model);
+      const text = exportModelToSWJ008(model, {}, materialMap(plan));
       const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
       const a = document.createElement("a");
       a.href = url;

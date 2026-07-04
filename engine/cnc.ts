@@ -30,7 +30,11 @@ export function solveModelToParts(model: StructuralModel, thickness: ThicknessSp
  * exporter ordering: nothing exports dirty. Throws MACHINING_VALIDATION_FAILED with the finding
  * codes if the gate rejects, so the UI can surface exactly what blocked the export.
  */
-export function exportModelToSWJ008(model: StructuralModel, thickness: ThicknessSpec = {}): string {
+export function exportModelToSWJ008(
+  model: StructuralModel,
+  thickness: ThicknessSpec = {},
+  materialByRole?: Record<string, string>,
+): string {
   const parts = solveModelToParts(model, thickness);
   const validation = validateParts(parts);
   if (!validation.ok) {
@@ -44,6 +48,14 @@ export function exportModelToSWJ008(model: StructuralModel, thickness: Thickness
   if (emit.length > 0) {
     throw new Error(`EMIT_INCOMPLETE: ${emit.map((f) => f.code).join(", ")}`);
   }
-  const project: Project = { id: model.id, name: model.name, parts };
+  // Phase 5.C: stamp the SWJ008 Material from a caller-supplied role→decor map (cosmetic; runs after
+  // the geometry gates). Absent map or unmapped role → Material="" (unchanged golden output).
+  const named = materialByRole
+    ? parts.map((p) => {
+        const m = p.role ? materialByRole[p.role] : undefined;
+        return m ? { ...p, material: m } : p;
+      })
+    : parts;
+  const project: Project = { id: model.id, name: model.name, parts: named };
   return exportSWJ008(project);
 }
