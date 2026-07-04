@@ -77,6 +77,8 @@ export function ConfigScreen() {
   const fillCabGap = useStore((s) => s.fillCabGap);
   const addCab = useStore((s) => s.addCab);
   const myLibrary = useStore((s) => s.myLibrary);
+  const projectBlocks = useStore((s) => s.projectBlocks);
+  const removeProjectBlock = useStore((s) => s.removeProjectBlock);
   const saveToLibrary = useStore((s) => s.saveToLibrary);
   const removeLibraryItem = useStore((s) => s.removeLibraryItem);
   const replaceCab = useStore((s) => s.replaceCab);
@@ -733,10 +735,28 @@ export function ConfigScreen() {
                         </div>
                       </div>
                     ))
-                  ) : myLibrary.length === 0 ? (
-                    <div className="add-sub" style={{ padding: "8px 4px" }}>{t.config.myBlocksEmpty}</div>
                   ) : (
-                    <div className="add-grid">
+                    <>
+                      {/* Phase D1 — karkas blocks placed into the current project */}
+                      {projectBlocks.length > 0 && (
+                        <div className="add-group">
+                          <div className="add-head">📐 Loyiha bloklari ({projectBlocks.length})</div>
+                          <div className="add-grid">
+                            {projectBlocks.map((b) => (
+                              <button key={b.id} className="add-chip" style={{ position: "relative" }} onClick={() => { useKarkas.getState().importProject(b.karkasJson); closeSheet(); }} type="button">
+                                <span role="button" aria-label={t.config.del} onClick={(e) => { e.stopPropagation(); removeProjectBlock(b.id); }} style={{ position: "absolute", top: 2, right: 6, fontSize: 13, lineHeight: 1, color: "var(--muted)", padding: 2 }}>✕</span>
+                                <span className="add-glyph" aria-hidden="true">🔧</span>
+                                <span className="add-name">{b.name}</span>
+                                <span className="add-sub">Loyihada</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {myLibrary.length === 0 && projectBlocks.length === 0 ? (
+                        <div className="add-sub" style={{ padding: "8px 4px" }}>{t.config.myBlocksEmpty}</div>
+                      ) : (
+                        <div className="add-grid">
                       {myLibrary.map((item) => (
                         <button key={item.id} className="add-chip" style={{ position: "relative" }} onClick={() => openLibraryItem(item)} type="button">
                           <span
@@ -750,7 +770,9 @@ export function ConfigScreen() {
                           <span className="add-sub">{item.karkasJson ? "Karkas" : t.config.myBlock}</span>
                         </button>
                       ))}
-                    </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </>

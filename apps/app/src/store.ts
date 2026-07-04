@@ -95,6 +95,13 @@ export const HW_GRADE_LABEL: Record<HwGrade, string> = {
   premium: "Премиум",
 };
 
+/** A karkas block placed into the current project (Phase D) — its project JSON + a display name. */
+export interface ProjectBlock {
+  id: string;
+  name: string;
+  karkasJson: string;
+}
+
 export interface AppState {
   // journey
   screen: Screen;
@@ -143,6 +150,11 @@ export interface AppState {
   // demo; libraryRev bumps to refresh any open picker. Global (survives newProject).
   myLibrary: LibraryItem[];
   libraryRev: number;
+  // Phase D1 — karkas blocks placed INTO the current project (session state, fully separate from
+  // `cabs` so the kitchen Cell flow is untouched). Each holds the karkas project JSON.
+  projectBlocks: ProjectBlock[];
+  addProjectBlock: (name: string, json: string) => void;
+  removeProjectBlock: (id: string) => void;
   // global user/app settings (profile · company · preferences), Supabase-ready
   settings: Settings;
   // auth (Supabase). authReady = session checked; authUser = null when signed out.
@@ -377,6 +389,7 @@ export const useStore = create<AppState>((set, get) => ({
   projectsRev: 0,
   myLibrary: listLibrary(),
   libraryRev: 0,
+  projectBlocks: [] as ProjectBlock[],
   settings: loadSettings(),
   // if Supabase isn't configured, auth is skipped (app runs on localStorage)
   authReady: !isSupabaseConfigured,
@@ -1229,6 +1242,14 @@ export const useStore = create<AppState>((set, get) => ({
     upsertLibraryItem(libraryItemFromKarkas(name, json));
     set((s) => ({ myLibrary: listLibrary(), libraryRev: s.libraryRev + 1 }));
   },
+  addProjectBlock: (name, json) =>
+    set((s) => ({
+      projectBlocks: [
+        ...s.projectBlocks,
+        { id: `pb-${Date.now().toString(36)}-${s.projectBlocks.length.toString(36)}`, name: name.trim() || "Blok", karkasJson: json },
+      ],
+    })),
+  removeProjectBlock: (id) => set((s) => ({ projectBlocks: s.projectBlocks.filter((b) => b.id !== id) })),
   removeLibraryItem: (id) => {
     deleteLibraryItem(id);
     // TODO: Supabase sync (phase 2) — mirror the delete to the cloud here
