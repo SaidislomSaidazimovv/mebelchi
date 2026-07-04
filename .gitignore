@@ -38,3 +38,13 @@ CORE 3/
 bench/
 mined/
 tools/
+
+# Archived: the standalone karkas prototype (Expo / react-native-web). Superseded by apps/app +
+# root engine/ (the port is complete; no live code crosses into it). Kept locally for its puppeteer
+# screenshot harness; safe to delete for disk space. Ships nothing — never track or deploy it.
+karkas-app/
+
+# Local screen recordings / frame dumps — reference material, not app assets.
+*.mp4
+*.mp3
+Video Frame Extractor*/
