@@ -77,11 +77,31 @@ export function HandoffScreen() {
   }, [cabs]);
 
   if (!prod || !drawRun) {
+    // No kitchen run yet — but if karkas blocks are placed, still hand off THEIR cut lists.
     return (
       <section className="screen">
         <div className="qnum">{t.handoff.num}</div>
         <h1 className="h1">{t.handoff.emptyTitle}</h1>
         <p className="sub" style={{ marginTop: 12 }}>{t.handoff.emptySub}</p>
+        {blockRows.map((bl) => (
+          <div key={bl.name}>
+            <div className="cost-sec-title">🧩 {bl.name}</div>
+            <div className="ho-table">
+              <div className="ho-row ho-head">
+                <span className="ho-c-part">{t.handoff.colPart}</span>
+                <span className="ho-c-mat">{t.handoff.colMat}</span>
+                <span className="ho-c-dim">{t.handoff.colDim}</span>
+              </div>
+              {bl.rows.map((r, i) => (
+                <div className="ho-row" key={i}>
+                  <span className="ho-c-part">{r.part}</span>
+                  <span className="ho-c-mat">{r.material}</span>
+                  <span className="ho-c-dim">{r.lengthMm}×{r.widthMm}×{r.thicknessMm}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </section>
     );
   }
