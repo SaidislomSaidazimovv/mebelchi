@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useKarkas } from "../three/karkasStore";
 import { buildCarcassModel } from "../../../../engine/structure/demoModel.js";
+import { cellToKarkasBlock } from "../three/cellToKarkas";
 import { useT } from "../i18n/useT";
 import { priceCabs } from "../model/toProject";
 import { useMoney } from "../useMoney";
@@ -801,10 +802,9 @@ export function ConfigScreen() {
                 onReplace={onReplaceCab}
                 onSaveToLibrary={() => saveToLibrary(cabs[i])}
                 onOpenKarkas={() => {
-                  // Phase 5 — edit this module in the karkas editor, seeded from its dimensions
-                  const c = cabs[i];
-                  const depth = c.depth ?? (c.kind === "upper" ? 350 : 560);
-                  useKarkas.getState().openWith(buildCarcassModel(c.w, c.h, depth));
+                  // Phase W1 — edit this module in the karkas editor WITH its converted interior
+                  const { model, plan } = cellToKarkasBlock(cabs[i]);
+                  useKarkas.getState().openWith(model, plan);
                   closeSheet();
                 }}
                 flash={flash}

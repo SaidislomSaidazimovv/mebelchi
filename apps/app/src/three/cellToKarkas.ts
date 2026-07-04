@@ -9,6 +9,7 @@ import type { StructuralModel, Section } from "../../../../engine/contracts/stru
 import { leafSections } from "../../../../engine/contracts/structure.js";
 import { buildCarcassModel } from "../../../../engine/structure/demoModel.js";
 import { divideSection, addInstance } from "../../../../engine/structure/operations.js";
+import { BOARDS, DEFAULT_PLAN, hexToInt, type MaterialPlan } from "./materials";
 
 /** A module's depth (mm): explicit override, else the per-kind default (upper 350, base/tall 560). */
 export const cabDepthMm = (cab: Pick<Cabinet, "depth" | "kind">): number =>
@@ -102,4 +103,40 @@ export function cellToStructural(cab: Cabinet): StructuralModel {
   const model = buildCarcassModel(cab.w, cab.h, cabDepthMm(cab));
   const rootId = leafSections(model.blocks[0]!.zones[0]!.root)[0]!.id;
   return convertNode(model, rootId, cabinetLayout(cab), cab);
+}
+
+const rgb = (n: number): [number, number, number] => [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+
+/** The karkas board decor whose colour is nearest the given finish int (or `fallback` if absent). */
+function nearestBoardId(colorInt: number | undefined, fallback: string): string {
+  if (colorInt == null) return fallback;
+  const [r, g, b] = rgb(colorInt);
+  let best = fallback;
+  let bestD = Infinity;
+  for (const board of BOARDS) {
+    const [br, bg, bb] = rgb(hexToInt(board.hex));
+    const d = (r - br) ** 2 + (g - bg) ** 2 + (b - bb) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = board.id;
+    }
+  }
+  return best;
+}
+
+/**
+ * C.8 — the material plan from a Cabinet's finish colours: facade & carcass finishes map to the
+ * nearest board decor (by colour); shelf follows carcass; back + edge keep the defaults. The colour
+ * is nearest-of-catalog (the karkas decor's own hex + thickness drive the render/price); the usta can
+ * re-pick from a real catalog. worktop / handle finishes have no karkas board and are dropped.
+ */
+export function cellPlan(cab: Cabinet): MaterialPlan {
+  const f = cab.finish ?? {};
+  const carcass = nearestBoardId(f.carcass, DEFAULT_PLAN.carcass);
+  return { ...DEFAULT_PLAN, facade: nearestBoardId(f.facade, DEFAULT_PLAN.facade), carcass, shelf: carcass };
+}
+
+/** The full converted block — model (structure) + material plan — for loading into the karkas editor. */
+export function cellToKarkasBlock(cab: Cabinet): { model: StructuralModel; plan: MaterialPlan } {
+  return { model: cellToStructural(cab), plan: cellPlan(cab) };
 }

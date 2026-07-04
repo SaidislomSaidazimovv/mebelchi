@@ -113,7 +113,8 @@ interface KarkasState extends Derived {
   /** Which decor each panel role is cut from (drives the spec price). Persists across model edits. */
   plan: MaterialPlan;
   setPlanMaterial: (slot: keyof MaterialPlan, id: string) => void;
-  openWith: (model: StructuralModel) => void;
+  /** Open a fresh block; an optional plan (e.g. from a converted Cell module) sets the materials too. */
+  openWith: (model: StructuralModel, plan?: MaterialPlan) => void;
   setModel: (model: StructuralModel) => void;
   close: () => void;
   tapPart: (id: string | null) => void;
@@ -183,7 +184,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     // 7b — a plan decor change also changes that role's thickness → re-derive the parts
     setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, ...derive(s.model, plan) }; }),
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link
-    openWith: (model) => set((s) => ({ ...derive(model, s.plan), open: true, selectedId: null, past: [], editingBlockId: null })),
+    openWith: (model, plan) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, open: true, selectedId: null, past: [], editingBlockId: null }; }),
     setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], editingBlockId: null })),
     close: () => set({ open: false }),
     tapPart: (id) => {

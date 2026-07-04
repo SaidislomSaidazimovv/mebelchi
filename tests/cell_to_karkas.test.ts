@@ -1,7 +1,8 @@
 // W1 — Cell Cabinet → karkas StructuralModel converter (built up test-first, C.1 …).
 import { describe, it, expect } from "vitest";
-import { cellToStructural, cabDepthMm } from "../apps/app/src/three/cellToKarkas.js";
+import { cellToStructural, cabDepthMm, cellPlan, cellToKarkasBlock } from "../apps/app/src/three/cellToKarkas.js";
 import { mk } from "../apps/app/src/model/cabinet.js";
+import { DEFAULT_PLAN } from "../apps/app/src/three/materials.js";
 import { solveStructure } from "../engine/structure/solve.js";
 
 describe("C.1 — sized carcass box", () => {
@@ -60,5 +61,40 @@ describe("C.2/C.4/C.5/C.6 — interior (shelves / drawers / open / recursive lay
       .map((i) => i.anchor.y)
       .sort((a, c) => a - c);
     expect(ys).toEqual([1800, 5400]); // 0.25·7200, 0.75·7200 (mm10)
+  });
+});
+
+describe("C.8 — material plan from finish colours", () => {
+  it("maps facade/carcass finish colours to the nearest board decors by role", () => {
+    const graphite = 0x4a4d52; // exactly ЛДСП Графит
+    const white = 0xf4f2ec; // exactly ЛДСП Белый
+    const plan = cellPlan(mk({ finish: { carcass: graphite, facade: white } }));
+    expect(plan.carcass).toBe("ldsp_graphite");
+    expect(plan.facade).toBe("ldsp_white");
+    expect(plan.shelf).toBe("ldsp_graphite"); // shelf follows carcass
+    expect(plan.back).toBe(DEFAULT_PLAN.back); // back keeps default
+  });
+
+  it("no finish → the default plan", () => {
+    const plan = cellPlan(mk({}));
+    expect(plan.facade).toBe(DEFAULT_PLAN.facade);
+  });
+
+  it("cellToKarkasBlock returns model + plan together", () => {
+    const { model, plan } = cellToKarkasBlock(mk({ fill: "shelves", count: 1, finish: { carcass: 0x4a4d52 } }));
+    expect(model.blocks.length).toBe(1);
+    expect(plan.carcass).toBe("ldsp_graphite");
+  });
+});
+
+describe("C.9b — load a converted module into the editor", () => {
+  it("openWith(model, plan) shows the converted interior, not a blank box", async () => {
+    const { useKarkas } = await import("../apps/app/src/three/karkasStore.js");
+    const { model, plan } = cellToKarkasBlock(mk({ fill: "drawers", count: 3, finish: { carcass: 0x4a4d52 } }));
+    useKarkas.getState().openWith(model, plan);
+    const s = useKarkas.getState();
+    expect(s.parts.filter((p) => p.name.startsWith("Ящик · фасад")).length).toBe(3); // real interior
+    expect(s.plan.carcass).toBe("ldsp_graphite"); // converted plan applied
+    expect(s.open).toBe(true);
   });
 });
