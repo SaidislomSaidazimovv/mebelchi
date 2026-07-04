@@ -30,7 +30,7 @@ function parseBlock(json: string): { model: StructuralModel; plan: MaterialPlan 
  * to an auto-row. Returns an empty group when there are no (valid) blocks. Caller owns disposal.
  */
 export function buildProjectBlocksGroup(
-  blocks: readonly { karkasJson: string; x?: number; z?: number }[],
+  blocks: readonly { karkasJson: string; x?: number; z?: number; id?: string }[],
 ): THREE.Group {
   const root = new THREE.Group();
   root.name = "karkasLayer";
@@ -41,6 +41,7 @@ export function buildProjectBlocksGroup(
     // F1 — colour each board by its decor (part role → plan → colour)
     const cmap = new Map(solveStructure(model).map((p) => [p.id, partColor(plan, p.role, p.materialId)]));
     const g = buildStructureGroup(layoutToScene(solveLayout(model)), (id) => cmap.get(id));
+    if (b.id) g.userData.karkasBlockId = b.id; // D3b — pick id (mirrors kitchen3d userData.cabId)
     const box = new THREE.Box3().setFromObject(g);
     if (box.isEmpty()) return;
     const ctr = new THREE.Vector3();

@@ -29,7 +29,7 @@ import { registerCapture } from "../lib/thumbnailCapture";
 export interface SceneApi {
   setKitchen: (cabs: Cabinet[], style: KitchenStyle) => void;
   /** Phase D2 — (re)build the parallel karkas-blocks layer, alongside the kitchen (never replacing). */
-  setKarkasBlocks: (blocks: readonly { karkasJson: string; x?: number; z?: number }[]) => void;
+  setKarkasBlocks: (blocks: readonly { karkasJson: string; x?: number; z?: number; id?: string }[]) => void;
   setView: (v: KitchenView) => void;
   syncGizmo: () => void;
   invalidate: () => void;
@@ -100,6 +100,27 @@ function highlightCab(root: THREE.Object3D, id: string | null) {
   if (!id) return;
   for (const child of root.children) {
     if (child.userData.cabId !== id) continue;
+    child.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mm of mats) {
+        const m = mm as THREE.MeshStandardMaterial;
+        if ("emissive" in m) {
+          m.emissive = new THREE.Color(0x2a6df0);
+          m.emissiveIntensity = 0.5;
+          m.needsUpdate = true;
+        }
+      }
+    });
+  }
+}
+
+/** D3b — blue emissive tint on the selected karkas block group (matches highlightCab). */
+function highlightBlock(root: THREE.Object3D, id: string | null) {
+  if (!id) return;
+  for (const child of root.children) {
+    if (child.userData.karkasBlockId !== id) continue;
     child.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -271,7 +292,9 @@ export function VariantScene({
   nav = false,
   openIds,
   selectedId = null,
+  selectedBlockId = null,
   onSelectCab,
+  onSelectBlock,
   onMovePlan,
   onBeginEdit,
   onMountY,
@@ -292,7 +315,7 @@ export function VariantScene({
   style: KitchenStyle;
   cabs: Cabinet[];
   /** Phase D — karkas blocks placed into the project, rendered as a parallel layer (optional). */
-  projectBlocks?: readonly { karkasJson: string; x?: number; z?: number }[];
+  projectBlocks?: readonly { karkasJson: string; x?: number; z?: number; id?: string }[];
   /** constructor render style — defaults to realistic (other screens omit it) */
   mode?: RenderMode;
   /** camera framing — 3/4 orbit or top-down plan (constructor only) */
@@ -305,6 +328,9 @@ export function VariantScene({
   openIds?: string[];
   /** highlighted module id (constructor only) */
   selectedId?: string | null;
+  /** D3b — the selected karkas project block id (blue-highlighted in the room). */
+  selectedBlockId?: string | null;
+  onSelectBlock?: (id: string | null) => void;
   /** tap a module → its id (or null when tapping empty space) */
   onSelectCab?: (id: string | null) => void;
   /** commit a free plan transform (move/rotate) — same path the 2D plan uses */
@@ -352,6 +378,7 @@ export function VariantScene({
   const vertGuideRef = useRef<SVGLineElement>(null);
   const gizmoScreenRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef<Drag | null>(null);
+  const blockDragRef = useRef<{ id: string; downX: number; downZ: number; x0: number; z0: number } | null>(null); // D3b.4
   // camera-walk joystick: the live push vector (−1..1) the render loop reads each frame
   const navRef = useRef({ x: 0, z: 0 });
   const joyRef = useRef<HTMLDivElement>(null);
@@ -361,14 +388,14 @@ export function VariantScene({
   const openTargetRef = useRef<Map<string, number>>(new Map());
   const openCurRef = useRef<Map<string, number>>(new Map());
 
-  const cbRef = useRef({ onSelectCab, onMovePlan, onBeginEdit, onMountY, onResize, magnet });
-  cbRef.current = { onSelectCab, onMovePlan, onBeginEdit, onMountY, onResize, magnet };
+  const cbRef = useRef({ onSelectCab, onSelectBlock, onMovePlan, onBeginEdit, onMountY, onResize, magnet });
+  cbRef.current = { onSelectCab, onSelectBlock, onMovePlan, onBeginEdit, onMountY, onResize, magnet };
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
 
   // keep latest room inputs without re-initialising the scene
-  const propsRef = useRef({ points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId });
-  propsRef.current = { points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId };
+  const propsRef = useRef({ points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId, selectedBlockId });
+  propsRef.current = { points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId, selectedBlockId };
 
   // footprints + selection geometry, recomputed when the run/selection changes
   const geomRef = useRef<Geom | null>(null);
@@ -893,7 +920,7 @@ export function VariantScene({
 
     // Phase D2 — (re)build the karkas-blocks layer. Fully parallel to setKitchen: it only swaps its
     // OWN group, never touching `kitchen` / `room`, so the kitchen render path is unaffected.
-    const setKarkasBlocks = (blocks: readonly { karkasJson: string; x?: number; z?: number }[]) => {
+    const setKarkasBlocks = (blocks: readonly { karkasJson: string; x?: number; z?: number; id?: string }[]) => {
       if (karkasLayer) {
         scene.remove(karkasLayer);
         disposeGroup(karkasLayer);
@@ -905,6 +932,7 @@ export function VariantScene({
         const m = o as THREE.Mesh;
         if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; }
       });
+      highlightBlock(karkasLayer, propsRef.current.selectedBlockId); // D3b — re-tint the selected block
       scene.add(karkasLayer);
       invalidate();
     };
@@ -1102,26 +1130,29 @@ export function VariantScene({
       downXY.x = e.clientX;
       downXY.y = e.clientY;
     };
-    const onUp = (e: PointerEvent) => {
-      if (dragRef.current) return; // a gizmo move/rotate is in progress — don't re-pick
-      if (!cbRef.current.onSelectCab) return;
-      if (Math.hypot(e.clientX - downXY.x, e.clientY - downXY.y) > 6) return; // was an orbit
-      if (!kitchen) return;
-      raycaster.setFromCamera(ndcAt(e.clientX, e.clientY), camera);
-      const hits = raycaster.intersectObjects(kitchen.children, true);
-      let id: string | null = null;
+    // walk a hit's parents for a userData key → the owning object's id
+    const resolveHit = (hits: THREE.Intersection[], key: string): string | null => {
       for (const h of hits) {
         let o: THREE.Object3D | null = h.object;
         while (o) {
-          if (o.userData.cabId) {
-            id = o.userData.cabId as string;
-            break;
-          }
+          if (o.userData[key]) return o.userData[key] as string;
           o = o.parent;
         }
-        if (id) break;
       }
-      cbRef.current.onSelectCab(id);
+      return null;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (dragRef.current || blockDragRef.current) return; // a gizmo / block move is in progress
+      if (Math.hypot(e.clientX - downXY.x, e.clientY - downXY.y) > 6) return; // was an orbit
+      raycaster.setFromCamera(ndcAt(e.clientX, e.clientY), camera);
+      // cabinet pick — unchanged path
+      if (cbRef.current.onSelectCab && kitchen) {
+        cbRef.current.onSelectCab(resolveHit(raycaster.intersectObjects(kitchen.children, true), "cabId"));
+      }
+      // D3b — karkas-block pick, additive + independent (its own userData key + callback)
+      if (cbRef.current.onSelectBlock && karkasLayer) {
+        cbRef.current.onSelectBlock(resolveHit(raycaster.intersectObjects(karkasLayer.children, true), "karkasBlockId"));
+      }
     };
     renderer.domElement.addEventListener("pointerdown", onDown);
     renderer.domElement.addEventListener("pointerup", onUp);
@@ -1247,10 +1278,10 @@ export function VariantScene({
     apiRef.current?.setKitchen(cabs, style);
   }, [cabs, style, layout, mode, selectedId]);
 
-  // Phase D2 — rebuild the karkas-blocks layer when the project's blocks change
+  // Phase D2/D3b — rebuild the karkas-blocks layer when the blocks OR the selected block change
   useEffect(() => {
     apiRef.current?.setKarkasBlocks(projectBlocks);
-  }, [projectBlocks]);
+  }, [projectBlocks, selectedBlockId]);
 
   // 3D ⇄ plan camera framing
   useEffect(() => {
