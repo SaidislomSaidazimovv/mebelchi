@@ -77,6 +77,9 @@ export function ConfigScreen() {
   const fillCabGap = useStore((s) => s.fillCabGap);
   const addCab = useStore((s) => s.addCab);
   const myLibrary = useStore((s) => s.myLibrary);
+  const projectBlocks = useStore((s) => s.projectBlocks);
+  const removeProjectBlock = useStore((s) => s.removeProjectBlock);
+  const setBlockPosition = useStore((s) => s.setBlockPosition);
   const saveToLibrary = useStore((s) => s.saveToLibrary);
   const removeLibraryItem = useStore((s) => s.removeLibraryItem);
   const replaceCab = useStore((s) => s.replaceCab);
@@ -431,6 +434,7 @@ export function ConfigScreen() {
             layout={runLayout}
             style={runStyle}
             cabs={cabs}
+            projectBlocks={projectBlocks}
             mode={mode}
             magnet={g3dMagnet}
             nav
@@ -733,10 +737,31 @@ export function ConfigScreen() {
                         </div>
                       </div>
                     ))
-                  ) : myLibrary.length === 0 ? (
-                    <div className="add-sub" style={{ padding: "8px 4px" }}>{t.config.myBlocksEmpty}</div>
                   ) : (
-                    <div className="add-grid">
+                    <>
+                      {/* Phase D1 — karkas blocks placed into the current project */}
+                      {projectBlocks.length > 0 && (
+                        <div className="add-group">
+                          <div className="add-head">📐 Loyiha bloklari ({projectBlocks.length})</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {projectBlocks.map((b) => (
+                              <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px", borderBottom: "1px solid var(--line, #eee)" }}>
+                                <button onClick={() => { useKarkas.getState().importProject(b.karkasJson, b.id); closeSheet(); }} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", font: "inherit", cursor: "pointer", textAlign: "left", padding: 0 }} type="button">
+                                  <span aria-hidden="true">🔧</span>
+                                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</span>
+                                </button>
+                                <label style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, color: "var(--muted)" }}>X<input type="number" step={50} defaultValue={b.x} onBlur={(e) => setBlockPosition(b.id, parseInt(e.target.value, 10) || 0, b.z)} style={{ width: 56 }} /></label>
+                                <label style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, color: "var(--muted)" }}>Z<input type="number" step={50} defaultValue={b.z} onBlur={(e) => setBlockPosition(b.id, b.x, parseInt(e.target.value, 10) || 0)} style={{ width: 56 }} /></label>
+                                <span role="button" aria-label={t.config.del} onClick={() => removeProjectBlock(b.id)} style={{ padding: 4, cursor: "pointer", color: "var(--muted)", fontSize: 13 }}>✕</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {myLibrary.length === 0 && projectBlocks.length === 0 ? (
+                        <div className="add-sub" style={{ padding: "8px 4px" }}>{t.config.myBlocksEmpty}</div>
+                      ) : (
+                        <div className="add-grid">
                       {myLibrary.map((item) => (
                         <button key={item.id} className="add-chip" style={{ position: "relative" }} onClick={() => openLibraryItem(item)} type="button">
                           <span
@@ -750,7 +775,9 @@ export function ConfigScreen() {
                           <span className="add-sub">{item.karkasJson ? "Karkas" : t.config.myBlock}</span>
                         </button>
                       ))}
-                    </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </>

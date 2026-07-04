@@ -16,6 +16,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { makeRoom, makeWoodTexture, type WallInfo } from "./ThreeScene";
 import { PBR, applyPbrFloor, onTexturesReady } from "./pbr";
 import { buildKitchen } from "./kitchen3d";
+import { buildProjectBlocksGroup } from "./karkasLayer";
 import { planRuns, type KitchenLayout } from "../model/runPlan";
 import { polygonBoundsMm, offsetPolygon, type Pt, type Opening, type Fitting } from "../model/room";
 import { cabFootprints, halfExtents, footsOverlap, objectOverlapIds, type Foot } from "../model/footprint";
@@ -27,6 +28,8 @@ import { registerCapture } from "../lib/thumbnailCapture";
 
 export interface SceneApi {
   setKitchen: (cabs: Cabinet[], style: KitchenStyle) => void;
+  /** Phase D2 — (re)build the parallel karkas-blocks layer, alongside the kitchen (never replacing). */
+  setKarkasBlocks: (blocks: readonly { karkasJson: string; x?: number; z?: number }[]) => void;
   setView: (v: KitchenView) => void;
   syncGizmo: () => void;
   invalidate: () => void;
@@ -261,6 +264,7 @@ export function VariantScene({
   layout,
   style,
   cabs,
+  projectBlocks = [],
   mode = "real",
   view = "3d",
   magnet = true,
@@ -287,6 +291,8 @@ export function VariantScene({
   layout: KitchenLayout;
   style: KitchenStyle;
   cabs: Cabinet[];
+  /** Phase D — karkas blocks placed into the project, rendered as a parallel layer (optional). */
+  projectBlocks?: readonly { karkasJson: string; x?: number; z?: number }[];
   /** constructor render style — defaults to realistic (other screens omit it) */
   mode?: RenderMode;
   /** camera framing — 3/4 orbit or top-down plan (constructor only) */
@@ -774,6 +780,7 @@ export function VariantScene({
     let room: THREE.Group | null = null;
     let walls: WallInfo[] = [];
     let kitchen: THREE.Group | null = null;
+    let karkasLayer: THREE.Group | null = null; // Phase D2 — parallel karkas-blocks layer
 
     const buildRoom = () => {
       const s = propsRef.current;
@@ -881,6 +888,24 @@ export function VariantScene({
       // re-apply any in-progress open state so a rebuild doesn't slam doors shut
       for (const [id, cur] of openCurRef.current) if (cur > 0.001) applyOpen(id, cur);
       scene.add(kitchen);
+      invalidate();
+    };
+
+    // Phase D2 — (re)build the karkas-blocks layer. Fully parallel to setKitchen: it only swaps its
+    // OWN group, never touching `kitchen` / `room`, so the kitchen render path is unaffected.
+    const setKarkasBlocks = (blocks: readonly { karkasJson: string }[]) => {
+      if (karkasLayer) {
+        scene.remove(karkasLayer);
+        disposeGroup(karkasLayer);
+        karkasLayer = null;
+      }
+      if (!blocks.length) { invalidate(); return; }
+      karkasLayer = buildProjectBlocksGroup(blocks);
+      karkasLayer.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; }
+      });
+      scene.add(karkasLayer);
       invalidate();
     };
 
@@ -1103,10 +1128,12 @@ export function VariantScene({
 
     buildRoom();
     setKitchen(cabs, style);
+    setKarkasBlocks(projectBlocks); // Phase D2 — initial karkas layer
     setView(propsRef.current.view);
 
     apiRef.current = {
       setKitchen,
+      setKarkasBlocks,
       setView,
       syncGizmo: updateGizmo,
       invalidate,
@@ -1175,6 +1202,7 @@ export function VariantScene({
         controls.removeEventListener("change", invalidate);
         controls.dispose();
         if (kitchen) disposeGroup(kitchen);
+        if (karkasLayer) disposeGroup(karkasLayer);
         if (room) disposeGroup(room);
         wood?.dispose();
         renderer.dispose();
@@ -1218,6 +1246,11 @@ export function VariantScene({
   useEffect(() => {
     apiRef.current?.setKitchen(cabs, style);
   }, [cabs, style, layout, mode, selectedId]);
+
+  // Phase D2 — rebuild the karkas-blocks layer when the project's blocks change
+  useEffect(() => {
+    apiRef.current?.setKarkasBlocks(projectBlocks);
+  }, [projectBlocks]);
 
   // 3D ⇄ plan camera framing
   useEffect(() => {

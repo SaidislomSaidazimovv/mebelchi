@@ -95,6 +95,16 @@ export const HW_GRADE_LABEL: Record<HwGrade, string> = {
   premium: "Премиум",
 };
 
+/** A karkas block placed into the current project (Phase D) — its project JSON + a display name +
+ *  its room placement (block-centre X/Z in mm, relative to the room centre; D3). */
+export interface ProjectBlock {
+  id: string;
+  name: string;
+  karkasJson: string;
+  x: number;
+  z: number;
+}
+
 export interface AppState {
   // journey
   screen: Screen;
@@ -143,6 +153,15 @@ export interface AppState {
   // demo; libraryRev bumps to refresh any open picker. Global (survives newProject).
   myLibrary: LibraryItem[];
   libraryRev: number;
+  // Phase D1 — karkas blocks placed INTO the current project (session state, fully separate from
+  // `cabs` so the kitchen Cell flow is untouched). Each holds the karkas project JSON.
+  projectBlocks: ProjectBlock[];
+  addProjectBlock: (name: string, json: string) => void;
+  removeProjectBlock: (id: string) => void;
+  /** Update a placed block's karkas JSON in place (Phase E — edit, not duplicate). Keeps id/name/pos. */
+  updateProjectBlock: (id: string, json: string) => void;
+  /** Move a placed karkas block to a room position (block-centre X/Z, mm) — D3. */
+  setBlockPosition: (id: string, x: number, z: number) => void;
   // global user/app settings (profile · company · preferences), Supabase-ready
   settings: Settings;
   // auth (Supabase). authReady = session checked; authUser = null when signed out.
@@ -377,6 +396,7 @@ export const useStore = create<AppState>((set, get) => ({
   projectsRev: 0,
   myLibrary: listLibrary(),
   libraryRev: 0,
+  projectBlocks: [] as ProjectBlock[],
   settings: loadSettings(),
   // if Supabase isn't configured, auth is skipped (app runs on localStorage)
   authReady: !isSupabaseConfigured,
@@ -1229,6 +1249,19 @@ export const useStore = create<AppState>((set, get) => ({
     upsertLibraryItem(libraryItemFromKarkas(name, json));
     set((s) => ({ myLibrary: listLibrary(), libraryRev: s.libraryRev + 1 }));
   },
+  addProjectBlock: (name, json) =>
+    set((s) => ({
+      projectBlocks: [
+        ...s.projectBlocks,
+        // auto-place in a row: each new block ~800mm to the right of the last
+        { id: `pb-${Date.now().toString(36)}-${s.projectBlocks.length.toString(36)}`, name: name.trim() || "Blok", karkasJson: json, x: s.projectBlocks.length * 800, z: 0 },
+      ],
+    })),
+  removeProjectBlock: (id) => set((s) => ({ projectBlocks: s.projectBlocks.filter((b) => b.id !== id) })),
+  updateProjectBlock: (id, json) =>
+    set((s) => ({ projectBlocks: s.projectBlocks.map((b) => (b.id === id ? { ...b, karkasJson: json } : b)) })),
+  setBlockPosition: (id, x, z) =>
+    set((s) => ({ projectBlocks: s.projectBlocks.map((b) => (b.id === id ? { ...b, x, z } : b)) })),
   removeLibraryItem: (id) => {
     deleteLibraryItem(id);
     // TODO: Supabase sync (phase 2) — mirror the delete to the cloud here
