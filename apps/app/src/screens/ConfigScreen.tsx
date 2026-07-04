@@ -433,6 +433,7 @@ export function ConfigScreen() {
             layout={runLayout}
             style={runStyle}
             cabs={cabs}
+            projectBlocks={projectBlocks}
             mode={mode}
             magnet={g3dMagnet}
             nav
