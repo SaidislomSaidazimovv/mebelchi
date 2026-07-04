@@ -45,7 +45,9 @@ export function cabToModule(c: Cabinet): Module {
     kind: c.kind,
     w: c.w,
     h: c.h,
-    d: DEPTH[c.kind] ?? 560,
+    // honor a user's custom depth so the cut list / price / DXF match the SWJ008 drill file
+    // (machining.ts already uses c.depth); falls back to the per-kind default when unset.
+    d: c.depth ?? DEPTH[c.kind] ?? 560,
     fill: c.fill,
     count: c.count,
     dividers: c.div,
