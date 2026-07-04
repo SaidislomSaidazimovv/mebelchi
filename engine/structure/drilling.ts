@@ -114,6 +114,19 @@ function facadeInstanceIds(model: StructuralModel): Set<string> {
   return out;
 }
 
+/** Facade instance id → the hinge-cup edge: "yMax" for a right-hung door, "y0" (default) otherwise. */
+function hingeEdgeByInstance(model: StructuralModel): Map<string, "y0" | "yMax"> {
+  const out = new Map<string, "y0" | "yMax">();
+  for (const block of model.blocks) {
+    const edgeOf = new Map(block.components.map((c) => [c.id, c.hingeEdge === "right" ? "yMax" : "y0"] as const));
+    for (const inst of block.instances) {
+      const e = edgeOf.get(inst.componentId);
+      if (e) out.set(inst.id, e);
+    }
+  }
+  return out;
+}
+
 /** Hinge X-positions up a door of the given Length (see the constants above for the grounding). */
 function hingePositions(length: mm10): mm10[] {
   const usable = length - 2 * HINGE_END_INSET;
@@ -239,6 +252,7 @@ export function applyDrilling(
   const facades = facadeInstanceIds(model);
   const glazed = glazedInstanceIds(model);
   const glazedGrids = glazedGridInstanceIds(model);
+  const hingeEdges = hingeEdgeByInstance(model);
   const pin = spec.shelfPins[SHELF_PIN_SKU];
   const system32 = spec.system32;
   const hinge = spec.hinges[HINGE_SKU];
@@ -262,10 +276,13 @@ export function applyDrilling(
       if ((isFrame && part.id.endsWith("__a")) || gm.member.startsWith("muntin")) {
         ops = [...ops, ...memberRebate(part)];
       }
-      // E13(c): the grid door hinges on its hinge-side stile (left, outer __a board) — previously it
-      // got no hinge at all because instIdOf strips the member suffix.
-      if (hinge && gm.member === "stile_l" && part.id.endsWith("__a")) {
-        ops = [...ops, ...hingeCupPattern(part, "y0", hingePositions(part.length_mm10), hinge)];
+      // E13(c): the grid door hinges on its hinge-side stile (outer __a board) — previously it got no
+      // hinge at all because instIdOf strips the member suffix. A right-hung door hinges on stile_r
+      // (yMax edge) instead of stile_l (y0).
+      const gEdge = hingeEdges.get(gm.instId) ?? "y0";
+      const hingeStile = gEdge === "yMax" ? "stile_r" : "stile_l";
+      if (hinge && gm.member === hingeStile && part.id.endsWith("__a")) {
+        ops = [...ops, ...hingeCupPattern(part, gEdge, hingePositions(part.length_mm10), hinge)];
       }
       return ops === part.operations ? part : { ...part, operations: ops };
     }
@@ -277,7 +294,7 @@ export function applyDrilling(
     if (instId && facades.has(instId)) {
       if (part.id.endsWith("__b")) return part; // inner glued layer — no face machining
       let ops = part.operations;
-      if (hinge) ops = [...ops, ...hingeCupPattern(part, "y0", hingePositions(part.length_mm10), hinge)];
+      if (hinge) ops = [...ops, ...hingeCupPattern(part, hingeEdges.get(instId) ?? "y0", hingePositions(part.length_mm10), hinge)];
       if (glazed.has(instId)) ops = [...ops, ...glassRebate(part)];
       return ops === part.operations ? part : { ...part, operations: ops };
     }

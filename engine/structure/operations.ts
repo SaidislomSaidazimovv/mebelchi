@@ -672,6 +672,8 @@ export interface AddOpts {
   readonly glazedGrid?: { readonly lights: number };
   /** door only (F3): a plain glazed door — a single glass pane (the solver cuts the rebate groove). */
   readonly glazed?: boolean;
+  /** door only: hinge side — "right" drills cups on the yMax edge. Absent/"left" = the y0 edge. */
+  readonly hingeEdge?: "left" | "right";
 }
 
 /**
@@ -701,7 +703,7 @@ export function addInstance(
   if (kind === "drawer") return addDrawerInstance(model, block, section);
   const doubled = opts.doubled === true;
   return kind === "door"
-    ? addDoorInstance(model, block, section, doubled, opts.glazedGrid, opts.glazed === true)
+    ? addDoorInstance(model, block, section, doubled, opts.glazedGrid, opts.glazed === true, opts.hingeEdge)
     : addShelfInstance(model, block, section, doubled);
 }
 
@@ -808,9 +810,13 @@ function addDoorInstance(
   doubled: boolean,
   glazedGrid?: { readonly lights: number },
   glazed = false,
+  hingeEdge?: "left" | "right",
 ): StructuralModel {
-  // Each door variant (plain / 32mm / glazed / glazed-grid) is its own keyed component.
-  const id = `${block.id}__cmp_door${doubled ? "_x2" : ""}${glazedGrid ? `_grid${glazedGrid.lights}` : glazed ? "_gl" : ""}`;
+  // Each door variant (plain / 32mm / glazed / glazed-grid × hinge side) is its own keyed component.
+  // Left is the default, so a left-hung door keeps the exact old id + shape (no regression); only a
+  // right-hung door gets the "_hr" suffix + the hingeEdge field.
+  const right = hingeEdge === "right";
+  const id = `${block.id}__cmp_door${doubled ? "_x2" : ""}${glazedGrid ? `_grid${glazedGrid.lights}` : glazed ? "_gl" : ""}${right ? "_hr" : ""}`;
   let door = block.components.find((c) => c.id === id) ?? null;
   let components = block.components;
   if (!door) {
@@ -822,6 +828,7 @@ function addDoorInstance(
       ...(doubled ? { doubled: true } : {}),
       ...(glazedGrid ? { glazedGrid } : {}),
       ...(glazed ? { glazed: true } : {}),
+      ...(right ? { hingeEdge: "right" as const } : {}),
     };
     components = [...block.components, door];
   }

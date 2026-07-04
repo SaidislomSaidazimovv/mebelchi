@@ -194,6 +194,12 @@ export interface Component {
    */
   readonly glazed?: boolean;
   /**
+   * Facade only: hinge side. Absent (or "left") drills the hinge cups on the y0 edge; "right" drills
+   * them on the yMax edge. Optional/additive — a left-hung door keeps the exact same component as
+   * before, so only an explicitly right-hung door changes. Handle sits opposite the hinge.
+   */
+  readonly hingeEdge?: "left" | "right";
+  /**
    * Drawer box (Phase 7.3): `true` = this placement is a drawer, so the solver emits a 5-panel box
    * (facade front + two carcass sides + carcass back + a thin bottom) sized to the section with a
    * runner clearance, instead of a single panel. The component's `role` is null (a drawer takes

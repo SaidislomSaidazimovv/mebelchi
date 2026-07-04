@@ -87,7 +87,10 @@ function convertNode(model: StructuralModel, secId: string, cell: Cell, cab: Cab
   }
   if (cell.front === "drawer") return addInstance(model, secId, "drawer");
   if (cell.front === "door") {
-    let next = addInstance(model, secId, "door", { glazed: cab.door === 2 });
+    // hinge side: per-cell opening wins, else the cabinet default. "right" → right-hung; left/top/
+    // bottom/undefined stay left (top/bottom are hydraulic lift, not a side hinge — default left).
+    const hingeEdge = (cell.opening ?? cab.opening) === "right" ? "right" : "left";
+    let next = addInstance(model, secId, "door", { glazed: cab.door === 2, hingeEdge });
     const fractions = shelfPositions(cab.count, cab.shelfYs);
     for (let i = 0; i < fractions.length; i += 1) next = addInstance(next, secId, "shelf");
     return applyShelfYs(next, secId, fractions); // C.3 — exact heights (custom or even)

@@ -4,7 +4,7 @@ import { cellToStructural, cabDepthMm, cellPlan, cellToKarkasBlock } from "../ap
 import { mk } from "../apps/app/src/model/cabinet.js";
 import { DEFAULT_PLAN, planThickness } from "../apps/app/src/three/materials.js";
 import { solveStructure } from "../engine/structure/solve.js";
-import { exportModelToSWJ008 } from "../engine/cnc.js";
+import { exportModelToSWJ008, solveModelToParts } from "../engine/cnc.js";
 
 describe("C.1 — sized carcass box", () => {
   it("converts w × h × (kind-default depth) to the block box (mm → mm10)", () => {
@@ -126,6 +126,21 @@ describe("audit B1 — row (y-axis) dividers are horizontal, not full-height ver
     const divs = solveStructure(cellToStructural(mk({ fill: "open", count: 2, w: 800, h: 720 }))).filter((p) => p.name === "Перегородка");
     expect(divs.length).toBe(2);
     for (const d of divs) expect(d.length_mm10).toBe(7680); // 800 − 2·16, spanning the width
+  });
+});
+
+describe("audit B — door hinge side reaches the drilling (right-hung ≠ left-hung)", () => {
+  const facadeDrillYs = (opening: "left" | "right") => {
+    const parts = solveModelToParts(cellToStructural(mk({ fill: "shelves", count: 1, door: 0, opening, w: 600, h: 720 })));
+    const f = parts.find((p) => p.role === "facade")!;
+    return [...new Set(f.operations.filter((o) => o.op === "drill").map((o) => o.y_mm10))].sort((a, b) => a - b);
+  };
+  it("opening:left drills hinge cups on the y0 edge; opening:right mirrors to yMax", () => {
+    const left = facadeDrillYs("left");
+    const right = facadeDrillYs("right");
+    expect(Math.min(...left)).toBeLessThan(1000); // left cups hug y0 (≈215)
+    expect(Math.max(...right)).toBeGreaterThan(5000); // right cups hug yMax (width 6000 → ≈5785)
+    expect(left).not.toEqual(right); // the two doors are genuinely drilled differently
   });
 });
 
