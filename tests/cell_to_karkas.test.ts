@@ -87,6 +87,16 @@ describe("C.8 — material plan from finish colours", () => {
   });
 });
 
+describe("C.7 / C.9a — edge cases convert without crashing (base preserved)", () => {
+  it("combinedDoors + corner + appliance produce a valid model", () => {
+    expect(() => solveStructure(cellToStructural(mk({ combinedDoors: [{ fx0: 0, fy0: 0, fx1: 1, fy1: 1 }] })))).not.toThrow();
+    expect(() => solveStructure(cellToStructural(mk({ corner: true })))).not.toThrow();
+    expect(() => solveStructure(cellToStructural(mk({ appliance: "fridge" })))).not.toThrow();
+    // a corner still yields a sized carcass box
+    expect(cellToStructural(mk({ corner: true, w: 900, h: 720 })).blocks[0]!.box.w).toBe(9000);
+  });
+});
+
 describe("C.9b — load a converted module into the editor", () => {
   it("openWith(model, plan) shows the converted interior, not a blank box", async () => {
     const { useKarkas } = await import("../apps/app/src/three/karkasStore.js");

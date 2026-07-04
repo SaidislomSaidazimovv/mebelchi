@@ -102,6 +102,11 @@ function convertNode(model: StructuralModel, secId: string, cell: Cell, cab: Cab
 export function cellToStructural(cab: Cabinet): StructuralModel {
   const model = buildCarcassModel(cab.w, cab.h, cabDepthMm(cab));
   const rootId = leafSections(model.blocks[0]!.zones[0]!.root)[0]!.id;
+  // Reads the interior via cabinetLayout, which does NOT include `combinedDoors` (C.7): a door
+  // spanning cells across rows AND columns can't be one facade in the section model, so combined
+  // doors are dropped — the interior dividers survive and the usta re-adds the spanning door. A
+  // `corner` cabinet (C.9a) converts to its bounding box here (the diagonal body/door isn't
+  // representable); both cases still yield a valid, editable model.
   return convertNode(model, rootId, cabinetLayout(cab), cab);
 }
 
