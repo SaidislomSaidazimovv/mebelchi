@@ -106,6 +106,21 @@ export interface Part {
   grain: Grain;
   edges: [mm10, mm10, mm10, mm10];
   operations: Operation[];
+  /**
+   * Panel role this part plays — a PanelRole value ("carcass_side" | "carcass_top" |
+   * "carcass_bottom" | "carcass_back" | "facade" | "internal_shelf", see contracts/structure.ts).
+   * Optional/additive (Phase 5.C): the structure solver stamps it so a material plan + cut list can
+   * price/label each part by role. Absent = untagged (callers fall back to the carcass decor). Typed
+   * as `string` to keep this foundational contract free of an upward dependency on structure.ts.
+   */
+  role?: string;
+  /**
+   * Material / decor name written to the SWJ008 `Material` attribute (Phase 5.C). Optional/additive:
+   * the exporter stamps it from a caller-supplied role→name map so the cut file carries the real
+   * board decor. Absent = `Material=""` (unchanged golden output). The engine stays catalog-agnostic
+   * — it writes whatever name it is handed, it does not own the material list.
+   */
+  material?: string;
 }
 
 /** User/runtime-level container. A Project is the unit handed to the entry point. */
@@ -190,3 +205,16 @@ export interface ParsedDocument {
 }
 
 export const SCHEMA_VERSION = 1;
+
+// ---------------------------------------------------------------------------
+// Structural linkage (Construction-mode) — see engine/contracts/structure.ts.
+// Additive only: the manufacturing model above is untouched. The structural
+// overlay treats each `Part` as the leaf "Деталь" and refers to it by id.
+// ---------------------------------------------------------------------------
+
+/** Stable identifier of a `Part` (the Деталь leaf). */
+export type PartId = string;
+
+/** Деталь — domain alias for the manufacturing `Part`. The Construction-mode
+ *  hierarchy bottoms out at exactly this type; there is no separate leaf model. */
+export type Detail = Part;

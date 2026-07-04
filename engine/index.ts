@@ -19,6 +19,29 @@ import { exportSWJ008 } from "./postprocessors/swj008.js";
 
 // Re-export the public model + the one exporter the UI/exporters consume.
 export * from "./contracts/types.js";
+// --- Construction-mode structural engine (ported from karkas-app, additive) ---
+// Structural overlay (Block→Zone→Component→Part, Line/Section/Row).
+export * from "./contracts/structure.js";
+// Parametric structural solver: model → flat manufacturing Part[] (the bridge).
+export { solveStructure, BOARD_MM10 } from "./structure/solve.js";
+export type { ThicknessSpec } from "./structure/solve.js";
+export { buildDemoModel } from "./structure/demoModel.js";
+export { solveLayout } from "./structure/layout.js";
+export type { PanelPlacement } from "./structure/layout.js";
+// Manufacturing path: structural model → drilled parts → byte-exact SWJ008.
+export { solveModelToParts, exportModelToSWJ008 } from "./cnc.js";
+// Non-blocking checks + corner-band model.
+export { checkStability, SPAN_LIMIT_16MM_MM10 } from "./structure/stability.js";
+export type { StabilityFinding, StabilityLevel } from "./structure/stability.js";
+export { bandCorners, resolveBandTransition } from "./structure/banding.js";
+export type { BandCorner, Face } from "./structure/banding.js";
+export { checkHingeFit, HINGE_MAX_PROUD_MM10 } from "./structure/hingeFit.js";
+export type { HingeFitFinding } from "./structure/hingeFit.js";
+export { checkEmitCompleteness } from "./structure/emitCheck.js";
+export type { EmitFinding } from "./structure/emitCheck.js";
+export { checkMotionClearance, sweptEnvelope } from "./structure/motion.js";
+export type { MotionFinding, MotionEnvelope } from "./structure/motion.js";
+// --- Root kitchen path (KEPT — the simpler baseCabinet solver + hardware catalog) ---
 // Layer-2 parametric drilling solver — builds Parts WITH operations from a cabinet
 // description, ready for solveFull/export (the "later layer" solveFull anticipates).
 export { solveBaseCabinet, type BaseCabinetInput } from "./solver/baseCabinet.js";

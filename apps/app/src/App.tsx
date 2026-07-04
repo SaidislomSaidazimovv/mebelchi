@@ -20,6 +20,7 @@ import { SetPasswordScreen } from "./screens/SetPasswordScreen";
 import { SyncIndicator } from "./components/SyncIndicator";
 import { LoginNudge } from "./components/LoginNudge";
 import { SettingsModal } from "./components/SettingsModal";
+import { KarkasOverlay } from "./three/KarkasEditor";
 import { isSupabaseConfigured } from "./lib/supabase";
 
 export default function App() {
@@ -75,6 +76,7 @@ export default function App() {
         <Menu />
         <SettingsModal />
         <LoginNudge />
+        <KarkasOverlay />
       </div>
     );
   }

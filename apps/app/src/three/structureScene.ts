@@ -1,0 +1,93 @@
+// three/structureScene.ts — engine geometry → render-ready boxes (ported from karkas-app's
+// ui/src/canvas/cabinet.ts pure core). Turns a solveLayout() PanelPlacement[] into centred,
+// metre-scaled boxes for three.js. PURE + framework-free: no three, no React. The plain-three.js
+// renderer (structureRenderer.ts) consumes the `Scene` this produces.
+//
+// This is the Phase-2 bridge that lets the ported StructuralModel engine be shown in our stack,
+// entirely parallel to the kitchen Cell 3D (kitchen3d.ts) — nothing here touches that path.
+
+import type { PanelPlacement } from "../../../../engine/structure/layout.js";
+
+/** A render-ready box: centre + full size, in metres (three.js units). */
+export interface Board {
+  id: string;
+  name?: string;
+  /** centre position [x, y, z] in metres */
+  pos: [number, number, number];
+  /** full size [w, h, d] in metres */
+  size: [number, number, number];
+}
+
+export interface Scene {
+  boards: Board[];
+  /** centre of the whole cabinet (metres) — camera target */
+  center: [number, number, number];
+  /** largest extent (metres) — camera distance basis */
+  radius: number;
+}
+
+/** mm10 (tenths of a millimetre) → metres. 16mm board = 160 mm10 = 0.016 m. */
+const M = (mm10: number): number => mm10 / 10_000;
+
+/** A min-corner box in mm10 — the common shape of a PanelPlacement. */
+interface RawBox {
+  id: string;
+  name?: string;
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+  h: number;
+  d: number;
+}
+
+/**
+ * Centre + metre-scale a set of min-corner mm10 boxes. three.js boxes are centred, so we add
+ * half-size; the cabinet is recentred on X/Z and stood on the floor (minY → 0).
+ */
+export function boxesToScene(boxes: RawBox[]): Scene {
+  if (boxes.length === 0) return { boards: [], center: [0, 0, 0], radius: 1 };
+
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const b of boxes) {
+    minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x + b.w);
+    minY = Math.min(minY, b.y); maxY = Math.max(maxY, b.y + b.h);
+    minZ = Math.min(minZ, b.z); maxZ = Math.max(maxZ, b.z + b.d);
+  }
+  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+  const boards: Board[] = boxes.map((b) => ({
+    id: b.id,
+    name: b.name,
+    pos: [M(b.x + b.w / 2 - cx), M(b.y + b.h / 2 - minY), M(b.z + b.d / 2 - cz)],
+    size: [M(b.w), M(b.h), M(b.d)],
+  }));
+  const w = M(maxX - minX), h = M(maxY - minY), d = M(maxZ - minZ);
+  return { boards, center: [0, h / 2, 0], radius: Math.max(w, h, d) };
+}
+
+/** Live path: the assembled cabinet from solveLayout → positioned panels. */
+export function layoutToScene(panels: readonly PanelPlacement[]): Scene {
+  return boxesToScene(
+    panels.map((p) => ({
+      id: p.id,
+      name: p.name,
+      x: p.x_mm10, y: p.y_mm10, z: p.z_mm10,
+      w: p.w_mm10, h: p.h_mm10, d: p.d_mm10,
+    })),
+  );
+}
+
+/** Overall cabinet size in millimetres — for a dimension readout. */
+export function sceneDimsMm(scene: Scene): { w: number; h: number; d: number } {
+  if (scene.boards.length === 0) return { w: 0, h: 0, d: 0 };
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const b of scene.boards) {
+    minX = Math.min(minX, b.pos[0] - b.size[0] / 2); maxX = Math.max(maxX, b.pos[0] + b.size[0] / 2);
+    minY = Math.min(minY, b.pos[1] - b.size[1] / 2); maxY = Math.max(maxY, b.pos[1] + b.size[1] / 2);
+    minZ = Math.min(minZ, b.pos[2] - b.size[2] / 2); maxZ = Math.max(maxZ, b.pos[2] + b.size[2] / 2);
+  }
+  const mm = (m: number): number => Math.round(m * 1000);
+  return { w: mm(maxX - minX), h: mm(maxY - minY), d: mm(maxZ - minZ) };
+}

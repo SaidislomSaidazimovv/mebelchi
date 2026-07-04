@@ -83,7 +83,7 @@ function panelBlock(part: Part): string[] {
     `Name="${part.name}"`,
     `Width="${mm10ToMmString(part.width_mm10)}"`,
     `Length="${mm10ToMmString(part.length_mm10)}"`,
-    `Material=""`,
+    `Material="${part.material ?? ""}"`,
     `Thickness="${mm10ToMmString(part.thickness_mm10)}"`,
     `IsProduce="true"`,
     `MachiningPoint="1"`,
