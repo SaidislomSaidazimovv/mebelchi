@@ -504,7 +504,7 @@ export function ConfigScreen() {
 
         {/* D3b — selected room karkas block: full control bar at parity with a kitchen module
             (name · edit · delete-with-confirm · deselect). */}
-        {selectedBlockId && projectBlocks.some((b) => b.id === selectedBlockId) && (() => {
+        {selectedBlockId && !lastDeletedBlock && projectBlocks.some((b) => b.id === selectedBlockId) && (() => {
           const blk = projectBlocks.find((b) => b.id === selectedBlockId)!;
           return (
             <div style={{ position: "absolute", left: "50%", bottom: 88, transform: "translateX(-50%)", display: "flex", gap: 8, alignItems: "center", zIndex: 20, background: "rgba(255,255,255,0.96)", borderRadius: 999, padding: "6px 8px 6px 15px", boxShadow: "0 6px 20px rgba(0,0,0,0.14)", border: "1px solid #e3ddcf" }}>
