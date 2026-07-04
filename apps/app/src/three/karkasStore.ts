@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setHingeEdge, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -136,6 +136,8 @@ interface KarkasState extends Derived {
   setThickness: (mm: number) => void;
   /** Set (or clear with null) the selected component's per-part material decor key (F2). */
   setMaterial: (id: string | null) => void;
+  /** Set the hinge side of the selected door (facade instance). No-op if the selection isn't a door. */
+  setHinge: (edge: "left" | "right") => void;
   /** Set the block's width / height / depth in mm (C2). Content reflows proportionally. */
   resize: (dim: "w" | "h" | "d", mm: number) => void;
   /** Revert the last edit. */
@@ -230,6 +232,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const s = get();
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
       if (r) apply(removeInstance(s.model, r.inst.id));
+    },
+    setHinge: (edge) => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (r) apply(setHingeEdge(s.model, r.inst.id, edge), true); // keepSel — same door, just re-hinged
     },
     selectedComponent: () => {
       const s = get();

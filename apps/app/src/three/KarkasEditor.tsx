@@ -65,6 +65,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const remove = useKarkas((s) => s.remove);
   const setThickness = useKarkas((s) => s.setThickness);
   const setMaterial = useKarkas((s) => s.setMaterial);
+  const setHinge = useKarkas((s) => s.setHinge);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
@@ -356,6 +357,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <option value="">Rol bo'yicha</option>
             {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
+          {/* Task B — hinge side per door (engine drills the chosen edge; handle sits opposite) */}
+          {selComp.role === "facade" && (
+            <>
+              <span style={mono}>Petlya:</span>
+              <select value={selComp.hingeEdge === "right" ? "right" : "left"} onChange={(e) => setHinge(e.target.value as "left" | "right")} style={{ ...matSel, flex: "0 0 auto", maxWidth: 110 }}>
+                <option value="left">◧ Chap</option>
+                <option value="right">◨ O'ng</option>
+              </select>
+            </>
+          )}
           <button style={{ ...act, marginLeft: "auto", ...(selComp.loadBearing ? { borderColor: "#8a52c9", background: "#efe3fa", color: "#5b2a86" } : {}) }} onClick={toggleLoadBearing} type="button">
             ⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}
           </button>
