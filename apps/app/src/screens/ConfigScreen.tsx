@@ -439,6 +439,7 @@ export function ConfigScreen() {
             projectBlocks={projectBlocks}
             selectedBlockId={selectedBlockId}
             onSelectBlock={setSelectedBlockId}
+            onBlockMove={setBlockPosition}
             mode={mode}
             magnet={g3dMagnet}
             nav

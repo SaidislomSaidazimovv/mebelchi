@@ -41,14 +41,18 @@ export function buildProjectBlocksGroup(
     // F1 — colour each board by its decor (part role → plan → colour)
     const cmap = new Map(solveStructure(model).map((p) => [p.id, partColor(plan, p.role, p.materialId)]));
     const g = buildStructureGroup(layoutToScene(solveLayout(model)), (id) => cmap.get(id));
-    if (b.id) g.userData.karkasBlockId = b.id; // D3b — pick id (mirrors kitchen3d userData.cabId)
     const box = new THREE.Box3().setFromObject(g);
     if (box.isEmpty()) return;
     const ctr = new THREE.Vector3();
     box.getCenter(ctr);
-    const x = (b.x ?? i * (800 + GAP_M * 1000)) / 1000; // mm → metres
-    const z = (b.z ?? 0) / 1000;
-    g.position.set(x - ctr.x, -box.min.y, z - ctr.z); // block centre → (x, z), base on floor
+    const xMm = b.x ?? i * (800 + GAP_M * 1000);
+    const zMm = b.z ?? 0;
+    g.position.set(xMm / 1000 - ctr.x, -box.min.y, zMm / 1000 - ctr.z); // block centre → (x, z), base on floor
+    if (b.id) g.userData.karkasBlockId = b.id; // D3b — pick id (mirrors kitchen3d userData.cabId)
+    g.userData.blockCenterX = ctr.x; // D3b.4 — bbox centre offset, so a move can re-place by x/z
+    g.userData.blockCenterZ = ctr.z;
+    g.userData.karkasX = xMm; // logical room x/z (mm) at drag start
+    g.userData.karkasZ = zMm;
     root.add(g);
   });
   return root;

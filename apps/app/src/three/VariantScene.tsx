@@ -41,6 +41,8 @@ export interface SceneApi {
   project: (x: number, y: number, z: number) => { x: number; y: number };
   /** move/rotate the live selected module group (px/pz absolute mm, rot degrees) */
   applyTransform: (id: string, pxMm: number, pzMm: number, rotDeg: number, depthM: number) => void;
+  /** D3b.4 — live-move a karkas block group to room-centre-relative x/z (mm). */
+  applyBlockTransform: (id: string, xMm: number, zMm: number) => void;
   /** live-resize preview: rebuild the kitchen with one module's width/height overridden
    *  (real geometry via buildKitchen, so it matches the commit exactly — no jump) */
   previewResize: (id: string, wMm?: number, hMm?: number) => void;
@@ -295,6 +297,7 @@ export function VariantScene({
   selectedBlockId = null,
   onSelectCab,
   onSelectBlock,
+  onBlockMove,
   onMovePlan,
   onBeginEdit,
   onMountY,
@@ -331,6 +334,8 @@ export function VariantScene({
   /** D3b — the selected karkas project block id (blue-highlighted in the room). */
   selectedBlockId?: string | null;
   onSelectBlock?: (id: string | null) => void;
+  /** D3b.4 — commit a dragged block to a new room-centre-relative x/z (mm). */
+  onBlockMove?: (id: string, xMm: number, zMm: number) => void;
   /** tap a module → its id (or null when tapping empty space) */
   onSelectCab?: (id: string | null) => void;
   /** commit a free plan transform (move/rotate) — same path the 2D plan uses */
@@ -378,7 +383,7 @@ export function VariantScene({
   const vertGuideRef = useRef<SVGLineElement>(null);
   const gizmoScreenRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef<Drag | null>(null);
-  const blockDragRef = useRef<{ id: string; downX: number; downZ: number; x0: number; z0: number } | null>(null); // D3b.4
+  const blockDragRef = useRef<{ id: string; downX: number; downZ: number; x0: number; z0: number; lastX?: number; lastZ?: number } | null>(null); // D3b.4
   // camera-walk joystick: the live push vector (−1..1) the render loop reads each frame
   const navRef = useRef({ x: 0, z: 0 });
   const joyRef = useRef<HTMLDivElement>(null);
@@ -388,8 +393,8 @@ export function VariantScene({
   const openTargetRef = useRef<Map<string, number>>(new Map());
   const openCurRef = useRef<Map<string, number>>(new Map());
 
-  const cbRef = useRef({ onSelectCab, onSelectBlock, onMovePlan, onBeginEdit, onMountY, onResize, magnet });
-  cbRef.current = { onSelectCab, onSelectBlock, onMovePlan, onBeginEdit, onMountY, onResize, magnet };
+  const cbRef = useRef({ onSelectCab, onSelectBlock, onBlockMove, onMovePlan, onBeginEdit, onMountY, onResize, magnet });
+  cbRef.current = { onSelectCab, onSelectBlock, onBlockMove, onMovePlan, onBeginEdit, onMountY, onResize, magnet };
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
 
@@ -1126,10 +1131,6 @@ export function VariantScene({
 
     // picking: a tap (not an orbit-drag) on a module selects it; empty space clears
     const downXY = { x: 0, y: 0 };
-    const onDown = (e: PointerEvent) => {
-      downXY.x = e.clientX;
-      downXY.y = e.clientY;
-    };
     // walk a hit's parents for a userData key → the owning object's id
     const resolveHit = (hits: THREE.Intersection[], key: string): string | null => {
       for (const h of hits) {
@@ -1141,8 +1142,49 @@ export function VariantScene({
       }
       return null;
     };
+    // screen point → floor-plane world x/z (metres)
+    const floorAt = (clientX: number, clientY: number): { x: number; z: number } | null => {
+      raycaster.setFromCamera(ndcAt(clientX, clientY), camera);
+      floorPlane.constant = 0;
+      const hit = raycaster.ray.intersectPlane(floorPlane, tmpFloor);
+      return hit ? { x: tmpFloor.x, z: tmpFloor.z } : null;
+    };
+    const onDown = (e: PointerEvent) => {
+      downXY.x = e.clientX;
+      downXY.y = e.clientY;
+      // D3b.4 — grabbing the SELECTED karkas block starts a drag (orbit off while dragging)
+      const selId = propsRef.current.selectedBlockId;
+      if (selId && karkasLayer && cbRef.current.onBlockMove) {
+        raycaster.setFromCamera(ndcAt(e.clientX, e.clientY), camera);
+        if (resolveHit(raycaster.intersectObjects(karkasLayer.children, true), "karkasBlockId") === selId) {
+          const child = karkasLayer.children.find((o) => o.userData.karkasBlockId === selId);
+          const w = floorAt(e.clientX, e.clientY);
+          if (child && w) {
+            blockDragRef.current = { id: selId, downX: w.x, downZ: w.z, x0: (child.userData.karkasX as number) ?? 0, z0: (child.userData.karkasZ as number) ?? 0 };
+            controls.enabled = false;
+          }
+        }
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      const d = blockDragRef.current;
+      if (!d) return;
+      const w = floorAt(e.clientX, e.clientY);
+      if (!w) return;
+      d.lastX = Math.round(d.x0 + (w.x - d.downX) * 1000);
+      d.lastZ = Math.round(d.z0 + (w.z - d.downZ) * 1000);
+      apiRef.current?.applyBlockTransform(d.id, d.lastX, d.lastZ);
+    };
     const onUp = (e: PointerEvent) => {
-      if (dragRef.current || blockDragRef.current) return; // a gizmo / block move is in progress
+      // D3b.4 — commit a block drag and swallow the pick
+      const d = blockDragRef.current;
+      if (d) {
+        blockDragRef.current = null;
+        controls.enabled = true;
+        if (d.lastX != null && d.lastZ != null) cbRef.current.onBlockMove?.(d.id, d.lastX, d.lastZ);
+        return;
+      }
+      if (dragRef.current) return; // a gizmo move is in progress
       if (Math.hypot(e.clientX - downXY.x, e.clientY - downXY.y) > 6) return; // was an orbit
       raycaster.setFromCamera(ndcAt(e.clientX, e.clientY), camera);
       // cabinet pick — unchanged path
@@ -1155,6 +1197,7 @@ export function VariantScene({
       }
     };
     renderer.domElement.addEventListener("pointerdown", onDown);
+    renderer.domElement.addEventListener("pointermove", onMove);
     renderer.domElement.addEventListener("pointerup", onUp);
 
     buildRoom();
@@ -1205,6 +1248,15 @@ export function VariantScene({
         const vz = (pzMm - b.cy) / 1000;
         child.position.set(vx - fwdX * (depthM / 2), 0, vz - fwdZ * (depthM / 2));
       },
+      applyBlockTransform: (id, xMm, zMm) => {
+        if (!karkasLayer) return;
+        const child = karkasLayer.children.find((o) => o.userData.karkasBlockId === id);
+        if (!child) return;
+        // x/z are room-centre-relative mm (world origin); re-place the block centre there
+        child.position.x = xMm / 1000 - (child.userData.blockCenterX ?? 0);
+        child.position.z = zMm / 1000 - (child.userData.blockCenterZ ?? 0);
+        invalidate();
+      },
       previewResize: (id, wMm, hMm) => {
         // rebuild off the real cabs with just this module's w/h overridden — the run
         // layout then reflows exactly as it will on commit, so there's no jump on release
@@ -1229,6 +1281,7 @@ export function VariantScene({
         cancelAnimationFrame(raf);
         ro.disconnect();
         renderer.domElement.removeEventListener("pointerdown", onDown);
+        renderer.domElement.removeEventListener("pointermove", onMove);
         renderer.domElement.removeEventListener("pointerup", onUp);
         controls.removeEventListener("change", invalidate);
         controls.dispose();
