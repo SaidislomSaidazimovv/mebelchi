@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setHingeEdge, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -177,6 +177,16 @@ export const useKarkas = create<KarkasState>((set, get) => {
     const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
     return r ? r.inst.sectionId : firstLeafId(s.model);
   };
+  // imos-individual edits: give the selected instance its OWN component before a per-part edit, so
+  // changing one shelf/door's material/thickness/load-bearing no longer changes its siblings.
+  const forkSelected = (): { model: StructuralModel; compId: string } | null => {
+    const sel = get().selectedId;
+    const r = sel ? resolveInstance(get().model, sel) : null;
+    if (!r || !sel) return null;
+    const model = forkComponentForInstance(get().model, r.inst.id);
+    const r2 = resolveInstance(model, sel);
+    return r2 ? { model, compId: r2.inst.componentId } : null;
+  };
   return {
     ...derive(buildDemoModel(), DEFAULT_PLAN),
     open: false,
@@ -245,18 +255,19 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     toggleLoadBearing: () => {
       const comp = get().selectedComponent();
-      if (comp) apply(setLoadBearing(get().model, comp.id, !(comp.loadBearing === true)), true);
+      const f = forkSelected();
+      if (comp && f) apply(setLoadBearing(f.model, f.compId, !(comp.loadBearing === true)), true);
     },
     setThickness: (mm) => {
-      const comp = get().selectedComponent();
-      if (comp) apply(setComponentThickness(get().model, comp.id, Math.max(1, Math.round(mm)) * 10), true);
+      const f = forkSelected();
+      if (f) apply(setComponentThickness(f.model, f.compId, Math.max(1, Math.round(mm)) * 10), true);
     },
     setMaterial: (id) => {
-      const comp = get().selectedComponent();
-      if (!comp) return;
+      const f = forkSelected();
+      if (!f) return;
       // 7b — a per-part decor also sets that part's thickness (material carries thickness)
-      let next = setComponentMaterial(get().model, comp.id, id);
-      if (id) next = setComponentThickness(next, comp.id, boardThicknessMm10(id));
+      let next = setComponentMaterial(f.model, f.compId, id);
+      if (id) next = setComponentThickness(next, f.compId, boardThicknessMm10(id));
       apply(next, true);
     },
     resize: (dim, mm) => {

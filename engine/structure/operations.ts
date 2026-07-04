@@ -1071,6 +1071,31 @@ export function setHingeEdge(
   return changed ? { ...model, blocks } : model;
 }
 
+/**
+ * Give a placed instance its OWN component if it currently shares one with other instances (imos
+ * treats every placed part individually). Copies the shared component to a per-instance id and
+ * re-points just this instance; a component used by only one instance is already private → no-op
+ * (same reference). Callers fork before a per-part material/thickness/load-bearing edit so editing
+ * one shelf/door no longer changes its siblings.
+ */
+export function forkComponentForInstance(model: StructuralModel, instanceId: InstanceId): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst) return block;
+    const shared = block.instances.filter((i) => i.componentId === inst.componentId).length > 1;
+    if (!shared) return block; // already this instance's own component
+    const cur = block.components.find((c) => c.id === inst.componentId);
+    if (!cur) return block;
+    changed = true;
+    const privateId = `${cur.id}__i_${instanceId}`;
+    const components = block.components.some((c) => c.id === privateId) ? block.components : [...block.components, { ...cur, id: privateId }];
+    const instances = block.instances.map((i) => (i.id === instanceId ? { ...i, componentId: privateId } : i));
+    return { ...block, components, instances };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
 export function setLoadBearing(
   model: StructuralModel,
   componentId: ComponentId,
