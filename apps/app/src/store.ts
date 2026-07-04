@@ -162,6 +162,12 @@ export interface AppState {
   updateProjectBlock: (id: string, json: string) => void;
   /** Move a placed karkas block to a room position (block-centre X/Z, mm) — D3. */
   setBlockPosition: (id: string, x: number, z: number) => void;
+  /** The last block removed from the room, kept so a delete can be undone. Cleared on restore. */
+  lastDeletedBlock: ProjectBlock | null;
+  /** Put the last-deleted block back into the room (undo a whole-block delete). */
+  restoreLastBlock: () => void;
+  /** Drop the undo buffer without restoring (the undo toast timed out / was dismissed). */
+  dismissLastDeleted: () => void;
   // global user/app settings (profile · company · preferences), Supabase-ready
   settings: Settings;
   // auth (Supabase). authReady = session checked; authUser = null when signed out.
@@ -372,6 +378,7 @@ function freshDesign() {
     // Karkas blocks placed in THIS project's room. Must reset per project (leaks across
     // openProject/newProject otherwise) and persist alongside cabs (see PERSIST_KEYS).
     projectBlocks: [] as ProjectBlock[],
+    lastDeletedBlock: null as ProjectBlock | null, // transient undo buffer — not persisted
   };
 }
 
@@ -1260,7 +1267,9 @@ export const useStore = create<AppState>((set, get) => ({
         { id: `pb-${Date.now().toString(36)}-${s.projectBlocks.length.toString(36)}`, name: name.trim() || "Blok", karkasJson: json, x: s.projectBlocks.length * 800, z: 0 },
       ],
     })),
-  removeProjectBlock: (id) => set((s) => ({ projectBlocks: s.projectBlocks.filter((b) => b.id !== id) })),
+  removeProjectBlock: (id) => set((s) => ({ projectBlocks: s.projectBlocks.filter((b) => b.id !== id), lastDeletedBlock: s.projectBlocks.find((b) => b.id === id) ?? s.lastDeletedBlock })),
+  restoreLastBlock: () => set((s) => (s.lastDeletedBlock ? { projectBlocks: [...s.projectBlocks, s.lastDeletedBlock], lastDeletedBlock: null } : {})),
+  dismissLastDeleted: () => set({ lastDeletedBlock: null }),
   updateProjectBlock: (id, json) =>
     set((s) => ({ projectBlocks: s.projectBlocks.map((b) => (b.id === id ? { ...b, karkasJson: json } : b)) })),
   setBlockPosition: (id, x, z) =>
