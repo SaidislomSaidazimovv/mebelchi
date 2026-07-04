@@ -46,6 +46,9 @@ export interface Module {
   /** Pre-decomposed panels for a hybrid layout — when set, they OVERRIDE the fill/count panel
    *  derivation (the app computes them from the real Cell tree via the karkas engine). */
   panels?: ModulePanel[];
+  /** Pre-counted hardware for a hybrid layout — OVERRIDES the fill/count hardware derivation, so a
+   *  mixed drawer/door module's slides, hinges + joints reach the quote. `pins` = shelf-pin holes. */
+  hardware?: { hinges: number; slides: number; cams: number; dowels: number; pins: number };
   /** Optional override — enables the "split facade/carcass" advisor. */
   facadeMaterialId?: UUID;
   /** Applied hardening-panel preset ids. */

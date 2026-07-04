@@ -143,11 +143,12 @@ describe("rich-Cell safety net — legacy pipeline baseline (must not regress fo
       ],
       "hardware": [
         "Петля накладная с доводчиком ×2",
+        "Направляющая шариковая 450мм (комплект) ×3",
         "Шкант 8x30мм ×8",
         "Стяжка эксцентриковая (минификс) ×8",
       ],
       "panels": 26,
-      "price": 1152410,
+      "price": 1276010,
     }
   `); });
   // custom depth 400 — currently INCONSISTENT (cut list ignores it, drill honors it); the depth fix

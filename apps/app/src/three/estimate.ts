@@ -142,7 +142,10 @@ function sectionHeightMm(roots: Section[], id: string): number | null {
  * roles + section sizes) rather than the solved parts, so doubled / glazed-grid facades — which emit
  * many parts per single door — are counted once.
  */
-export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
+/** Raw hardware counts for a model — the numbers behind hardwareEstimate, reused by the kitchen
+ *  quote to price a hybrid cabinet's real hardware (drawer slides etc.) instead of the fill/count
+ *  approximation. */
+export function hardwareCounts(model: StructuralModel): { hinges: number; slides: number; pins: number; cams: number; dowels: number } {
   let hinges = 0;
   let slides = 0;
   let pins = 0;
@@ -164,6 +167,11 @@ export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
       }
     }
   }
+  return { hinges, slides, pins, cams, dowels };
+}
+
+export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
+  const { hinges, slides, pins, cams, dowels } = hardwareCounts(model);
   const lines = [
     { name: HARDWARE.hinge.name, qty: hinges, priceUzs: hinges * HARDWARE.hinge.priceUzs },
     { name: HARDWARE.slide.name, qty: slides, priceUzs: slides * HARDWARE.slide.priceUzs },

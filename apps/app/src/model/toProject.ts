@@ -9,6 +9,7 @@ import type { AppState } from "../store";
 import type { Cabinet } from "./cabinet";
 import { cellToStructural } from "../three/cellToKarkas";
 import { solveStructure } from "../../../../engine/structure/solve.js";
+import { hardwareCounts } from "../three/estimate";
 
 const DOOR_STYLE = ["flat", "milled", "glass", "none"] as const;
 const HANDLE_TYPE = ["bar", "profile", "knob", "none"] as const;
@@ -47,27 +48,31 @@ function isHybrid(c: Cabinet): boolean {
   return !!c.layout || (c.combinedDoors?.length ?? 0) > 0;
 }
 
-/** Decompose a hybrid cabinet into its REAL panels via the karkas engine (the same accurate Cell→
- *  StructuralModel converter used by the editor), priced at the KITCHEN's carcass/facade rates so
- *  the quote stays consistent with the rest of the run. Glass panes aren't board panels → skipped. */
-function cellPanels(c: Cabinet, mats: MaterialSelection): ModulePanel[] {
-  const facadeRef = mats.facadeId;
-  const out: ModulePanel[] = [];
-  for (const p of solveStructure(cellToStructural(c))) {
+/** Decompose a hybrid cabinet into its REAL panels + hardware via the karkas engine (the same
+ *  accurate Cell→StructuralModel converter the editor uses), priced at the KITCHEN's carcass/facade
+ *  rates so the quote stays consistent with the run. Solves the model once. Glass panes aren't board
+ *  panels → skipped. */
+function richModule(c: Cabinet, mats: MaterialSelection): { panels: ModulePanel[]; hardware: NonNullable<Module["hardware"]> } {
+  const model = cellToStructural(c);
+  const panels: ModulePanel[] = [];
+  for (const p of solveStructure(model)) {
     if (p.role === "glass") continue;
     const facade = p.role === "facade";
-    out.push({
+    panels.push({
       role: facade ? "facade" : "carcass",
       name: p.name,
       lengthMm: Math.round(p.length_mm10 / 10),
       widthMm: Math.round(p.width_mm10 / 10),
-      materialRef: facade ? facadeRef : mats.carcassId,
+      materialRef: facade ? mats.facadeId : mats.carcassId,
     });
   }
-  return out;
+  const { hinges, slides, pins, cams, dowels } = hardwareCounts(model);
+  return { panels, hardware: { hinges, slides, cams, dowels, pins } };
 }
 
 export function cabToModule(c: Cabinet, mats?: MaterialSelection): Module {
+  // rich path: a hybrid cabinet supplies its real panels + hardware (needs the rate refs, hence mats)
+  const rich = mats && isHybrid(c) ? richModule(c, mats) : null;
   return {
     id: c.id,
     kind: c.kind,
@@ -81,8 +86,7 @@ export function cabToModule(c: Cabinet, mats?: MaterialSelection): Module {
     dividers: c.div,
     door: { style: DOOR_STYLE[c.door] ?? "flat" },
     handle: { type: HANDLE_TYPE[c.handle] ?? "bar" },
-    // rich path: a hybrid cabinet supplies its real panels (needs the rate refs, hence `mats`)
-    ...(mats && isHybrid(c) ? { panels: cellPanels(c, mats) } : {}),
+    ...(rich ? { panels: rich.panels, hardware: rich.hardware } : {}),
   };
 }
 
