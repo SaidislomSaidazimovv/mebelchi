@@ -39,7 +39,7 @@ export function buildProjectBlocksGroup(
     if (!parsed) return;
     const { model, plan } = parsed;
     // F1 — colour each board by its decor (part role → plan → colour)
-    const cmap = new Map(solveStructure(model).map((p) => [p.id, partColor(plan, p.role)]));
+    const cmap = new Map(solveStructure(model).map((p) => [p.id, partColor(plan, p.role, p.materialId)]));
     const g = buildStructureGroup(layoutToScene(solveLayout(model)), (id) => cmap.get(id));
     const box = new THREE.Box3().setFromObject(g);
     if (box.isEmpty()) return;

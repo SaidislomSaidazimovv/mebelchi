@@ -115,6 +115,12 @@ export interface Part {
    */
   role?: string;
   /**
+   * Per-part material override (Phase F2): an OPAQUE app-catalog decor key, copied from the emitting
+   * Component's `material`. Absent = priced/coloured by the part's role. The engine never interprets
+   * it — the app resolves the key to a colour / price / name.
+   */
+  materialId?: string;
+  /**
    * Material / decor name written to the SWJ008 `Material` attribute (Phase 5.C). Optional/additive:
    * the exporter stamps it from a caller-supplied role→name map so the cut file carries the real
    * board decor. Absent = `Material=""` (unchanged golden output). The engine stays catalog-agnostic

@@ -105,8 +105,13 @@ export function boardForRole(plan: MaterialPlan, role: string | undefined): Boar
 /** "#rrggbb" → the integer colour three.js wants. */
 export const hexToInt = (hex: string): number => parseInt(hex.replace("#", ""), 16);
 
-/** The 3D colour (int) a part of this role is drawn with under a plan (Phase F1). */
-export function partColor(plan: MaterialPlan, role: string | undefined): number {
-  const b = boardForRole(plan, role);
+/** The board decor a part is priced/coloured against: a per-part override (F2) wins over the role. */
+export function partBoard(plan: MaterialPlan, role: string | undefined, materialId?: string): BoardMaterial | undefined {
+  return (materialId ? boardById(materialId) : undefined) ?? boardForRole(plan, role);
+}
+
+/** The 3D colour (int) a part is drawn with — per-part override wins over role (F1 + F2). */
+export function partColor(plan: MaterialPlan, role: string | undefined, materialId?: string): number {
+  const b = partBoard(plan, role, materialId);
   return b ? hexToInt(b.hex) : 0xe7ddc9;
 }

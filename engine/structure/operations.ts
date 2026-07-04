@@ -1079,3 +1079,32 @@ export function setComponentThickness(
   });
   return changed ? { ...model, blocks } : model;
 }
+
+/**
+ * setComponentMaterial (Phase F2) — set (or clear with null) a component's per-part material override
+ * (an opaque app decor key). The solver stamps it onto the parts (`Part.materialId`). Pure; same
+ * reference when unchanged.
+ */
+export function setComponentMaterial(
+  model: StructuralModel,
+  componentId: ComponentId,
+  material: string | null,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.material ?? null) === (material ?? null)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (material === null) {
+        const { material: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, material };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}

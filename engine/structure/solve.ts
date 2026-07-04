@@ -310,13 +310,16 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
   if (!section || !component) return [];
+  // F2 — carry the component's per-part material override onto every emitted part.
+  const mat = component.material;
+  const stampMat = (ps: Part[]): Part[] => (mat ? ps.map((p) => ({ ...p, materialId: mat })) : ps);
   // A drawer is a whole box (its own multi-panel build), independent of a single-panel role.
-  if (component.drawer) return drawerBoxParts(block, inst, section, t);
+  if (component.drawer) return stampMat(drawerBoxParts(block, inst, section, t));
   // Step-aware mount (#7): a vertical support whose height resolves to the real underside plane of
   // the partially-doubled top above it — shorter under the 32mm front strip, taller behind the step.
   if (component.mount) {
     const clear = section.box.h - undersidePlaneAt(section.box.d, component.mount.front_mm10, component.mount.y_mm10, t.carcass);
-    return [panel(`${block.id}__inst_${inst.id}`, `${component.name} · опора`, clear, section.box.d, frontBand(), t.carcass, "carcass_side")];
+    return stampMat([panel(`${block.id}__inst_${inst.id}`, `${component.name} · опора`, clear, section.box.d, frontBand(), t.carcass, "carcass_side")]);
   }
   // First slice handles shelves; other roles return [] until their step.
   if (component.role === "internal_shelf") {
@@ -325,8 +328,8 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
     // Banded on the FRONT edge by default (Face 1 = edges[0]); a user #39 kromka override wins.
     const edges = component.edgeBands ? [...component.edgeBands] as Part["edges"] : frontBand();
     const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges, component.thickness_mm10 ?? t.shelf, "internal_shelf");
-    if (component.partialDouble) return partialDoublePanels(base, component.partialDouble.front_mm10);
-    return component.doubled ? doublePanel(base) : [base];
+    if (component.partialDouble) return stampMat(partialDoublePanels(base, component.partialDouble.front_mm10));
+    return stampMat(component.doubled ? doublePanel(base) : [base]);
   }
   // A facade/door covers a section's front opening: height (X, hinge axis) × width (Y), banded
   // on all four visible edges. Hinge drilling is added by the drilling pass (engine/structure).
@@ -334,12 +337,12 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
     const length = section.box.h; // door height (X) — hinge cups run along this axis
     const width = section.box.w; // door width (Y)
     if (component.glazedGrid) {
-      return glazedGridParts(`${block.id}__inst_${inst.id}`, component.name, length, width, component.glazedGrid.lights);
+      return stampMat(glazedGridParts(`${block.id}__inst_${inst.id}`, component.name, length, width, component.glazedGrid.lights));
     }
     // A facade is banded on all four visible edges by default; a user #39 kromka override wins.
     const edges = component.edgeBands ? [...component.edgeBands] as Part["edges"] : allBand();
     const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges, component.thickness_mm10 ?? t.facade, "facade");
-    return component.doubled ? doublePanel(base) : [base];
+    return stampMat(component.doubled ? doublePanel(base) : [base]);
   }
   return [];
 }

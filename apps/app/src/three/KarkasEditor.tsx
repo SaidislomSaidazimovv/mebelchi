@@ -50,7 +50,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const warnings = useKarkas((s) => s.warnings);
   // F1 — part id → decor colour (int). Recomputed when parts or the material plan change.
   const colorFn = useMemo(() => {
-    const m = new Map(parts.map((p) => [p.id, partColor(plan, p.role)]));
+    const m = new Map(parts.map((p) => [p.id, partColor(plan, p.role, p.materialId)]));
     return (id: string) => m.get(id);
   }, [parts, plan]);
   const colorRef = useRef(colorFn);
@@ -58,6 +58,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const selComp = useKarkas((s) => s.selectedComponent());
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const setThickness = useKarkas((s) => s.setThickness);
+  const setMaterial = useKarkas((s) => s.setMaterial);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
@@ -100,7 +101,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // gate and throws if the model can't be manufactured.
   const exportCnc = () => {
     try {
-      const text = exportModelToSWJ008(model, {}, materialMap(plan));
+      const text = exportModelToSWJ008(model, {}, materialMap(plan), Object.fromEntries(BOARDS.map((b) => [b.id, b.name])));
       const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
       const a = document.createElement("a");
       a.href = url;
@@ -323,6 +324,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           {/* C4 — per-part thickness (imos Part Thickness) */}
           <span style={{ ...mono, marginLeft: 6 }}>Qalinlik:</span>
           <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
+          {/* F2 — per-part material override (imos Material_O per part) */}
+          <span style={mono}>Material:</span>
+          <select value={selComp.material ?? ""} onChange={(e) => setMaterial(e.target.value || null)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 160 }}>
+            <option value="">Rol bo'yicha</option>
+            {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
           <button style={{ ...act, marginLeft: "auto", ...(selComp.loadBearing ? { borderColor: "#8a52c9", background: "#efe3fa", color: "#5b2a86" } : {}) }} onClick={toggleLoadBearing} type="button">
             ⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}
           </button>
