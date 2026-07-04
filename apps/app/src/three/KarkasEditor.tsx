@@ -47,6 +47,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const warnings = useKarkas((s) => s.warnings);
   const selComp = useKarkas((s) => s.selectedComponent());
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
+  const setThickness = useKarkas((s) => s.setThickness);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
@@ -245,6 +246,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           {selComp.doubled && <span style={badge}>32мм</span>}
           {(selComp.glazed || selComp.glazedGrid) && <span style={badge}>Витрина{selComp.glazedGrid ? ` ×${selComp.glazedGrid.lights}` : ""}</span>}
           {selComp.loadBearing && <span style={{ ...badge, background: "#e7d6f5", color: "#5b2a86" }}>⚖ Yuk</span>}
+          {/* C4 — per-part thickness (imos Part Thickness) */}
+          <span style={{ ...mono, marginLeft: 6 }}>Qalinlik:</span>
+          <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
           <button style={{ ...act, marginLeft: "auto", ...(selComp.loadBearing ? { borderColor: "#8a52c9", background: "#efe3fa", color: "#5b2a86" } : {}) }} onClick={toggleLoadBearing} type="button">
             ⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}
           </button>

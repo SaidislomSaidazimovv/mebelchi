@@ -1050,3 +1050,32 @@ export function setEdgeBands(
   });
   return changed ? { ...model, blocks } : model;
 }
+
+/**
+ * setComponentThickness (Phase C4) — set (or clear with null) a component's per-part board thickness
+ * (mm10). The solver uses it in place of the role default (`component.thickness_mm10 ?? role`), so a
+ * facade can be 18mm while the carcass stays 16mm. Pure; same reference when unchanged.
+ */
+export function setComponentThickness(
+  model: StructuralModel,
+  componentId: ComponentId,
+  thickness_mm10: mm10 | null,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.thickness_mm10 ?? null) === (thickness_mm10 ?? null)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (thickness_mm10 === null) {
+        const { thickness_mm10: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, thickness_mm10 };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}

@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, setLoadBearing, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, setLoadBearing, setComponentThickness, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -121,6 +121,8 @@ interface KarkasState extends Derived {
   selectedComponent: () => Component | null;
   /** Toggle the selected component's load-bearing declaration (drives the stability ⚠). */
   toggleLoadBearing: () => void;
+  /** Set the selected component's per-part board thickness in mm (C4). */
+  setThickness: (mm: number) => void;
   /** Set the block's width / height / depth in mm (C2). Content reflows proportionally. */
   resize: (dim: "w" | "h" | "d", mm: number) => void;
   /** Revert the last edit. */
@@ -140,9 +142,10 @@ interface ProjectFile {
 }
 
 export const useKarkas = create<KarkasState>((set, get) => {
-  // push the current model onto the undo stack, then swap in + re-derive the next one
-  const apply = (next: StructuralModel): void =>
-    set((s) => ({ ...derive(next), past: [...s.past.slice(-49), s.model], selectedId: null }));
+  // push the current model onto the undo stack, then swap in + re-derive the next one. Structural
+  // edits clear the selection (the tapped part id may be gone); property edits keep it (keepSel).
+  const apply = (next: StructuralModel, keepSel = false): void =>
+    set((s) => ({ ...derive(next), past: [...s.past.slice(-49), s.model], selectedId: keepSel ? s.selectedId : null }));
   // the section an edit targets: the section of the selected panel's instance, else the first leaf.
   const targetSection = (): string | undefined => {
     const s = get();
@@ -196,7 +199,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     toggleLoadBearing: () => {
       const comp = get().selectedComponent();
-      if (comp) apply(setLoadBearing(get().model, comp.id, !(comp.loadBearing === true)));
+      if (comp) apply(setLoadBearing(get().model, comp.id, !(comp.loadBearing === true)), true);
+    },
+    setThickness: (mm) => {
+      const comp = get().selectedComponent();
+      if (comp) apply(setComponentThickness(get().model, comp.id, Math.max(1, Math.round(mm)) * 10), true);
     },
     resize: (dim, mm) => {
       const m = get().model;
