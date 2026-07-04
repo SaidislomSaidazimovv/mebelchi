@@ -705,6 +705,28 @@ export function addInstance(
     : addShelfInstance(model, block, section, doubled);
 }
 
+/** Remove a placed instance (shelf / door / drawer) — drops it from its block's instances and from
+ *  its section's `instanceIds`. Same reference when the id is not found. The (now-unused) component is
+ *  left in place (harmless; the solver only emits parts for live instances). */
+export function removeInstance(model: StructuralModel, instanceId: InstanceId): StructuralModel {
+  return {
+    ...model,
+    blocks: model.blocks.map((block) => {
+      if (!block.instances.some((i) => i.id === instanceId)) return block;
+      const strip = (s: Section): Section => ({
+        ...s,
+        instanceIds: s.instanceIds.filter((id) => id !== instanceId),
+        children: s.children.map(strip),
+      });
+      return {
+        ...block,
+        instances: block.instances.filter((i) => i.id !== instanceId),
+        zones: block.zones.map((z) => ({ ...z, root: strip(z.root) })),
+      };
+    }),
+  };
+}
+
 /** Add a drawer to a leaf section — a box component (role null, drawer:true) + its instance. The
  *  solver expands it into the 5-panel box; hardware counts it as a slide set (not hinges). */
 function addDrawerInstance(model: StructuralModel, block: Block, section: Section): StructuralModel {

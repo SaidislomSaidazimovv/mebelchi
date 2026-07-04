@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, setLoadBearing, setComponentThickness, setComponentMaterial, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -24,6 +24,7 @@ interface Derived {
   parts: Part[]; // manufacturing leaves (for the future price / cut list / CNC)
   scene: Scene; // positioned render boxes (metres)
   warnings: string[]; // non-blocking engineering ⚠ (stability + motion + hinge fit), Russian text
+  sections: { id: string; label: string }[]; // leaf sections you can add into (the add-target picker)
 }
 function derive(model: StructuralModel): Derived {
   const warnings = [
@@ -31,7 +32,9 @@ function derive(model: StructuralModel): Derived {
     ...checkMotionClearance(model),
     ...checkHingeFit(model),
   ].map((f) => f.message_ru);
-  return { model, parts: solveStructure(model), scene: layoutToScene(solveLayout(model)), warnings };
+  const sections: { id: string; label: string }[] = [];
+  for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) sections.push({ id: s.id, label: `${sections.length + 1}` });
+  return { model, parts: solveStructure(model), scene: layoutToScene(solveLayout(model)), warnings, sections };
 }
 
 /** First leaf section of the model (the default edit target when nothing is selected). */
@@ -101,6 +104,10 @@ function rehomeInstances(model: StructuralModel, ids: Set<string>, sectionId: st
 interface KarkasState extends Derived {
   open: boolean;
   selectedId: string | null;
+  /** The leaf section new content is added into (placement, issue #1). Set by tapping a part or the
+   *  «Qayerga» picker; falls back to the first leaf. */
+  targetId: string | null;
+  setTarget: (id: string) => void;
   past: StructuralModel[];
   /** Which decor each panel role is cut from (drives the spec price). Persists across model edits. */
   plan: MaterialPlan;
@@ -117,6 +124,8 @@ interface KarkasState extends Derived {
   addShelves: (n: number) => void;
   /** Add content to the target section; opts carry the 32mm doubled build / glazed-grid door (P6). */
   add: (kind: AddKind, opts?: AddOpts) => void;
+  /** Delete the selected instance (shelf / door / drawer). No-op if a carcass panel is selected. */
+  remove: () => void;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
   selectedComponent: () => Component | null;
   /** Toggle the selected component's load-bearing declaration (drives the stability ⚠). */
@@ -157,6 +166,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
   // the section an edit targets: the section of the selected panel's instance, else the first leaf.
   const targetSection = (): string | undefined => {
     const s = get();
+    if (s.targetId && s.sections.some((x) => x.id === s.targetId)) return s.targetId; // explicit pick / last tap
     const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
     return r ? r.inst.sectionId : firstLeafId(s.model);
   };
@@ -164,6 +174,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
     ...derive(buildDemoModel()),
     open: false,
     selectedId: null,
+    targetId: null,
+    setTarget: (id) => set({ targetId: id }),
     past: [],
     plan: DEFAULT_PLAN,
     editingBlockId: null,
@@ -172,7 +184,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
     openWith: (model) => set({ ...derive(model), open: true, selectedId: null, past: [], editingBlockId: null }),
     setModel: (model) => set({ ...derive(model), selectedId: null, past: [], editingBlockId: null }),
     close: () => set({ open: false }),
-    tapPart: (id) => set({ selectedId: id }),
+    tapPart: (id) => {
+      // tapping a placed part also targets its section, so the next add lands where you're looking
+      const r = id ? resolveInstance(get().model, id) : null;
+      set({ selectedId: id, ...(r ? { targetId: r.inst.sectionId } : {}) });
+    },
     divide: () => get().divideBy("x", 2),
     divideBy: (axis, count) => {
       const t = targetSection();
@@ -201,6 +217,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
     add: (kind, opts) => {
       const t = targetSection();
       if (t) apply(addInstance(get().model, t, kind, opts));
+    },
+    remove: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (r) apply(removeInstance(s.model, r.inst.id));
     },
     selectedComponent: () => {
       const s = get();

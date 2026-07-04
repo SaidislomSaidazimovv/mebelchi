@@ -57,7 +57,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const colorRef = useRef(colorFn);
   colorRef.current = colorFn;
   const selComp = useKarkas((s) => s.selectedComponent());
+  const sections = useKarkas((s) => s.sections);
+  const targetId = useKarkas((s) => s.targetId);
+  const setTarget = useKarkas((s) => s.setTarget);
+  const activeTarget = targetId && sections.some((x) => x.id === targetId) ? targetId : sections[0]?.id;
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
+  const remove = useKarkas((s) => s.remove);
   const setThickness = useKarkas((s) => s.setThickness);
   const setMaterial = useKarkas((s) => s.setMaterial);
   const exportProject = useKarkas((s) => s.exportProject);
@@ -309,6 +314,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spetsifikatsiya</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC · SWJ008</button>
       </div>
+      {/* Placement (#1) — choose which compartment the next add lands in; tapping a part also sets it */}
+      {sections.length > 1 && (
+        <div style={selBar}>
+          <span style={mono}>Qayerga:</span>
+          {sections.map((s) => (
+            <button key={s.id} style={{ ...pill, ...(activeTarget === s.id ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f", fontWeight: 700 } : {}) }} onClick={() => setTarget(s.id)} type="button">{s.label}-bo'lim</button>
+          ))}
+        </div>
+      )}
       {/* C3 — numeric divide + shelf count (imos AS_O_Number). x = columns, y = rows/floors. */}
       {showDivide && (
         <div style={selBar}>
@@ -342,6 +356,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button style={{ ...act, marginLeft: "auto", ...(selComp.loadBearing ? { borderColor: "#8a52c9", background: "#efe3fa", color: "#5b2a86" } : {}) }} onClick={toggleLoadBearing} type="button">
             ⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}
           </button>
+          <button style={{ ...act, borderColor: "#d1495b", background: "#fbe4e8", color: "#a01a2e" }} onClick={remove} type="button">🗑 O'chirish</button>
         </div>
       )}
       {/* Phase 6 — non-blocking engineering warnings (stability / motion / hinge) */}
