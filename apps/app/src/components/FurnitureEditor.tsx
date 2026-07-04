@@ -87,6 +87,7 @@ export function FurnitureEditor({
   onOpenFill,
   onReplace,
   onSaveToLibrary,
+  onOpenKarkas,
   flash,
 }: {
   cab: Cabinet;
@@ -111,6 +112,8 @@ export function FurnitureEditor({
   onReplace: () => void;
   /** save THIS module (with its full layout/finish) to the personal block library */
   onSaveToLibrary: () => void;
+  /** open THIS module in the karkas (StructuralModel) editor, sized to it (Phase 5) */
+  onOpenKarkas?: () => void;
   flash: (msg: string) => void;
 }) {
   const t = useT();
@@ -254,6 +257,11 @@ export function FurnitureEditor({
             <button className="fe-action" onClick={() => { onSaveToLibrary(); flash(`${t.fe.saveToLibrary} ✓`); }} type="button">
               <span className="fe-action-ic">▤</span> {t.fe.saveToLibrary}
             </button>
+            {onOpenKarkas && (
+              <button className="fe-action" onClick={onOpenKarkas} type="button">
+                <span className="fe-action-ic">🔧</span> Karkas
+              </button>
+            )}
           </div>
 
           <div className="fe-list-title">{t.fe.changeSome}</div>
