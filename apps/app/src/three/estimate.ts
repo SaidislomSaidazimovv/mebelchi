@@ -1,18 +1,12 @@
 // three/estimate.ts — a pure specification + price estimate over solved StructuralModel parts
-// (Phase 5). Reads the engine's Part[] (dims in mm10, per-edge band thickness) and produces a cut
-// list, sheet-area / edge-length totals grouped by board thickness, and a rough rouble price from a
-// small configurable rate table. Pure and side-effect-free so it is trivially unit-testable and the
-// «Спецификация» panel can render straight from it. NOTE: the rates are placeholder estimates
-// («taxminiy») until the material catalog (Phase 5.C) lets a real per-part decor drive the price.
+// (Phase 5 / 5.C). Reads the engine's Part[] (dims in mm10, per-edge band thickness, PanelRole) and
+// prices it against a MaterialPlan: each part's board rate comes from its role → decor (materials.ts),
+// edges from the plan's band. Produces a cut list, sheet-area / edge totals grouped by thickness AND
+// by material, and a rouble price. Pure and side-effect-free so the «Спецификация» panel renders
+// straight from it. Rates live in materials.ts (realistic-but-illustrative until a live feed lands).
 
 import type { Part } from "../../../../engine/contracts/types.js";
-
-/** Placeholder rates — clearly an estimate until a material catalog drives real per-decor pricing. */
-export interface RateTable {
-  boardPerM2: number; // ₽ per m² of sheet
-  edgePerM: number; // ₽ per metre of edge banding
-}
-export const DEFAULT_RATES: RateTable = { boardPerM2: 560, edgePerM: 28 };
+import { boardForRole, edgeById, DEFAULT_PLAN, type MaterialPlan } from "./materials.js";
 
 const M = (mm10: number): number => mm10 / 10000; // mm10 → metres
 const MM = (mm10: number): number => Math.round(mm10 / 10); // mm10 → whole mm
@@ -29,6 +23,9 @@ export interface PartSpec {
   areaM2: number;
   edgeM: number;
   bands: [boolean, boolean, boolean, boolean];
+  role?: string;
+  materialName: string; // decor this part is cut from under the plan
+  priceRub: number; // this part's board + edge cost
 }
 
 export interface ThicknessGroup {
@@ -37,29 +34,49 @@ export interface ThicknessGroup {
   areaM2: number;
 }
 
+export interface MaterialGroup {
+  name: string;
+  count: number;
+  areaM2: number;
+  priceRub: number;
+}
+
 export interface Estimate {
   parts: PartSpec[];
   count: number;
   areaM2: number; // total board area
   edgeM: number; // total edge-band length
   byThickness: ThicknessGroup[];
+  byMaterial: MaterialGroup[];
   priceRub: number;
 }
 
-/** Build the cut list + totals + price for a solved model's parts. */
-export function estimate(parts: Part[], rates: RateTable = DEFAULT_RATES): Estimate {
+/** Build the cut list + totals + price for a solved model's parts under a material plan. */
+export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Estimate {
+  const edgeRate = edgeById(plan.edge)?.pricePerM ?? 0;
+
   const specs: PartSpec[] = parts.map((p) => {
     const w = M(p.width_mm10);
     const l = M(p.length_mm10);
-    const bands: [boolean, boolean, boolean, boolean] = [
-      p.edges[0] > 0,
-      p.edges[1] > 0,
-      p.edges[2] > 0,
-      p.edges[3] > 0,
-    ];
+    const areaM2 = w * l;
+    const bands: [boolean, boolean, boolean, boolean] = [p.edges[0] > 0, p.edges[1] > 0, p.edges[2] > 0, p.edges[3] > 0];
     // SWJ008 perimeter convention: faces 1 & 3 run along Width, faces 2 & 4 along Length.
     const edgeM = (bands[0] ? w : 0) + (bands[2] ? w : 0) + (bands[1] ? l : 0) + (bands[3] ? l : 0);
-    return { id: p.id, name: p.name, w_mm: MM(p.width_mm10), l_mm: MM(p.length_mm10), t_mm: round1(p.thickness_mm10 / 10), areaM2: w * l, edgeM, bands };
+    const board = boardForRole(plan, p.role);
+    const priceRub = areaM2 * (board?.pricePerM2 ?? 0) + edgeM * edgeRate;
+    return {
+      id: p.id,
+      name: p.name,
+      w_mm: MM(p.width_mm10),
+      l_mm: MM(p.length_mm10),
+      t_mm: round1(p.thickness_mm10 / 10),
+      areaM2,
+      edgeM,
+      bands,
+      role: p.role,
+      materialName: board?.name ?? "—",
+      priceRub,
+    };
   });
 
   const byThickness = [...specs.reduce((m, s) => {
@@ -69,8 +86,16 @@ export function estimate(parts: Part[], rates: RateTable = DEFAULT_RATES): Estim
     return m.set(s.t_mm, g);
   }, new Map<number, ThicknessGroup>()).values()].sort((a, b) => b.t_mm - a.t_mm);
 
+  const byMaterial = [...specs.reduce((m, s) => {
+    const g = m.get(s.materialName) ?? { name: s.materialName, count: 0, areaM2: 0, priceRub: 0 };
+    g.count += 1;
+    g.areaM2 += s.areaM2;
+    g.priceRub += s.priceRub;
+    return m.set(s.materialName, g);
+  }, new Map<string, MaterialGroup>()).values()].sort((a, b) => b.priceRub - a.priceRub);
+
   const areaM2 = sum(specs.map((s) => s.areaM2));
   const edgeM = sum(specs.map((s) => s.edgeM));
-  const priceRub = Math.round(areaM2 * rates.boardPerM2 + edgeM * rates.edgePerM);
-  return { parts: specs, count: specs.length, areaM2, edgeM, byThickness, priceRub };
+  const priceRub = Math.round(sum(specs.map((s) => s.priceRub)));
+  return { parts: specs, count: specs.length, areaM2, edgeM, byThickness, byMaterial, priceRub };
 }

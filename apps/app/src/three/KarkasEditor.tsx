@@ -9,10 +9,10 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas } from "./karkasStore";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
-import type { Part } from "../../../../engine/contracts/types.js";
 import { buildStructureGroup, highlightBoard, disposeStructureGroup } from "./structureRenderer";
 import { sceneDimsMm } from "./structureScene";
 import { estimate } from "./estimate";
+import { BOARDS, EDGES, type MaterialPlan } from "./materials";
 
 interface RT {
   renderer: THREE.WebGLRenderer;
@@ -34,7 +34,6 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const divide = useKarkas((s) => s.divide);
   const undo = useKarkas((s) => s.undo);
   const canUndo = useKarkas((s) => s.past.length > 0);
-  const parts = useKarkas((s) => s.parts);
   const model = useKarkas((s) => s.model);
   const [showSpec, setShowSpec] = useState(false);
 
@@ -157,40 +156,75 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       </div>
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
         <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
-        {showSpec && <SpecPanel parts={parts} onClose={() => setShowSpec(false)} />}
+        {showSpec && <SpecPanel onClose={() => setShowSpec(false)} />}
       </div>
     </div>
   );
 }
 
-/** Right-hand «Спецификация» drawer — cut list + sheet / edge / price totals from the solved parts. */
-function SpecPanel({ parts, onClose }: { parts: Part[]; onClose: () => void }) {
-  const e = estimate(parts);
+/** Board-decor <select> for one plan slot, with a colour swatch of the current pick. */
+function MatSelect({ label, slot }: { label: string; slot: keyof Omit<MaterialPlan, "edge"> }) {
+  const value = useKarkas((s) => s.plan[slot]);
+  const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
+  const hex = BOARDS.find((b) => b.id === value)?.hex ?? "#ccc";
+  return (
+    <label style={matRow}>
+      <span style={{ ...mono, width: 62 }}>{label}</span>
+      <span style={{ ...swatch, background: hex }} />
+      <select style={matSel} value={value} onChange={(ev) => setPlanMaterial(slot, ev.target.value)}>
+        {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name} · {b.pricePerM2}₽/м²</option>)}
+      </select>
+    </label>
+  );
+}
+
+/** Right-hand «Спецификация» drawer — material picker + cut list + material-plan price totals. */
+function SpecPanel({ onClose }: { onClose: () => void }) {
+  const parts = useKarkas((s) => s.parts);
+  const plan = useKarkas((s) => s.plan);
+  const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
+  const e = estimate(parts, plan);
   return (
     <div style={specPanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Спецификация</b>
         <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
       </div>
+
+      {/* material picker — role → decor */}
+      <div style={picker}>
+        <MatSelect label="Корпус" slot="carcass" />
+        <MatSelect label="Фасад" slot="facade" />
+        <MatSelect label="Полки" slot="shelf" />
+        <MatSelect label="Задняя" slot="back" />
+        <label style={matRow}>
+          <span style={{ ...mono, width: 62 }}>Кромка</span>
+          <span style={{ ...swatch, background: "#8a6d1f" }} />
+          <select style={matSel} value={plan.edge} onChange={(ev) => setPlanMaterial("edge", ev.target.value)}>
+            {EDGES.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.pricePerM}₽/м</option>)}
+          </select>
+        </label>
+      </div>
+
       <div style={specTotals}>
         <div style={cell}><span style={mono}>Detallar</span><b>{e.count}</b></div>
         <div style={cell}><span style={mono}>List</span><b>{e.areaM2.toFixed(2)} m²</b></div>
         <div style={cell}><span style={mono}>Kromka</span><b>{e.edgeM.toFixed(2)} m</b></div>
-        <div style={cell}><span style={mono}>Narx*</span><b>{e.priceRub.toLocaleString("ru-RU")} ₽</b></div>
+        <div style={cell}><span style={mono}>Narx</span><b>{e.priceRub.toLocaleString("ru-RU")} ₽</b></div>
       </div>
       <div style={{ ...mono, padding: "2px 14px 8px" }}>
-        {e.byThickness.map((g) => `${g.t_mm}mm · ${g.count} dona · ${g.areaM2.toFixed(2)} m²`).join("     ")}
+        {e.byMaterial.map((g) => `${g.name}: ${g.count} · ${g.priceRub.toLocaleString("ru-RU")}₽`).join("     ")}
       </div>
       <div style={specList}>
         {e.parts.map((p) => (
           <div key={p.id} style={specRow}>
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
             <span style={mono}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
             <span style={{ ...mono, color: "#8a6d1f", letterSpacing: 1 }} title="banded edges (1·2·3·4)">{p.bands.map((b) => (b ? "▪" : "·")).join("")}</span>
           </div>
         ))}
       </div>
-      <div style={{ ...mono, padding: "8px 14px", fontSize: 11, borderTop: "1px solid #e6e1d4" }}>* taxminiy narx — material katalogi keyingi fazada</div>
+      <div style={{ ...mono, padding: "8px 14px", fontSize: 11, borderTop: "1px solid #e6e1d4" }}>Narx tarifi katalogdan (materials.ts) — real feed keyin ulanadi</div>
     </div>
   );
 }
@@ -215,3 +249,7 @@ const specTotals: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1
 const cell: CSSProperties = { background: "#fff", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 2, fontFamily: "system-ui", fontSize: 15 };
 const specList: CSSProperties = { flex: 1, minHeight: 0, overflow: "auto", padding: "4px 14px" };
 const specRow: CSSProperties = { display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f0ece1", fontFamily: "system-ui", fontSize: 13 };
+const picker: CSSProperties = { padding: "10px 14px 2px", display: "flex", flexDirection: "column", gap: 6, borderBottom: "1px solid #eee7d8" };
+const matRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8 };
+const swatch: CSSProperties = { width: 16, height: 16, borderRadius: 4, border: "1px solid rgba(0,0,0,0.15)", flex: "0 0 auto" };
+const matSel: CSSProperties = { flex: 1, minWidth: 0, padding: "4px 6px", borderRadius: 7, border: "1px solid #d8d2c4", background: "#fff", font: "13px system-ui", cursor: "pointer" };

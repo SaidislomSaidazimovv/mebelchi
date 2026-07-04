@@ -13,6 +13,7 @@ import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
 import { divideSection, addInstance, selectByTap, type AddKind } from "../../../../engine/structure/operations.js";
 import { layoutToScene, type Scene } from "./structureScene";
+import { DEFAULT_PLAN, type MaterialPlan } from "./materials";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
 interface Derived {
@@ -75,6 +76,9 @@ interface KarkasState extends Derived {
   open: boolean;
   selectedId: string | null;
   past: StructuralModel[];
+  /** Which decor each panel role is cut from (drives the spec price). Persists across model edits. */
+  plan: MaterialPlan;
+  setPlanMaterial: (slot: keyof MaterialPlan, id: string) => void;
   openWith: (model: StructuralModel) => void;
   setModel: (model: StructuralModel) => void;
   close: () => void;
@@ -112,6 +116,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
     open: false,
     selectedId: null,
     past: [],
+    plan: DEFAULT_PLAN,
+    setPlanMaterial: (slot, id) => set((s) => ({ plan: { ...s.plan, [slot]: id } })),
     openWith: (model) => set({ ...derive(model), open: true, selectedId: null, past: [] }),
     setModel: (model) => set({ ...derive(model), selectedId: null, past: [] }),
     close: () => set({ open: false }),
