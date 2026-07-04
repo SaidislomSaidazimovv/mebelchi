@@ -282,6 +282,27 @@ function componentById(block: Block, componentId: string): Component | null {
   return block.components.find((c) => c.id === componentId) ?? null;
 }
 
+/** Runner clearance per drawer side (mm10) — the gap the slide occupies between box and carcass. */
+const DRAWER_SLIDE_CLEAR_MM10 = 130;
+
+/** A drawer placement → its 5-panel box: facade front + two carcass sides + carcass back + thin
+ *  bottom, sized to the section less the runner clearance. Part ids share the instance base so the
+ *  editor's resolveInstance still selects the whole drawer. */
+function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
+  const idBase = `${block.id}__inst_${inst.id}`;
+  const box = section.box;
+  const outerW = box.w - 2 * DRAWER_SLIDE_CLEAR_MM10; // drawer body width between the runners
+  const innerW = outerW - 2 * t.carcass; // between the two box sides
+  const sideH = box.h - 2 * t.carcass; // box side height within the opening
+  return [
+    panel(`${idBase}__front`, "Ящик · фасад", box.h, box.w, allBand(), t.facade, "facade"),
+    panel(`${idBase}__side_l`, "Ящик · бок Л", box.d, sideH, frontBand(), t.carcass, "carcass_side"),
+    panel(`${idBase}__side_r`, "Ящик · бок П", box.d, sideH, frontBand(), t.carcass, "carcass_side"),
+    panel(`${idBase}__back`, "Ящик · задняя", innerW, sideH, frontBand(), t.carcass, "carcass_side"),
+    panel(`${idBase}__bottom`, "Ящик · дно", innerW, box.d, [0, 0, 0, 0], t.back, "carcass_back"),
+  ];
+}
+
 /** One placed instance → its content panel(s), sized from the section it sits in.
  *  Returns two boards when the component is `doubled` (L1), one otherwise, or none for
  *  roles not yet emitted. */
@@ -289,6 +310,8 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
   if (!section || !component) return [];
+  // A drawer is a whole box (its own multi-panel build), independent of a single-panel role.
+  if (component.drawer) return drawerBoxParts(block, inst, section, t);
   // Step-aware mount (#7): a vertical support whose height resolves to the real underside plane of
   // the partially-doubled top above it — shorter under the 32mm front strip, taller behind the step.
   if (component.mount) {

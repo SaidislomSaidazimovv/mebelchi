@@ -142,6 +142,7 @@ function sectionHeightMm(roots: Section[], id: string): number | null {
  */
 export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
   let hinges = 0;
+  let slides = 0;
   let pins = 0;
   let cams = 0;
   let dowels = 0;
@@ -152,7 +153,9 @@ export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
     for (const inst of b.instances) {
       const comp = b.components.find((c) => c.id === inst.componentId);
       if (!comp) continue;
-      if (comp.role === "facade") {
+      if (comp.drawer) {
+        slides += 1; // one runner set per drawer (slides, not hinges)
+      } else if (comp.role === "facade") {
         hinges += hingesForDoorHeightMm(sectionHeightMm(roots, inst.sectionId) ?? 700);
       } else if (comp.role === "internal_shelf") {
         pins += PINS_PER_SHELF;
@@ -161,6 +164,7 @@ export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
   }
   const lines = [
     { name: HARDWARE.hinge.name, qty: hinges, priceRub: hinges * HARDWARE.hinge.priceRub },
+    { name: HARDWARE.slide.name, qty: slides, priceRub: slides * HARDWARE.slide.priceRub },
     { name: HARDWARE.pin.name, qty: pins, priceRub: pins * HARDWARE.pin.priceRub },
     { name: HARDWARE.cam.name, qty: cams, priceRub: cams * HARDWARE.cam.priceRub },
     { name: HARDWARE.dowel.name, qty: dowels, priceRub: dowels * HARDWARE.dowel.priceRub },

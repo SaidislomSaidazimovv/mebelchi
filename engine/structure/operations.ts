@@ -689,17 +689,38 @@ export function addInstance(
   if (kind === "divider") {
     return divideSection(model, sectionId, { kind: "equal", axis: "x", count: 2 });
   }
-  if (kind !== "shelf" && kind !== "door") return model; // rail/drawer = out-of-scope hardware
+  if (kind !== "shelf" && kind !== "door" && kind !== "drawer") return model; // rail = out-of-scope
 
   const located = findSection(model, sectionId);
   if (!located) throw new Error("ADD_INSTANCE_SECTION_NOT_FOUND");
   const { block, section } = located;
   if (section.children.length > 0) throw new Error("ADD_INSTANCE_SECTION_NOT_LEAF");
 
+  if (kind === "drawer") return addDrawerInstance(model, block, section);
   const doubled = opts.doubled === true;
   return kind === "door"
     ? addDoorInstance(model, block, section, doubled, opts.glazedGrid)
     : addShelfInstance(model, block, section, doubled);
+}
+
+/** Add a drawer to a leaf section — a box component (role null, drawer:true) + its instance. The
+ *  solver expands it into the 5-panel box; hardware counts it as a slide set (not hinges). */
+function addDrawerInstance(model: StructuralModel, block: Block, section: Section): StructuralModel {
+  const id = `${block.id}__cmp_drawer`;
+  let drawer = block.components.find((c) => c.id === id) ?? null;
+  let components = block.components;
+  if (!drawer) {
+    drawer = { id, name: "Ящик", partIds: [], role: null, drawer: true };
+    components = [...block.components, drawer];
+  }
+  const newId = `drawer_${block.instances.length + 1}`;
+  const instances: Instance[] = [
+    ...block.instances,
+    { id: newId, componentId: drawer.id, sectionId: section.id, anchor: { x: section.box.x, y: section.box.y, z: section.box.z }, link: "linked" },
+  ];
+  const zones = withSectionInstances(block, section, [...section.instanceIds, newId]);
+  const newBlock: Block = { ...block, components, instances, zones };
+  return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? newBlock : b)) };
 }
 
 /** Find (or create) a role component keyed by role + doubled flag, so plain and 32mm builds don't

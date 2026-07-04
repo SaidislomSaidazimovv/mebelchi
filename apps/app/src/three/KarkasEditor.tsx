@@ -192,6 +192,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={adv} onClick={() => add("shelf", { doubled: true })} type="button">＋ Polka 32мм</button>
         <button style={act} onClick={() => add("door")} type="button">＋ Eshik</button>
         <button style={adv} onClick={() => add("door", { glazedGrid: { lights: 3 } })} type="button">＋ Витрина</button>
+        <button style={act} onClick={() => add("drawer")} type="button">＋ Yashik</button>
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={act} onClick={() => divide()} type="button">⊟ Bo'lish</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>

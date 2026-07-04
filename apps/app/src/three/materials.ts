@@ -64,6 +64,7 @@ export const edgeById = (id: string): EdgeMaterial | undefined => EDGES.find((e)
 /** Hardware unit prices (₽ each), realistic-but-illustrative (Phase 7.2). */
 export const HARDWARE = {
   hinge: { name: "Петля Clip 110°", priceRub: 45 },
+  slide: { name: "Направляющая (комплект)", priceRub: 320 },
   pin: { name: "Полкодержатель", priceRub: 4 },
   cam: { name: "Стяжка Minifix", priceRub: 12 },
   dowel: { name: "Шкант 8×30", priceRub: 2 },

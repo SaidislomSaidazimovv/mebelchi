@@ -165,10 +165,12 @@ describe("S3 addInstance — add a shelf to a section", () => {
     }
   });
 
-  it("no-ops for out-of-scope hardware kinds (rail / drawer)", () => {
+  it("rail stays a no-op; drawer builds a 5-panel box (P7.3)", () => {
     const model = buildDemoModel();
-    expect(addInstance(model, "sec_left", "rail")).toBe(model);
-    expect(addInstance(model, "sec_left", "drawer")).toBe(model);
+    expect(addInstance(model, "sec_left", "rail")).toBe(model); // rail still out of scope
+    const withDrawer = addInstance(model, "sec_left", "drawer");
+    expect(withDrawer).not.toBe(model);
+    expect(solveStructure(withDrawer).length).toBe(solveStructure(model).length + 5);
   });
 
   it("throws on an unknown section", () => {

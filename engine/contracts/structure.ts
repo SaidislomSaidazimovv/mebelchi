@@ -194,6 +194,13 @@ export interface Component {
    */
   readonly glazed?: boolean;
   /**
+   * Drawer box (Phase 7.3): `true` = this placement is a drawer, so the solver emits a 5-panel box
+   * (facade front + two carcass sides + carcass back + a thin bottom) sized to the section with a
+   * runner clearance, instead of a single panel. The component's `role` is null (a drawer takes
+   * slides, not hinges — hardware counts it as a slide set). Optional/additive — absent = not a drawer.
+   */
+  readonly drawer?: boolean;
+  /**
    * Glazed-GRID facade (CONSTRUCTION_FRAME_v3 Piece 2): the door is a frame of `lights` glass
    * panes stacked along its height, separated by muntins. The solver emits the assembly — outer
    * frame members (32mm doubled) + (lights−1) muntins (16mm) + `lights` glass panes (3mm) —

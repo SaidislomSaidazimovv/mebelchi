@@ -72,9 +72,11 @@ describe("E11 — addInstance door / divider / doubled", () => {
     expect(block(m).components.filter((c) => c.role === "facade")).toHaveLength(2);
   });
 
-  it("rail and drawer stay no-ops (out-of-scope hardware)", () => {
+  it("rail stays a no-op; drawer now builds a box (P7.3)", () => {
     const m = base();
-    expect(addInstance(m, "sec", "rail")).toBe(m);
-    expect(addInstance(m, "sec", "drawer")).toBe(m);
+    expect(addInstance(m, "sec", "rail")).toBe(m); // rail still out of scope
+    const withDrawer = addInstance(m, "sec", "drawer");
+    expect(withDrawer).not.toBe(m); // drawer is a real build now
+    expect(withDrawer.blocks.some((b) => b.components.some((c) => c.drawer === true))).toBe(true);
   });
 });
