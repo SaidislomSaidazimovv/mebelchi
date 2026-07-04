@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useKarkas } from "../three/karkasStore";
-import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
+import { buildCarcassModel } from "../../../../engine/structure/demoModel.js";
 import { useT } from "../i18n/useT";
 import { priceCabs } from "../model/toProject";
 import { useMoney } from "../useMoney";
@@ -251,6 +251,24 @@ export function ConfigScreen() {
       pick(id);
       flash(t.config.added(item.name));
     }
+    closeSheet();
+  };
+  // Phase K — open a personal block. A karkas block (from-scratch StructuralModel) re-opens in the
+  // karkas editor to edit / show / re-quote; a plain cabinet block adds into the room as before.
+  const openLibraryItem = (item: LibraryItem) => {
+    if (item.karkasJson) {
+      useKarkas.getState().importProject(item.karkasJson); // sets the model + opens the editor
+      closeSheet();
+      return;
+    }
+    addLibraryItem(item);
+  };
+  // Phase K — start a NEW karkas block from scratch at the client's size (0 dan).
+  const openNewKarkas = () => {
+    const s = window.prompt("O'lcham — en × bo'y × chuqurlik (mm):", "600x720x560");
+    if (s == null) return;
+    const n = s.split(/[^\d]+/).map((x) => parseInt(x, 10)).filter((x) => x > 0);
+    useKarkas.getState().openWith(buildCarcassModel(n[0] ?? 600, n[1] ?? 720, n[2] ?? 560));
     closeSheet();
   };
   // "Заменять" → open the catalog matching this module's category, in replace mode
@@ -693,9 +711,9 @@ export function ConfigScreen() {
                   <button className={`lib-tab${libTab === "mine" ? " on" : ""}`} onClick={() => setLibTab("mine")} type="button">
                     {t.config.myBlocks}{myLibrary.length ? ` (${myLibrary.length})` : ""}
                   </button>
-                  {/* Phase 3: open the parametric StructuralModel editor in-place (karkas engine) */}
-                  <button className="lib-tab" onClick={() => { useKarkas.getState().openWith(buildDemoModel()); closeSheet(); }} type="button">
-                    🔧 Karkas
+                  {/* Phase K: design a new karkas block from scratch at the client's size (0 dan) */}
+                  <button className="lib-tab" onClick={openNewKarkas} type="button">
+                    🔧 Yangi blok
                   </button>
                 </div>
                 <div className="cfg-sheet-body">
@@ -720,7 +738,7 @@ export function ConfigScreen() {
                   ) : (
                     <div className="add-grid">
                       {myLibrary.map((item) => (
-                        <button key={item.id} className="add-chip" style={{ position: "relative" }} onClick={() => addLibraryItem(item)} type="button">
+                        <button key={item.id} className="add-chip" style={{ position: "relative" }} onClick={() => openLibraryItem(item)} type="button">
                           <span
                             role="button"
                             aria-label={t.config.del}
@@ -729,7 +747,7 @@ export function ConfigScreen() {
                           >✕</span>
                           <span className="add-glyph" aria-hidden="true">{item.glyph}</span>
                           <span className="add-name">{item.name}</span>
-                          <span className="add-sub">{t.config.myBlock}</span>
+                          <span className="add-sub">{item.karkasJson ? "Karkas" : t.config.myBlock}</span>
                         </button>
                       ))}
                     </div>

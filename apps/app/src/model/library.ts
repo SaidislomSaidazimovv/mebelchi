@@ -142,6 +142,12 @@ export interface LibraryItem {
   glyph: string;
   /** the saved module as a template fed back to addCab (no id / run / position). */
   cab: Partial<Cabinet>;
+  /**
+   * A from-scratch karkas block (Phase K), stored as the karkas project JSON ({version,model,plan}).
+   * When present this is a KARKAS block: the «Mening bloklarim» tap re-opens it in the karkas editor
+   * instead of addCab-ing a cabinet. Absent = an ordinary kitchen-cabinet block.
+   */
+  karkasJson?: string;
   updatedAt: number;
 }
 
@@ -166,7 +172,9 @@ function writeAll(list: LibraryItem[]): void {
 }
 
 function newLibraryId(): string {
-  const c = globalThis.crypto as Crypto | undefined;
+  // Avoid the DOM `Crypto` type name so this module type-checks outside a DOM lib (root tsconfig,
+  // reached when a test imports it). Feature-detect randomUUID structurally instead.
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (c?.randomUUID) return c.randomUUID();
   return `lib-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
 }
@@ -200,6 +208,18 @@ function blockName(cab: Cabinet): string {
 function blockGlyph(cab: Cabinet): string {
   if (cab.corner) return "◣";
   return cab.kind === "upper" ? "▭" : cab.kind === "tall" ? "▯" : "▢";
+}
+
+/** Build a personal LibraryItem from a from-scratch karkas block (Phase K) — its project JSON. */
+export function libraryItemFromKarkas(name: string, karkasJson: string): LibraryItem {
+  return {
+    id: newLibraryId(),
+    name: name.trim() || "Karkas blok",
+    glyph: "🔧",
+    cab: {},
+    karkasJson,
+    updatedAt: Date.now(),
+  };
 }
 
 /** Build a personal LibraryItem from a live cabinet: keep the full spec (layout /

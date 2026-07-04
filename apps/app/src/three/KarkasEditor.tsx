@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } fro
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas } from "./karkasStore";
+import { useStore } from "../store";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
 import { buildStructureGroup, highlightBoard, disposeStructureGroup } from "./structureRenderer";
@@ -48,7 +49,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
+  const saveKarkasToLibrary = useStore((s) => s.saveKarkasToLibrary);
   const [showSpec, setShowSpec] = useState(false);
+
+  // Save the current from-scratch block into «Mening bloklarim» so the usta can reuse it (Phase K).
+  const saveToBiblioteka = () => {
+    const name = window.prompt("Blok nomi (Bibliotekaga):", "Yangi blok");
+    if (name == null) return;
+    saveKarkasToLibrary(name, exportProject());
+    window.alert(`«${name.trim() || "Karkas blok"}» Bibliotekaga qo'shildi ✓`);
+  };
 
   // Emit byte-exact SWJ008 for the current model and hand it to the browser as a download. The
   // material map carries the chosen decors into the cut file. exportModelToSWJ008 runs the safety
@@ -181,7 +191,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button onClick={() => setModel(buildDemoModel())} style={pill} type="button">Тумба</button>
         <button onClick={() => setModel(buildLCornerModel())} style={pill} type="button">L-угол</button>
         <span style={{ ...mono, color: "#006b3f" }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
-        <button onClick={saveProject} style={{ ...pill, marginLeft: "auto" }} type="button">💾 Saqlash</button>
+        <button onClick={saveToBiblioteka} style={{ ...pill, marginLeft: "auto", borderColor: "#00a961", color: "#006b3f", fontWeight: 700 }} type="button">📚 Bibliotekaga</button>
+        <button onClick={saveProject} style={pill} type="button">💾 Saqlash</button>
         <button onClick={() => fileRef.current?.click()} style={pill} type="button">📂 Ochish</button>
         <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={onFileChange} />
         {onClose && <button onClick={onClose} style={pill} type="button">✕ Yopish</button>}

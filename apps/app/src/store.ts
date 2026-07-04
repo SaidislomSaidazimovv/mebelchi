@@ -11,7 +11,7 @@ import { planRuns, cornerUnits, interiorWallCabs, type KitchenLayout } from "./m
 import { roomOutlineMm, defaultOpenings, defaultOpeningHeight, fittingKind, wallSegments, interiorSegRef, polygonBoundsMm, type Pt, type Opening, type OpeningKind, type Fitting, type FittingCategory } from "./model/room";
 import { defaultSurface, splitLeaf, colorLeaf, type Surface, type SurfPath } from "./model/walls";
 import { PERSIST_KEYS, loadProjectState, upsertProject, deleteProject, updateProjectMeta, newProjectId, allProjects, replaceAllProjects, type DesignState } from "./model/projects";
-import { listLibrary, upsertLibraryItem, deleteLibraryItem, libraryItemFromCab, type LibraryItem } from "./model/library";
+import { listLibrary, upsertLibraryItem, deleteLibraryItem, libraryItemFromCab, libraryItemFromKarkas, type LibraryItem } from "./model/library";
 import { loadSettings, saveSettings, type Settings } from "./model/settings";
 import { supabase, isSupabaseConfigured } from "./lib/supabase";
 import { pullProfile, pushProfile, pullProjects, pushProject, deleteProjectCloud } from "./lib/sync";
@@ -291,6 +291,8 @@ export interface AppState {
   renameProject: (id: string, patch: { name?: string; client?: string }) => void;
   // library — save the selected module as a personal block / remove one (localStorage)
   saveToLibrary: (cab: Cabinet) => void;
+  /** Save a from-scratch karkas block (its project JSON) into «Mening bloklarim» (Phase K). */
+  saveKarkasToLibrary: (name: string, json: string) => void;
   removeLibraryItem: (id: string) => void;
   // settings
   updateSettings: (patch: Partial<Settings>) => void;
@@ -1221,6 +1223,10 @@ export const useStore = create<AppState>((set, get) => ({
   saveToLibrary: (cab) => {
     upsertLibraryItem(libraryItemFromCab(cab));
     // TODO: Supabase sync (phase 2) — push the personal block to the cloud here
+    set((s) => ({ myLibrary: listLibrary(), libraryRev: s.libraryRev + 1 }));
+  },
+  saveKarkasToLibrary: (name, json) => {
+    upsertLibraryItem(libraryItemFromKarkas(name, json));
     set((s) => ({ myLibrary: listLibrary(), libraryRev: s.libraryRev + 1 }));
   },
   removeLibraryItem: (id) => {

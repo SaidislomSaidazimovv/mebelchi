@@ -199,7 +199,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!data || !data.model || !Array.isArray(data.model.blocks)) {
         throw new Error("BAD_PROJECT: not a karkas project file");
       }
-      set({ ...derive(data.model), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [] });
+      set({ ...derive(data.model), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true });
     },
   };
 });

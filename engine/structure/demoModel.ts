@@ -90,6 +90,38 @@ export function buildDemoModel(): StructuralModel {
 }
 
 /**
+ * A blank carcass at an arbitrary size (Phase K) — one block, one empty leaf section, no content.
+ * This is what the «Новый блок (0 dan)» flow seeds: the usta types the client's dimensions and gets a
+ * bare box (sides/top/bottom/back from the solver) to fill with shelves / doors / drawers. Dimensions
+ * are in millimetres; converted to mm10. Fresh objects each call.
+ */
+export function buildCarcassModel(w_mm: number, h_mm: number, d_mm: number): StructuralModel {
+  const W = Math.max(1, Math.round(w_mm)) * 10;
+  const H = Math.max(1, Math.round(h_mm)) * 10;
+  const D = Math.max(1, Math.round(d_mm)) * 10;
+  const root: Section = {
+    id: "sec_root",
+    box: { x: 0, y: 0, z: 0, w: W, h: H, d: D },
+    dividers: [],
+    children: [],
+    instanceIds: [],
+    purpose: "storage",
+  };
+  const zone: Zone = { id: "z_body", name: "Корпус", rule: "manual", root };
+  const block: Block = {
+    id: "blk_main",
+    name: "Блок",
+    box: { x: 0, y: 0, z: 0, w: W, h: H, d: D },
+    zones: [zone],
+    components: [],
+    instances: [],
+    lines: [],
+    rows: [],
+  };
+  return { id: "custom", name: `Блок ${Math.round(w_mm)}×${Math.round(h_mm)}×${Math.round(d_mm)}`, blocks: [block], parts: [] };
+}
+
+/**
  * An L-corner wardrobe (blocker #1). Two legs meet at a corner, each with its own depth
  * (CONSTRUCTION_FRAME_v3 §7 Piece 1: leg-A depth 600mm, leg-B depth 400mm). Fresh objects each call.
  */
