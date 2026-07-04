@@ -101,3 +101,12 @@ export function planSlotForRole(role: string | undefined): keyof Omit<MaterialPl
 export function boardForRole(plan: MaterialPlan, role: string | undefined): BoardMaterial | undefined {
   return boardById(plan[planSlotForRole(role)]);
 }
+
+/** "#rrggbb" → the integer colour three.js wants. */
+export const hexToInt = (hex: string): number => parseInt(hex.replace("#", ""), 16);
+
+/** The 3D colour (int) a part of this role is drawn with under a plan (Phase F1). */
+export function partColor(plan: MaterialPlan, role: string | undefined): number {
+  const b = boardForRole(plan, role);
+  return b ? hexToInt(b.hex) : 0xe7ddc9;
+}

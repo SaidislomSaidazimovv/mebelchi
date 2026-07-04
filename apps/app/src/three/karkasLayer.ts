@@ -6,17 +6,19 @@
 
 import * as THREE from "three";
 import { solveLayout } from "../../../../engine/structure/layout.js";
+import { solveStructure } from "../../../../engine/structure/solve.js";
 import type { StructuralModel } from "../../../../engine/contracts/structure.js";
 import { layoutToScene } from "./structureScene";
 import { buildStructureGroup } from "./structureRenderer";
+import { partColor, DEFAULT_PLAN, type MaterialPlan } from "./materials";
 
 const GAP_M = 0.06; // 6 cm between placed blocks
 
-/** Parse a project block's JSON and return its StructuralModel, or null if malformed. */
-function modelOf(json: string): StructuralModel | null {
+/** Parse a project block's JSON → its model + material plan, or null if malformed. */
+function parseBlock(json: string): { model: StructuralModel; plan: MaterialPlan } | null {
   try {
-    const m = (JSON.parse(json) as { model?: StructuralModel }).model;
-    return m && Array.isArray(m.blocks) && m.blocks.length ? m : null;
+    const d = JSON.parse(json) as { model?: StructuralModel; plan?: MaterialPlan };
+    return d.model && Array.isArray(d.model.blocks) && d.model.blocks.length ? { model: d.model, plan: d.plan ?? DEFAULT_PLAN } : null;
   } catch {
     return null;
   }
@@ -33,9 +35,12 @@ export function buildProjectBlocksGroup(
   const root = new THREE.Group();
   root.name = "karkasLayer";
   blocks.forEach((b, i) => {
-    const model = modelOf(b.karkasJson);
-    if (!model) return;
-    const g = buildStructureGroup(layoutToScene(solveLayout(model)));
+    const parsed = parseBlock(b.karkasJson);
+    if (!parsed) return;
+    const { model, plan } = parsed;
+    // F1 — colour each board by its decor (part role → plan → colour)
+    const cmap = new Map(solveStructure(model).map((p) => [p.id, partColor(plan, p.role)]));
+    const g = buildStructureGroup(layoutToScene(solveLayout(model)), (id) => cmap.get(id));
     const box = new THREE.Box3().setFromObject(g);
     if (box.isEmpty()) return;
     const ctr = new THREE.Vector3();

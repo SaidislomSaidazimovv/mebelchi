@@ -3,17 +3,17 @@
 // the 3D group when the model changes and re-tints on selection change; taps write back to the
 // store. Opened as a focused overlay from the Biblioteka (Phase 3.3) or the /#karkas dev route —
 // entirely parallel to the kitchen constructor, which it never touches.
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas } from "./karkasStore";
 import { useStore } from "../store";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
-import { buildStructureGroup, highlightBoard, disposeStructureGroup } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup } from "./structureRenderer";
 import { sceneDimsMm } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, boardForRole, partColor, type MaterialPlan } from "./materials";
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
@@ -46,7 +46,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const canUndo = useKarkas((s) => s.past.length > 0);
   const model = useKarkas((s) => s.model);
   const plan = useKarkas((s) => s.plan);
+  const parts = useKarkas((s) => s.parts);
   const warnings = useKarkas((s) => s.warnings);
+  // F1 — part id → decor colour (int). Recomputed when parts or the material plan change.
+  const colorFn = useMemo(() => {
+    const m = new Map(parts.map((p) => [p.id, partColor(plan, p.role)]));
+    return (id: string) => m.get(id);
+  }, [parts, plan]);
+  const colorRef = useRef(colorFn);
+  colorRef.current = colorFn;
   const selComp = useKarkas((s) => s.selectedComponent());
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const setThickness = useKarkas((s) => s.setThickness);
@@ -220,7 +228,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const r = rt.current;
     if (!r) return;
     if (r.group) { r.scene.remove(r.group); disposeStructureGroup(r.group); }
-    const group = buildStructureGroup(scene);
+    const group = buildStructureGroup(scene, colorRef.current);
     r.scene.add(group);
     r.group = group;
     highlightBoard(group, selectedId);
@@ -246,6 +254,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   useEffect(() => {
     if (rt.current?.group) highlightBoard(rt.current.group, selectedId);
   }, [selectedId]);
+
+  // ── F1: re-colour boards when the material plan changes (no geometry rebuild) ──
+  useEffect(() => {
+    if (rt.current?.group) {
+      recolorBoards(rt.current.group, colorFn);
+      highlightBoard(rt.current.group, selectedId); // recolor clears nothing but re-assert selection
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorFn]);
 
   const dims = sceneDimsMm(scene);
   return (
