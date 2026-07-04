@@ -670,6 +670,8 @@ export interface AddOpts {
   readonly doubled?: boolean;
   /** door only: create a glazed-GRID facade of `lights` panes instead of a plain door (Piece 2). */
   readonly glazedGrid?: { readonly lights: number };
+  /** door only (F3): a plain glazed door — a single glass pane (the solver cuts the rebate groove). */
+  readonly glazed?: boolean;
 }
 
 /**
@@ -699,7 +701,7 @@ export function addInstance(
   if (kind === "drawer") return addDrawerInstance(model, block, section);
   const doubled = opts.doubled === true;
   return kind === "door"
-    ? addDoorInstance(model, block, section, doubled, opts.glazedGrid)
+    ? addDoorInstance(model, block, section, doubled, opts.glazedGrid, opts.glazed === true)
     : addShelfInstance(model, block, section, doubled);
 }
 
@@ -783,19 +785,21 @@ function addDoorInstance(
   section: Section,
   doubled: boolean,
   glazedGrid?: { readonly lights: number },
+  glazed = false,
 ): StructuralModel {
-  // A glazed-grid door is its own component (distinct from a plain/doubled door), keyed by lights.
-  const id = `${block.id}__cmp_door${doubled ? "_x2" : ""}${glazedGrid ? `_grid${glazedGrid.lights}` : ""}`;
+  // Each door variant (plain / 32mm / glazed / glazed-grid) is its own keyed component.
+  const id = `${block.id}__cmp_door${doubled ? "_x2" : ""}${glazedGrid ? `_grid${glazedGrid.lights}` : glazed ? "_gl" : ""}`;
   let door = block.components.find((c) => c.id === id) ?? null;
   let components = block.components;
   if (!door) {
     door = {
       id,
-      name: glazedGrid ? "Витрина" : doubled ? "Дверь 32мм" : "Дверь",
+      name: glazedGrid ? "Витрина" : glazed ? "Дверь стекло" : doubled ? "Дверь 32мм" : "Дверь",
       partIds: [],
       role: "facade",
       ...(doubled ? { doubled: true } : {}),
       ...(glazedGrid ? { glazedGrid } : {}),
+      ...(glazed ? { glazed: true } : {}),
     };
     components = [...block.components, door];
   }
