@@ -158,6 +158,8 @@ export interface AppState {
   projectBlocks: ProjectBlock[];
   addProjectBlock: (name: string, json: string) => void;
   removeProjectBlock: (id: string) => void;
+  /** Update a placed block's karkas JSON in place (Phase E — edit, not duplicate). Keeps id/name/pos. */
+  updateProjectBlock: (id: string, json: string) => void;
   /** Move a placed karkas block to a room position (block-centre X/Z, mm) — D3. */
   setBlockPosition: (id: string, x: number, z: number) => void;
   // global user/app settings (profile · company · preferences), Supabase-ready
@@ -1256,6 +1258,8 @@ export const useStore = create<AppState>((set, get) => ({
       ],
     })),
   removeProjectBlock: (id) => set((s) => ({ projectBlocks: s.projectBlocks.filter((b) => b.id !== id) })),
+  updateProjectBlock: (id, json) =>
+    set((s) => ({ projectBlocks: s.projectBlocks.map((b) => (b.id === id ? { ...b, karkasJson: json } : b)) })),
   setBlockPosition: (id, x, z) =>
     set((s) => ({ projectBlocks: s.projectBlocks.map((b) => (b.id === id ? { ...b, x, z } : b)) })),
   removeLibraryItem: (id) => {

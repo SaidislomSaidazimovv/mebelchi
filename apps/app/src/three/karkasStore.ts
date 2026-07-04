@@ -130,8 +130,14 @@ interface KarkasState extends Derived {
   canUndo: () => boolean;
   /** Serialize the current project (model + material plan) to a JSON string (P7 save). */
   exportProject: () => string;
-  /** Load a project from a JSON string; throws on a malformed payload (P7 open). */
-  importProject: (json: string) => void;
+  /**
+   * Load a project from a JSON string; throws on a malformed payload (P7 open). `blockId` (Phase E)
+   * marks that this model came from re-opening a placed project block, so «＋ Loyihaga» UPDATES that
+   * block instead of adding a duplicate. Any other load (file / library / new) clears the link.
+   */
+  importProject: (json: string, blockId?: string) => void;
+  /** The project block currently being edited (Phase E), or null — set only by re-opening one. */
+  editingBlockId: string | null;
 }
 
 /** The on-disk project shape (P7). Versioned so a future schema change can migrate. */
@@ -158,9 +164,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
     selectedId: null,
     past: [],
     plan: DEFAULT_PLAN,
+    editingBlockId: null,
     setPlanMaterial: (slot, id) => set((s) => ({ plan: { ...s.plan, [slot]: id } })),
-    openWith: (model) => set({ ...derive(model), open: true, selectedId: null, past: [] }),
-    setModel: (model) => set({ ...derive(model), selectedId: null, past: [] }),
+    // a fresh model (new block / template) is NOT tied to a placed project block → clear the link
+    openWith: (model) => set({ ...derive(model), open: true, selectedId: null, past: [], editingBlockId: null }),
+    setModel: (model) => set({ ...derive(model), selectedId: null, past: [], editingBlockId: null }),
     close: () => set({ open: false }),
     tapPart: (id) => set({ selectedId: id }),
     divide: () => get().divideBy("x", 2),
@@ -228,12 +236,12 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const file: ProjectFile = { version: 1, model: s.model, plan: s.plan };
       return JSON.stringify(file, null, 2);
     },
-    importProject: (json) => {
+    importProject: (json, blockId) => {
       const data = JSON.parse(json) as Partial<ProjectFile>;
       if (!data || !data.model || !Array.isArray(data.model.blocks)) {
         throw new Error("BAD_PROJECT: not a karkas project file");
       }
-      set({ ...derive(data.model), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true });
+      set({ ...derive(data.model), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null });
     },
   };
 });

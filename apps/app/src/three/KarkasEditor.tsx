@@ -61,6 +61,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [shelfN, setShelfN] = useState("2");
   const saveKarkasToLibrary = useStore((s) => s.saveKarkasToLibrary);
   const addProjectBlock = useStore((s) => s.addProjectBlock);
+  const updateProjectBlock = useStore((s) => s.updateProjectBlock);
+  const editingBlockId = useKarkas((s) => s.editingBlockId);
   const [showSpec, setShowSpec] = useState(false);
   const [showTree, setShowTree] = useState(false);
 
@@ -72,11 +74,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     window.alert(`«${name.trim() || "Karkas blok"}» Bibliotekaga qo'shildi ✓`);
   };
 
-  // Phase D1 — place the current block INTO the project (a session list, separate from the kitchen).
+  // Phase D1/E — place the current block INTO the project. If it was re-opened FROM a placed block
+  // (editingBlockId), UPDATE that block in place instead of adding a duplicate (Phase E bug fix).
   const addToProject = () => {
-    const d = sceneDimsMm(scene);
-    addProjectBlock(`Blok ${d.w}×${d.h}`, exportProject());
-    window.alert("Loyihaga qo'shildi ✓");
+    if (editingBlockId) {
+      updateProjectBlock(editingBlockId, exportProject());
+      window.alert("Loyihada yangilandi ✓");
+    } else {
+      const d = sceneDimsMm(scene);
+      addProjectBlock(`Blok ${d.w}×${d.h}`, exportProject());
+      window.alert("Loyihaga qo'shildi ✓");
+    }
   };
 
   // Emit byte-exact SWJ008 for the current model and hand it to the browser as a download. The
@@ -254,7 +262,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button onClick={() => setModel(buildDemoModel())} style={pill} type="button">Тумба</button>
         <button onClick={() => setModel(buildLCornerModel())} style={pill} type="button">L-угол</button>
         <span style={{ ...mono, color: "#006b3f" }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
-        <button onClick={addToProject} style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }} type="button">＋ Loyihaga</button>
+        <button onClick={addToProject} style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }} type="button">{editingBlockId ? "💾 Loyihada yangilash" : "＋ Loyihaga"}</button>
         <button onClick={saveToBiblioteka} style={{ ...pill, borderColor: "#00a961", color: "#006b3f", fontWeight: 700 }} type="button">📚 Bibliotekaga</button>
         <button onClick={saveProject} style={pill} type="button">💾 Saqlash</button>
         <button onClick={() => fileRef.current?.click()} style={pill} type="button">📂 Ochish</button>

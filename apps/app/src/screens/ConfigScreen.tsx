@@ -746,7 +746,7 @@ export function ConfigScreen() {
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             {projectBlocks.map((b) => (
                               <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px", borderBottom: "1px solid var(--line, #eee)" }}>
-                                <button onClick={() => { useKarkas.getState().importProject(b.karkasJson); closeSheet(); }} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", font: "inherit", cursor: "pointer", textAlign: "left", padding: 0 }} type="button">
+                                <button onClick={() => { useKarkas.getState().importProject(b.karkasJson, b.id); closeSheet(); }} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", font: "inherit", cursor: "pointer", textAlign: "left", padding: 0 }} type="button">
                                   <span aria-hidden="true">🔧</span>
                                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</span>
                                 </button>
