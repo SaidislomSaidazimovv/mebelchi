@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, setLoadBearing, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, setLoadBearing, setComponentThickness, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -111,12 +111,20 @@ interface KarkasState extends Derived {
   tapPart: (id: string | null) => void;
   /** Split the target section into two (a vertical divider). */
   divide: () => void;
+  /** Divide the target section into `count` equal parts (C3). axis "x" = columns, "y" = rows. */
+  divideBy: (axis: "x" | "y", count: number) => void;
+  /** Add `n` evenly-spaced shelves to the target section at once (C3, imos AS_O_Number). */
+  addShelves: (n: number) => void;
   /** Add content to the target section; opts carry the 32mm doubled build / glazed-grid door (P6). */
   add: (kind: AddKind, opts?: AddOpts) => void;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
   selectedComponent: () => Component | null;
   /** Toggle the selected component's load-bearing declaration (drives the stability ⚠). */
   toggleLoadBearing: () => void;
+  /** Set the selected component's per-part board thickness in mm (C4). */
+  setThickness: (mm: number) => void;
+  /** Set the block's width / height / depth in mm (C2). Content reflows proportionally. */
+  resize: (dim: "w" | "h" | "d", mm: number) => void;
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
@@ -134,9 +142,10 @@ interface ProjectFile {
 }
 
 export const useKarkas = create<KarkasState>((set, get) => {
-  // push the current model onto the undo stack, then swap in + re-derive the next one
-  const apply = (next: StructuralModel): void =>
-    set((s) => ({ ...derive(next), past: [...s.past.slice(-49), s.model], selectedId: null }));
+  // push the current model onto the undo stack, then swap in + re-derive the next one. Structural
+  // edits clear the selection (the tapped part id may be gone); property edits keep it (keepSel).
+  const apply = (next: StructuralModel, keepSel = false): void =>
+    set((s) => ({ ...derive(next), past: [...s.past.slice(-49), s.model], selectedId: keepSel ? s.selectedId : null }));
   // the section an edit targets: the section of the selected panel's instance, else the first leaf.
   const targetSection = (): string | undefined => {
     const s = get();
@@ -154,20 +163,30 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setModel: (model) => set({ ...derive(model), selectedId: null, past: [] }),
     close: () => set({ open: false }),
     tapPart: (id) => set({ selectedId: id }),
-    divide: () => {
+    divide: () => get().divideBy("x", 2),
+    divideBy: (axis, count) => {
       const t = targetSection();
       if (!t) return;
       const model = get().model;
+      const n = Math.max(2, Math.min(20, Math.round(count)));
       // Splitting a section un-leafs it, orphaning any instances it held (their sectionId no longer
       // resolves to a leaf, so they stop emitting parts). Preserve them: after the split, re-home the
       // orphans into the first child leaf so nothing silently disappears.
       const orphanIds = new Set(
         model.blocks.flatMap((b) => b.instances.filter((i) => i.sectionId === t).map((i) => i.id)),
       );
-      let next = divideSection(model, t, { kind: "equal", axis: "x", count: 2 });
+      let next = divideSection(model, t, { kind: "equal", axis, count: n });
       const divided = findSection(next, t);
       if (divided && orphanIds.size) next = rehomeInstances(next, orphanIds, firstLeafUnder(divided).id);
       apply(next);
+    },
+    addShelves: (n) => {
+      const t = targetSection();
+      if (!t) return;
+      let m = get().model;
+      const k = Math.max(1, Math.min(20, Math.round(n)));
+      for (let i = 0; i < k; i += 1) m = addInstance(m, t, "shelf");
+      apply(m);
     },
     add: (kind, opts) => {
       const t = targetSection();
@@ -180,7 +199,22 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     toggleLoadBearing: () => {
       const comp = get().selectedComponent();
-      if (comp) apply(setLoadBearing(get().model, comp.id, !(comp.loadBearing === true)));
+      if (comp) apply(setLoadBearing(get().model, comp.id, !(comp.loadBearing === true)), true);
+    },
+    setThickness: (mm) => {
+      const comp = get().selectedComponent();
+      if (comp) apply(setComponentThickness(get().model, comp.id, Math.max(1, Math.round(mm)) * 10), true);
+    },
+    resize: (dim, mm) => {
+      const m = get().model;
+      const b = m.blocks[0];
+      if (!b) return;
+      const mm10 = Math.max(1, Math.round(mm)) * 10;
+      const next =
+        dim === "w" ? resizeBlockWidth(m, b.id, mm10)
+        : dim === "h" ? resizeBlockHeight(m, b.id, mm10)
+        : resizeBlockDepth(m, b.id, mm10);
+      if (next !== m) apply(next);
     },
     undo: () =>
       set((s) => {
