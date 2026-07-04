@@ -114,7 +114,7 @@ interface KarkasState extends Derived {
   plan: MaterialPlan;
   setPlanMaterial: (slot: keyof MaterialPlan, id: string) => void;
   /** Open a fresh block; an optional plan (e.g. from a converted Cell module) sets the materials too. */
-  openWith: (model: StructuralModel, plan?: MaterialPlan) => void;
+  openWith: (model: StructuralModel, plan?: MaterialPlan, meta?: { fromCabinet?: boolean }) => void;
   setModel: (model: StructuralModel) => void;
   close: () => void;
   tapPart: (id: string | null) => void;
@@ -151,6 +151,9 @@ interface KarkasState extends Derived {
   importProject: (json: string, blockId?: string) => void;
   /** The project block currently being edited (Phase E), or null — set only by re-opening one. */
   editingBlockId: string | null;
+  /** True when opened FROM an existing kitchen module (converter copy): saving adds a COPY, it does
+   *  not edit the original cabinet in place. Drives the "nusxa" wording in the editor. */
+  fromCabinet: boolean;
 }
 
 /** The on-disk project shape (P7). Versioned so a future schema change can migrate. */
@@ -181,11 +184,13 @@ export const useKarkas = create<KarkasState>((set, get) => {
     past: [],
     plan: DEFAULT_PLAN,
     editingBlockId: null,
+    fromCabinet: false,
     // 7b — a plan decor change also changes that role's thickness → re-derive the parts
     setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, ...derive(s.model, plan) }; }),
-    // a fresh model (new block / template) is NOT tied to a placed project block → clear the link
-    openWith: (model, plan) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, open: true, selectedId: null, past: [], editingBlockId: null }; }),
-    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], editingBlockId: null })),
+    // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
+    // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
+    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, open: true, selectedId: null, past: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
+    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], editingBlockId: null, fromCabinet: false })),
     close: () => set({ open: false }),
     tapPart: (id) => {
       // tapping a placed part also targets its section, so the next add lands where you're looking
@@ -275,7 +280,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!data || !data.model || !Array.isArray(data.model.blocks)) {
         throw new Error("BAD_PROJECT: not a karkas project file");
       }
-      set({ ...derive(data.model, data.plan ?? DEFAULT_PLAN), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null });
+      set({ ...derive(data.model, data.plan ?? DEFAULT_PLAN), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null, fromCabinet: false });
     },
   };
 });

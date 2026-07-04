@@ -821,9 +821,11 @@ export function ConfigScreen() {
                 onReplace={onReplaceCab}
                 onSaveToLibrary={() => saveToLibrary(cabs[i])}
                 onOpenKarkas={() => {
-                  // Phase W1 — edit this module in the karkas editor WITH its converted interior
+                  // Phase W1 — edit this module in the karkas editor WITH its converted interior.
+                  // fromCabinet: this is a COPY of the kitchen module — saving adds a new block, it
+                  // does not write back to the original cabinet (labelled "nusxa" in the editor).
                   const { model, plan } = cellToKarkasBlock(cabs[i]);
-                  useKarkas.getState().openWith(model, plan);
+                  useKarkas.getState().openWith(model, plan, { fromCabinet: true });
                   closeSheet();
                 }}
                 flash={flash}

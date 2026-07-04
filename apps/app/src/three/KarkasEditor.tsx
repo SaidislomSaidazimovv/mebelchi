@@ -78,6 +78,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const addProjectBlock = useStore((s) => s.addProjectBlock);
   const updateProjectBlock = useStore((s) => s.updateProjectBlock);
   const editingBlockId = useKarkas((s) => s.editingBlockId);
+  const fromCabinet = useKarkas((s) => s.fromCabinet);
   const [showSpec, setShowSpec] = useState(false);
   const [showTree, setShowTree] = useState(false);
 
@@ -98,7 +99,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     } else {
       const d = sceneDimsMm(scene);
       addProjectBlock(`Blok ${d.w}×${d.h}`, exportProject());
-      window.alert("Loyihaga qo'shildi ✓");
+      // A converter copy of a kitchen module is a NEW block, not an in-place edit of the cabinet —
+      // say so, so the usta isn't surprised to see both the original module and the copy.
+      window.alert(fromCabinet ? "Nusxa loyihaga qo'shildi ✓ — asl oshxona moduli o'zgarmaydi" : "Loyihaga qo'shildi ✓");
     }
   };
 
@@ -292,7 +295,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button onClick={() => setModel(buildDemoModel())} style={pill} type="button">Тумба</button>
         <button onClick={() => setModel(buildLCornerModel())} style={pill} type="button">L-угол</button>
         <span style={{ ...mono, color: "#006b3f" }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
-        <button onClick={addToProject} style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }} type="button">{editingBlockId ? "💾 Loyihada yangilash" : "＋ Loyihaga"}</button>
+        <button onClick={addToProject} style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }} type="button">{editingBlockId ? "💾 Loyihada yangilash" : fromCabinet ? "＋ Nusxани loyihaga" : "＋ Loyihaga"}</button>
         <button onClick={saveToBiblioteka} style={{ ...pill, borderColor: "#00a961", color: "#006b3f", fontWeight: 700 }} type="button">📚 Bibliotekaga</button>
         <button onClick={saveProject} style={pill} type="button">💾 Saqlash</button>
         <button onClick={() => fileRef.current?.click()} style={pill} type="button">📂 Ochish</button>
