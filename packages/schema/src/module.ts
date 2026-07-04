@@ -19,6 +19,17 @@ export interface ModuleHandle {
   type: HandleType;
 }
 
+/** A pre-decomposed panel — the app supplies these for a hybrid (Fill-Editor) module whose real
+ *  layout the legacy fill/count/dividers can't express, so pricing + cut list read the true panels
+ *  instead of the approximation. Shape mirrors pricing's DerivedPanel. */
+export interface ModulePanel {
+  role: "carcass" | "facade";
+  name: string;
+  lengthMm: MM;
+  widthMm: MM;
+  materialRef: UUID;
+}
+
 export interface Module {
   id: UUID;
   kind: ModuleKind;
@@ -32,6 +43,9 @@ export interface Module {
   dividers: number;
   door: ModuleDoor;
   handle: ModuleHandle;
+  /** Pre-decomposed panels for a hybrid layout — when set, they OVERRIDE the fill/count panel
+   *  derivation (the app computes them from the real Cell tree via the karkas engine). */
+  panels?: ModulePanel[];
   /** Optional override — enables the "split facade/carcass" advisor. */
   facadeMaterialId?: UUID;
   /** Applied hardening-panel preset ids. */

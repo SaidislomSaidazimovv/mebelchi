@@ -108,6 +108,48 @@ describe("rich-Cell safety net — legacy pipeline baseline (must not regress fo
       "price": 1212508,
     }
   `); });
+  // HYBRID (Fill-Editor layout: left = 3 drawers, right = a door). Legacy sees only whole-cabinet
+  // fill/count; the rich path decomposes the real Cell tree via the karkas engine.
+  it("HYBRID · cols[drawers | door]", () => { expect(snap(mk({ kind: "base", w: 800, h: 720, fill: "shelves", count: 2, door: 0, layout: { split: "cols", sizes: [0.5, 0.5], children: [{ split: "rows", sizes: [1, 1, 1], children: [{ front: "drawer" }, { front: "drawer" }, { front: "drawer" }] }, { front: "door" }] } }))).toMatchInlineSnapshot(`
+    {
+      "boardM2": 5.52,
+      "cut": [
+        "Бок левый · ЛДСП 16мм, белый · 720×560×16",
+        "Бок правый · ЛДСП 16мм, белый · 720×560×16",
+        "Верх · ЛДСП 16мм, белый · 768×560×16",
+        "Низ · ЛДСП 16мм, белый · 768×560×16",
+        "Задняя стенка · ЛДСП 16мм, белый · 800×720×16",
+        "Перегородка · ЛДСП 16мм, белый · 688×560×16",
+        "Перегородка · ЛДСП 16мм, белый · 368×560×16",
+        "Перегородка · ЛДСП 16мм, белый · 368×560×16",
+        "Ящик · фасад · МДФ фасад фрезерованный 18мм · 240×400×18",
+        "Ящик · бок Л · ЛДСП 16мм, белый · 560×208×16",
+        "Ящик · бок П · ЛДСП 16мм, белый · 560×208×16",
+        "Ящик · задняя · ЛДСП 16мм, белый · 342×208×16",
+        "Ящик · дно · ЛДСП 16мм, белый · 342×560×16",
+        "Ящик · фасад · МДФ фасад фрезерованный 18мм · 240×400×18",
+        "Ящик · бок Л · ЛДСП 16мм, белый · 560×208×16",
+        "Ящик · бок П · ЛДСП 16мм, белый · 560×208×16",
+        "Ящик · задняя · ЛДСП 16мм, белый · 342×208×16",
+        "Ящик · дно · ЛДСП 16мм, белый · 342×560×16",
+        "Ящик · фасад · МДФ фасад фрезерованный 18мм · 240×400×18",
+        "Ящик · бок Л · ЛДСП 16мм, белый · 560×208×16",
+        "Ящик · бок П · ЛДСП 16мм, белый · 560×208×16",
+        "Ящик · задняя · ЛДСП 16мм, белый · 342×208×16",
+        "Ящик · дно · ЛДСП 16мм, белый · 342×560×16",
+        "Дверь · МДФ фасад фрезерованный 18мм · 720×400×18",
+        "Полка · ЛДСП 16мм, белый · 368×560×16",
+        "Полка · ЛДСП 16мм, белый · 368×560×16",
+      ],
+      "hardware": [
+        "Петля накладная с доводчиком ×2",
+        "Шкант 8x30мм ×8",
+        "Стяжка эксцентриковая (минификс) ×8",
+      ],
+      "panels": 26,
+      "price": 1152410,
+    }
+  `); });
   // custom depth 400 — currently INCONSISTENT (cut list ignores it, drill honors it); the depth fix
   // will change THIS snapshot (intended), while the simple cabinets above stay identical.
   it("base · custom depth 400", () => { expect(snap(mk({ kind: "base", w: 600, h: 720, fill: "shelves", count: 2, door: 0, depth: 400 }))).toMatchInlineSnapshot(`

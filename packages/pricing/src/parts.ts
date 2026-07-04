@@ -48,6 +48,9 @@ export function hasFacade(m: Module): boolean {
  * MaterialSelection carries no separate back material — a known simplification).
  */
 export function modulePanels(m: Module, mats: MaterialSelection): DerivedPanel[] {
+  // A hybrid module carries its real panels (decomposed from the Cell tree by the app); they already
+  // carry rate refs, so use them verbatim instead of the fill/count approximation below.
+  if (m.panels && m.panels.length) return m.panels;
   const t = CARCASS_THICKNESS_MM;
   const carcass = mats.carcassId;
   const facade = m.facadeMaterialId ?? mats.facadeId;
