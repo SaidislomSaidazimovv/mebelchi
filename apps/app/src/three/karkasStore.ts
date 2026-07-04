@@ -111,6 +111,10 @@ interface KarkasState extends Derived {
   tapPart: (id: string | null) => void;
   /** Split the target section into two (a vertical divider). */
   divide: () => void;
+  /** Divide the target section into `count` equal parts (C3). axis "x" = columns, "y" = rows. */
+  divideBy: (axis: "x" | "y", count: number) => void;
+  /** Add `n` evenly-spaced shelves to the target section at once (C3, imos AS_O_Number). */
+  addShelves: (n: number) => void;
   /** Add content to the target section; opts carry the 32mm doubled build / glazed-grid door (P6). */
   add: (kind: AddKind, opts?: AddOpts) => void;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
@@ -156,20 +160,30 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setModel: (model) => set({ ...derive(model), selectedId: null, past: [] }),
     close: () => set({ open: false }),
     tapPart: (id) => set({ selectedId: id }),
-    divide: () => {
+    divide: () => get().divideBy("x", 2),
+    divideBy: (axis, count) => {
       const t = targetSection();
       if (!t) return;
       const model = get().model;
+      const n = Math.max(2, Math.min(20, Math.round(count)));
       // Splitting a section un-leafs it, orphaning any instances it held (their sectionId no longer
       // resolves to a leaf, so they stop emitting parts). Preserve them: after the split, re-home the
       // orphans into the first child leaf so nothing silently disappears.
       const orphanIds = new Set(
         model.blocks.flatMap((b) => b.instances.filter((i) => i.sectionId === t).map((i) => i.id)),
       );
-      let next = divideSection(model, t, { kind: "equal", axis: "x", count: 2 });
+      let next = divideSection(model, t, { kind: "equal", axis, count: n });
       const divided = findSection(next, t);
       if (divided && orphanIds.size) next = rehomeInstances(next, orphanIds, firstLeafUnder(divided).id);
       apply(next);
+    },
+    addShelves: (n) => {
+      const t = targetSection();
+      if (!t) return;
+      let m = get().model;
+      const k = Math.max(1, Math.min(20, Math.round(n)));
+      for (let i = 0; i < k; i += 1) m = addInstance(m, t, "shelf");
+      apply(m);
     },
     add: (kind, opts) => {
       const t = targetSection();

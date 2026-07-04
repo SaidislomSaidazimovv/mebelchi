@@ -50,6 +50,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
+  const divideBy = useKarkas((s) => s.divideBy);
+  const addShelves = useKarkas((s) => s.addShelves);
+  const [showDivide, setShowDivide] = useState(false);
+  const [divAxis, setDivAxis] = useState<"x" | "y">("y");
+  const [divN, setDivN] = useState("3");
+  const [shelfN, setShelfN] = useState("2");
   const saveKarkasToLibrary = useStore((s) => s.saveKarkasToLibrary);
   const [showSpec, setShowSpec] = useState(false);
   const [showTree, setShowTree] = useState(false);
@@ -213,12 +219,25 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={adv} onClick={() => add("door", { glazedGrid: { lights: 3 } })} type="button">＋ Витрина</button>
         <button style={act} onClick={() => add("drawer")} type="button">＋ Yashik</button>
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
-        <button style={act} onClick={() => divide()} type="button">⊟ Bo'lish</button>
+        <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowDivide((v) => !v)} type="button">⊟ Bo'lish…</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
         <button style={{ ...act, marginLeft: "auto", borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
         <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spetsifikatsiya</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC · SWJ008</button>
       </div>
+      {/* C3 — numeric divide + shelf count (imos AS_O_Number). x = columns, y = rows/floors. */}
+      {showDivide && (
+        <div style={selBar}>
+          <span style={mono}>Yo'nalish:</span>
+          <button style={{ ...pill, ...(divAxis === "x" ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f" } : {}) }} onClick={() => setDivAxis("x")} type="button">↔ Ustun</button>
+          <button style={{ ...pill, ...(divAxis === "y" ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f" } : {}) }} onClick={() => setDivAxis("y")} type="button">↕ Qavat</button>
+          <label style={dimField}><input style={dimInput} value={divN} inputMode="numeric" onChange={(e) => setDivN(e.target.value.replace(/[^\d]/g, ""))} /></label>
+          <button style={act} onClick={() => divideBy(divAxis, parseInt(divN, 10) || 2)} type="button">Teng bo'lish</button>
+          <span style={{ ...mono, marginLeft: 10 }}>Polka:</span>
+          <label style={dimField}><input style={dimInput} value={shelfN} inputMode="numeric" onChange={(e) => setShelfN(e.target.value.replace(/[^\d]/g, ""))} /></label>
+          <button style={act} onClick={() => addShelves(parseInt(shelfN, 10) || 1)} type="button">＋ Qo'shish</button>
+        </div>
+      )}
       {/* Phase 6 — selected-component actions: doubling / glazing status + load-bearing declaration */}
       {selComp && (
         <div style={selBar}>
