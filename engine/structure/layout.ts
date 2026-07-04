@@ -112,14 +112,22 @@ function lCornerLayout(block: Block): PanelPlacement[] {
   ];
 }
 
-/** Vertical divider (axis "x") positioned inside the SECTION it divides (leg-aware for L-blocks):
- *  its depth + z-origin follow that section, not the block's bounding box. */
+/** A divider positioned inside the SECTION it divides (leg-aware for L-blocks): its depth + origin
+ *  follow that section, not the block's bounding box. An x-line makes a VERTICAL divider (thin in X,
+ *  full section height); a y-line makes a HORIZONTAL divider (thin in Y at the split height, spanning
+ *  the section width between the sides — like a shelf). */
 function dividerPlacement(block: Block, line: Line): PanelPlacement {
   const box = sectionOfLine(block, line.id)?.box;
+  const sx = box ? box.x : 0;
   const sy = box ? box.y : 0;
   const sz = box ? box.z : 0;
+  const sw = box ? box.w : block.box.w;
   const sh = box ? box.h : block.box.h;
   const sd = box ? box.d : block.box.d;
+  if (line.axis === "y") {
+    const py = block.box.y + line.position_mm10;
+    return place(`${block.id}__div_${line.id}`, "Перегородка", block.box.x + sx + B, py - B / 2, block.box.z + sz, sw - 2 * B, B, sd);
+  }
   const px = block.box.x + line.position_mm10;
   return place(`${block.id}__div_${line.id}`, "Перегородка", px - B / 2, block.box.y + sy + B, block.box.z + sz, B, sh - 2 * B, sd);
 }

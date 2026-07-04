@@ -263,11 +263,13 @@ export function sectionOfLine(block: Block, lineId: string): Section | null {
   return null;
 }
 
-/** A vertical divider (axis "x") stands between top and bottom, spanning the depth of the SECTION
- *  it divides (leg-aware for L-blocks) — not the block's bounding box. */
+/** A divider spans the two axes perpendicular to its split axis, over the SECTION it divides
+ *  (leg-aware for L-blocks) — not the block's bounding box. An x-split is a VERTICAL divider
+ *  (height × depth); a y-split is a HORIZONTAL divider/shelf (width × depth). */
 function dividerPart(block: Block, line: Line, t: ResolvedT): Part {
   const box = sectionOfLine(block, line.id)?.box ?? block.box;
-  return panel(`${block.id}__div_${line.id}`, "Перегородка", box.h - 2 * t.carcass, box.d, frontBand(), t.divider, "carcass_side");
+  const spanLen = (line.axis === "y" ? box.w : box.h) - 2 * t.carcass;
+  return panel(`${block.id}__div_${line.id}`, "Перегородка", spanLen, box.d, frontBand(), t.divider, "carcass_side");
 }
 
 function sectionById(block: Block, sectionId: string): Section | null {

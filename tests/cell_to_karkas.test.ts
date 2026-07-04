@@ -110,6 +110,25 @@ describe("C.9b — load a converted module into the editor", () => {
   });
 });
 
+describe("audit B1 — row (y-axis) dividers are horizontal, not full-height verticals", () => {
+  it("a 3-drawer stack → 2 dividers sized by WIDTH (5680), not HEIGHT (6880)", () => {
+    // convertNode emits y-lines for a drawer stack; the engine used to render/machine every
+    // Line as a vertical (x) divider → full-height panels cutting through the drawers. Regression
+    // lock for the axis-aware fix in layout.dividerPlacement + solve.dividerPart.
+    const divs = solveStructure(cellToStructural(mk({ fill: "drawers", count: 3, w: 600, h: 720 }))).filter((p) => p.name === "Перегородка");
+    expect(divs.length).toBe(2);
+    for (const d of divs) {
+      expect(d.length_mm10).toBe(5680); // interior width 600 − 2·16, NOT the 6880 full height
+    }
+  });
+
+  it("an open 2-shelf unit → horizontal dividers too (no phantom vertical panels)", () => {
+    const divs = solveStructure(cellToStructural(mk({ fill: "open", count: 2, w: 800, h: 720 }))).filter((p) => p.name === "Перегородка");
+    expect(divs.length).toBe(2);
+    for (const d of divs) expect(d.length_mm10).toBe(7680); // 800 − 2·16, spanning the width
+  });
+});
+
 describe("W4 — full chain: convert an existing module → edit → CNC export", () => {
   it("a kitchen module converts, edits in the store, and exports a valid SWJ008", async () => {
     const { useKarkas } = await import("../apps/app/src/three/karkasStore.js");
