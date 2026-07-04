@@ -18,6 +18,7 @@ export type {
   HandleType,
   ModuleDoor,
   ModuleHandle,
+  ModulePanel,
 } from "./module.js";
 
 export type {

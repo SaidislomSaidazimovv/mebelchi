@@ -79,7 +79,7 @@ export function production(cabs: Cabinet[]): Production | null {
   let boardArea = 0;
   const labelById = new Map(real.map((c, i) => [c.id, `${i + 1}. ${cabLabel(c)}`]));
   for (const c of real) {
-    const mod = cabToModule(c);
+    const mod = cabToModule(c, mats); // pass mats so a hybrid cabinet's real panels reach the cut list
     for (const p of modulePanels(mod, mats)) {
       const facade = p.role === "facade";
       panels.push({

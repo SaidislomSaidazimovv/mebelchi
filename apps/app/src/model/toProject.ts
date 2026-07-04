@@ -4,9 +4,12 @@
 // entries; that's where a real material→SKU mapping will later plug in.
 
 import { priceProject, seedRateTable } from "@mebelchi/pricing";
-import type { Project, Module, MaterialSelection, Quote, QuoteGroup } from "@mebelchi/schema";
+import type { Project, Module, ModulePanel, MaterialSelection, Quote, QuoteGroup } from "@mebelchi/schema";
 import type { AppState } from "../store";
 import type { Cabinet } from "./cabinet";
+import { cellToStructural } from "../three/cellToKarkas";
+import { solveStructure } from "../../../../engine/structure/solve.js";
+import { hardwareCounts } from "../three/estimate";
 
 const DOOR_STYLE = ["flat", "milled", "glass", "none"] as const;
 const HANDLE_TYPE = ["bar", "profile", "knob", "none"] as const;
@@ -39,24 +42,57 @@ function pickMaterials(): MaterialSelection {
   };
 }
 
-export function cabToModule(c: Cabinet): Module {
+/** A cabinet whose real interior the legacy fill/count can't express — a custom Fill-Editor layout
+ *  or a door spanning cells. These get decomposed through the karkas engine instead. */
+function isHybrid(c: Cabinet): boolean {
+  return !!c.layout || (c.combinedDoors?.length ?? 0) > 0;
+}
+
+/** Decompose a hybrid cabinet into its REAL panels + hardware via the karkas engine (the same
+ *  accurate Cell→StructuralModel converter the editor uses), priced at the KITCHEN's carcass/facade
+ *  rates so the quote stays consistent with the run. Solves the model once. Glass panes aren't board
+ *  panels → skipped. */
+function richModule(c: Cabinet, mats: MaterialSelection): { panels: ModulePanel[]; hardware: NonNullable<Module["hardware"]> } {
+  const model = cellToStructural(c);
+  const panels: ModulePanel[] = [];
+  for (const p of solveStructure(model)) {
+    if (p.role === "glass") continue;
+    const facade = p.role === "facade";
+    panels.push({
+      role: facade ? "facade" : "carcass",
+      name: p.name,
+      lengthMm: Math.round(p.length_mm10 / 10),
+      widthMm: Math.round(p.width_mm10 / 10),
+      materialRef: facade ? mats.facadeId : mats.carcassId,
+    });
+  }
+  const { hinges, slides, pins, cams, dowels } = hardwareCounts(model);
+  return { panels, hardware: { hinges, slides, cams, dowels, pins } };
+}
+
+export function cabToModule(c: Cabinet, mats?: MaterialSelection): Module {
+  // rich path: a hybrid cabinet supplies its real panels + hardware (needs the rate refs, hence mats)
+  const rich = mats && isHybrid(c) ? richModule(c, mats) : null;
   return {
     id: c.id,
     kind: c.kind,
     w: c.w,
     h: c.h,
-    d: DEPTH[c.kind] ?? 560,
+    // honor a user's custom depth so the cut list / price / DXF match the SWJ008 drill file
+    // (machining.ts already uses c.depth); falls back to the per-kind default when unset.
+    d: c.depth ?? DEPTH[c.kind] ?? 560,
     fill: c.fill,
     count: c.count,
     dividers: c.div,
     door: { style: DOOR_STYLE[c.door] ?? "flat" },
     handle: { type: HANDLE_TYPE[c.handle] ?? "bar" },
+    ...(rich ? { panels: rich.panels, hardware: rich.hardware } : {}),
   };
 }
 
 /** Shared Project skeleton — pricing reads only `run` + `materials`, so a neutral
  *  space is fine when we just need a quote (e.g. previewing a variant's cabs). */
-function makeProject(run: Module[], space: Project["space"]): Project {
+function makeProject(run: Module[], space: Project["space"], mats: MaterialSelection): Project {
   const now = new Date().toISOString();
   return {
     id: "local-project",
@@ -68,7 +104,7 @@ function makeProject(run: Module[], space: Project["space"]): Project {
     schemaVersion: 1,
     space,
     run,
-    materials: pickMaterials(),
+    materials: mats,
     pricing: { rateTableId: seedRateTable.id, snapshotAt: now },
   };
 }
@@ -76,7 +112,8 @@ function makeProject(run: Module[], space: Project["space"]): Project {
 export function toProject(s: AppState): Project {
   // free-standing furniture (tables/chairs) isn't a cabinet — keep it out of the BOM
   const cabs = s.cabs.filter((c) => !c.furniture);
-  const run = cabs.map(cabToModule);
+  const mats = pickMaterials();
+  const run = cabs.map((c) => cabToModule(c, mats));
   // global "усиление" flag → a hardening preset on the recommended (first open) module
   if (s.hardened && run.length) {
     const idx = Math.max(0, cabs.findIndex((c) => c.fill === "open"));
@@ -91,20 +128,21 @@ export function toProject(s: AppState): Project {
     constraints: s.constraints
       .map((c) => CONSTRAINT_MAP[c])
       .filter((x): x is NonNullable<typeof x> => Boolean(x)),
-  });
+  }, mats);
 }
 
 /** A priceable Project from a bare cabinet run (no room state) — used to quote the
  *  generated Phase-B variants before one is committed to the editable run. */
 export function projectFromCabs(cabs: Cabinet[]): Project {
-  return makeProject(cabs.filter((c) => !c.furniture).map(cabToModule), {
+  const mats = pickMaterials();
+  return makeProject(cabs.filter((c) => !c.furniture).map((c) => cabToModule(c, mats)), {
     source: "manual",
     shape: "i",
     wallLength: 0,
     ceilingHeight: 2700,
     waterWall: "none",
     constraints: [],
-  });
+  }, mats);
 }
 
 /** Total price (сум) of a cabinet run against the seed rate table. */

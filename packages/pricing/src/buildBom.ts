@@ -61,19 +61,23 @@ export function buildBom(project: Project): RawBomLine[] {
     if (visM > 0) lines.push({ kind: "edge", ref: mats.edgeVisibleId, qty: visM, unit: "m" });
     if (hidM > 0) lines.push({ kind: "edge", ref: mats.edgeHiddenId, qty: hidM, unit: "m" });
 
-    // --- hardware ---
-    const hinges = hingeCount(m);
-    const slides = drawerCount(m); // one slide set per drawer
+    // --- hardware --- (a hybrid module supplies real counts; else derive from fill/count)
+    const hw = m.hardware;
+    const hinges = hw ? hw.hinges : hingeCount(m);
+    const slides = hw ? hw.slides : drawerCount(m); // one slide set per drawer
+    const cams = hw ? hw.cams : CAMS_PER_MODULE;
+    const dowels = hw ? hw.dowels : DOWELS_PER_MODULE;
+    const shelfPinHoles = hw ? hw.pins : shelfCount(m) * HOLES_PER_SHELF;
     if (hinges > 0) lines.push({ kind: "hardware", ref: DEFAULT_HARDWARE_SKUS.hinge, qty: hinges, unit: "unit" });
     if (slides > 0) lines.push({ kind: "hardware", ref: DEFAULT_HARDWARE_SKUS.slide, qty: slides, unit: "unit" });
-    lines.push({ kind: "hardware", ref: DEFAULT_HARDWARE_SKUS.dowel, qty: DOWELS_PER_MODULE, unit: "unit" });
-    lines.push({ kind: "hardware", ref: DEFAULT_HARDWARE_SKUS.cam, qty: CAMS_PER_MODULE, unit: "unit" });
+    lines.push({ kind: "hardware", ref: DEFAULT_HARDWARE_SKUS.dowel, qty: dowels, unit: "unit" });
+    lines.push({ kind: "hardware", ref: DEFAULT_HARDWARE_SKUS.cam, qty: cams, unit: "unit" });
 
     // --- operations (CNC) ---
     const holes =
       hinges * HOLES_PER_HINGE +
-      (CAMS_PER_MODULE + DOWELS_PER_MODULE) +
-      shelfCount(m) * HOLES_PER_SHELF +
+      (cams + dowels) +
+      shelfPinHoles +
       slides * HOLES_PER_SLIDE_SET;
     if (holes > 0) lines.push({ kind: "operation", ref: "drillPerHole", qty: holes, unit: "hole" });
     lines.push({ kind: "operation", ref: "cutPerPanel", qty: panels.length, unit: "panel" });

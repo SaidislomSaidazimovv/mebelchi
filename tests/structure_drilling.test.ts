@@ -32,23 +32,23 @@ describe("S3-E2 drilling integration", () => {
     );
     expect(sides.length).toBe(2);
     for (const side of sides) {
-      // exactly one front+back pair per shelf — NOT a synthesised System-32 column
-      expect(side.operations.length).toBe(SHELVES * ROWS);
-      expect(
-        side.operations.every(
-          (o) => o.op === "drill" && o.face === "A" && o.diameter_mm10 === 50 && o.depth_mm10 === 110,
-        ),
-      ).toBe(true);
+      // exactly one front+back Ø5 PIN pair per shelf — NOT a synthesised System-32 column. (The side
+      // also carries Ø15 carcass cams now; filter to the pins so this asserts only the pin pattern.)
+      const pins = side.operations.filter((o) => o.op === "drill" && o.diameter_mm10 === 50);
+      expect(pins.length).toBe(SHELVES * ROWS);
+      expect(pins.every((o) => o.op === "drill" && o.face === "A" && o.depth_mm10 === 110)).toBe(true);
     }
   });
 
-  it("non-side panels (top/bottom/back/divider/shelf) receive no pin holes", () => {
+  it("non-side panels (top/bottom/back/divider/shelf) receive no shelf-pin holes", () => {
     const parts = solveModelToParts(buildDemoModel());
     const others = parts.filter(
       (p) => !p.id.endsWith("__side_l") && !p.id.endsWith("__side_r"),
     );
     expect(others.length).toBeGreaterThan(0);
-    expect(others.every((p) => p.operations.length === 0)).toBe(true);
+    // no Ø5 shelf pins on non-side panels (top/bottom now carry Ø8 carcass dowels — that's joinery,
+    // not shelf pins, so filter by the Ø5 pin diameter).
+    expect(others.every((p) => p.operations.every((o) => !(o.op === "drill" && o.diameter_mm10 === 50)))).toBe(true);
   });
 
   it("the drilled part set passes the machining safety gate (all holes in bounds)", () => {
