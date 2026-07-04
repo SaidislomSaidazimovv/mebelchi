@@ -893,7 +893,7 @@ export function VariantScene({
 
     // Phase D2 — (re)build the karkas-blocks layer. Fully parallel to setKitchen: it only swaps its
     // OWN group, never touching `kitchen` / `room`, so the kitchen render path is unaffected.
-    const setKarkasBlocks = (blocks: readonly { karkasJson: string }[]) => {
+    const setKarkasBlocks = (blocks: readonly { karkasJson: string; x?: number; z?: number }[]) => {
       if (karkasLayer) {
         scene.remove(karkasLayer);
         disposeGroup(karkasLayer);

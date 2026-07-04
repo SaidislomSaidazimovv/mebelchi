@@ -55,6 +55,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   }, [parts, plan]);
   const colorRef = useRef(colorFn);
   colorRef.current = colorFn;
+  const framedRef = useRef(""); // F3 — last camera-framing signature (centre+radius); reframe only on change
   const selComp = useKarkas((s) => s.selectedComponent());
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const setThickness = useKarkas((s) => s.setThickness);
@@ -241,12 +242,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       r.labels.h.textContent = `${d.h}`;
       r.labels.d.textContent = `${d.d}`;
     }
-    const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
-    const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
-    r.controls.target.copy(ctr);
-    r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z + dist * 0.95);
-    r.camera.lookAt(ctr);
-    r.controls.update();
+    // F3 — reframe the camera ONLY when the block's bounds change (resize / a different block), so a
+    // property edit (material / thickness / load-bearing / add) keeps the user's current orbit.
+    const framing = `${scene.center.map((n) => Math.round(n * 100)).join(",")}|${Math.round(scene.radius * 100)}`;
+    if (framing !== framedRef.current) {
+      framedRef.current = framing;
+      const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
+      const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
+      r.controls.target.copy(ctr);
+      r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z + dist * 0.95);
+      r.camera.lookAt(ctr);
+      r.controls.update();
+    }
     // selectedId intentionally omitted — the next effect owns highlight changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene]);
@@ -320,7 +327,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <div style={selBar}>
           <span style={mono}>{selComp.name}</span>
           {selComp.doubled && <span style={badge}>32мм</span>}
-          {(selComp.glazed || selComp.glazedGrid) && <span style={badge}>Витрина{selComp.glazedGrid ? ` ×${selComp.glazedGrid.lights}` : ""}</span>}
+          {selComp.glazedGrid && <span style={badge}>Витрина ×{selComp.glazedGrid.lights}</span>}
+          {selComp.glazed && !selComp.glazedGrid && <span style={badge}>Стекло</span>}
           {selComp.loadBearing && <span style={{ ...badge, background: "#e7d6f5", color: "#5b2a86" }}>⚖ Yuk</span>}
           {/* C4 — per-part thickness (imos Part Thickness) */}
           <span style={{ ...mono, marginLeft: 6 }}>Qalinlik:</span>

@@ -157,9 +157,10 @@ export const GLAZED_FRAME_W: mm10 = 400; // 40 mm outer stile/rail width
 export const GLAZED_MUNTIN_W: mm10 = 200; // 20 mm muntin bar width
 export const GLASS_MM10: mm10 = 30; // 3 mm glass pane (factory OYNA panes measure 3mm)
 
-/** A glass pane Part — 3mm, no grain, no edge-banding. */
+/** A glass pane Part — 3mm, no grain, no edge-banding, role "glass" (priced/coloured as glass,
+ *  never as a board — F1). */
 function glassPane(id: string, name: string, length_mm10: mm10, width_mm10: mm10): Part {
-  return { id, name, length_mm10, width_mm10, thickness_mm10: GLASS_MM10, grain: "NONE", edges: [0, 0, 0, 0], operations: [] };
+  return { id, name, length_mm10, width_mm10, thickness_mm10: GLASS_MM10, grain: "NONE", edges: [0, 0, 0, 0], operations: [], role: "glass" };
 }
 
 /**
@@ -312,7 +313,8 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   if (!section || !component) return [];
   // F2 — carry the component's per-part material override onto every emitted part.
   const mat = component.material;
-  const stampMat = (ps: Part[]): Part[] => (mat ? ps.map((p) => ({ ...p, materialId: mat })) : ps);
+  // glass panes are never a board decor → don't stamp the override onto them (F1)
+  const stampMat = (ps: Part[]): Part[] => (mat ? ps.map((p) => (p.role === "glass" ? p : { ...p, materialId: mat })) : ps);
   // A drawer is a whole box (its own multi-panel build), independent of a single-panel role.
   if (component.drawer) return stampMat(drawerBoxParts(block, inst, section, t));
   // Step-aware mount (#7): a vertical support whose height resolves to the real underside plane of
