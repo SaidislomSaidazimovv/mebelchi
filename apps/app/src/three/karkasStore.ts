@@ -28,8 +28,8 @@ function derive(model: StructuralModel): Derived {
 function firstLeafId(model: StructuralModel): string | undefined {
   for (const b of model.blocks) {
     for (const z of b.zones) {
-      const leaves = leafSections(z.root);
-      if (leaves.length) return leaves[0].id;
+      const first = leafSections(z.root)[0];
+      if (first) return first.id;
     }
   }
   return undefined;
@@ -56,7 +56,8 @@ function findSection(model: StructuralModel, id: string): Section | null {
 
 /** The first leaf descending from `s` (or `s` itself if it is a leaf). */
 function firstLeafUnder(s: Section): Section {
-  return s.children.length ? firstLeafUnder(s.children[0]) : s;
+  const child = s.children[0];
+  return child ? firstLeafUnder(child) : s;
 }
 
 /** Return a copy of the model with the given instances re-pointed to `sectionId`. */
@@ -136,8 +137,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     undo: () =>
       set((s) => {
-        if (!s.past.length) return {};
         const prev = s.past[s.past.length - 1];
+        if (!prev) return {};
         return { ...derive(prev), past: s.past.slice(0, -1), selectedId: null };
       }),
     canUndo: () => get().past.length > 0,

@@ -74,6 +74,7 @@ function panel(
   width_mm10: mm10,
   edges: Part["edges"] = [0, 0, 0, 0],
   thickness_mm10: mm10 = BOARD_MM10,
+  role?: string, // Phase 5.C: PanelRole tag for material/price; omitted → untagged (absent, not undefined)
 ): Part {
   return {
     id,
@@ -84,6 +85,7 @@ function panel(
     grain: GRAIN,
     edges,
     operations: [],
+    ...(role ? { role } : {}),
   };
 }
 
@@ -175,14 +177,14 @@ function glazedGridParts(idBase: string, name: string, length: mm10, width: mm10
   const parts: Part[] = [];
 
   // Outer frame — 32mm (two glued 16mm boards each), banded all round.
-  parts.push(...doublePanel(panel(`${idBase}__stile_l`, `${name} · стойка Л`, length, Fw, allBand())));
-  parts.push(...doublePanel(panel(`${idBase}__stile_r`, `${name} · стойка П`, length, Fw, allBand())));
-  parts.push(...doublePanel(panel(`${idBase}__rail_b`, `${name} · рама низ`, innerW, Fw, allBand())));
-  parts.push(...doublePanel(panel(`${idBase}__rail_t`, `${name} · рама верх`, innerW, Fw, allBand())));
+  parts.push(...doublePanel(panel(`${idBase}__stile_l`, `${name} · стойка Л`, length, Fw, allBand(), BOARD_MM10, "facade")));
+  parts.push(...doublePanel(panel(`${idBase}__stile_r`, `${name} · стойка П`, length, Fw, allBand(), BOARD_MM10, "facade")));
+  parts.push(...doublePanel(panel(`${idBase}__rail_b`, `${name} · рама низ`, innerW, Fw, allBand(), BOARD_MM10, "facade")));
+  parts.push(...doublePanel(panel(`${idBase}__rail_t`, `${name} · рама верх`, innerW, Fw, allBand(), BOARD_MM10, "facade")));
 
   // Muntins — 16mm bars between the lights.
   for (let i = 0; i < n - 1; i += 1) {
-    parts.push(panel(`${idBase}__muntin_${i}`, `${name} · раскладка ${i + 1}`, innerW, Mw));
+    parts.push(panel(`${idBase}__muntin_${i}`, `${name} · раскладка ${i + 1}`, innerW, Mw, [0, 0, 0, 0], BOARD_MM10, "facade"));
   }
 
   // Glass panes — 3mm, one per light; the opening height splits evenly after the muntins.
@@ -200,11 +202,11 @@ function glazedGridParts(idBase: string, name: string, length: mm10, width: mm10
 function boxCarcass(idBase: string, label: string, w: mm10, h: mm10, d: mm10, t: ResolvedT, omitSideR = false): Part[] {
   const innerW = w - 2 * t.carcass;
   const ps = [
-    panel(`${idBase}__side_l`, `${label}Бок левый`, h, d, frontBand(), t.carcass),
-    panel(`${idBase}__side_r`, `${label}Бок правый`, h, d, frontBand(), t.carcass),
-    panel(`${idBase}__top`, `${label}Верх`, innerW, d, frontBand(), t.carcass),
-    panel(`${idBase}__bottom`, `${label}Низ`, innerW, d, frontBand(), t.carcass),
-    panel(`${idBase}__back`, `${label}Задняя стенка`, w, h, [0, 0, 0, 0], t.back), // back is hidden — not banded
+    panel(`${idBase}__side_l`, `${label}Бок левый`, h, d, frontBand(), t.carcass, "carcass_side"),
+    panel(`${idBase}__side_r`, `${label}Бок правый`, h, d, frontBand(), t.carcass, "carcass_side"),
+    panel(`${idBase}__top`, `${label}Верх`, innerW, d, frontBand(), t.carcass, "carcass_top"),
+    panel(`${idBase}__bottom`, `${label}Низ`, innerW, d, frontBand(), t.carcass, "carcass_bottom"),
+    panel(`${idBase}__back`, `${label}Задняя стенка`, w, h, [0, 0, 0, 0], t.back, "carcass_back"), // back is hidden — not banded
   ];
   return omitSideR ? ps.filter((p) => !p.id.endsWith("__side_r")) : ps;
 }
@@ -299,7 +301,7 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
     const width = section.box.d; // depth (Y)
     // Banded on the FRONT edge by default (Face 1 = edges[0]); a user #39 kromka override wins.
     const edges = component.edgeBands ? [...component.edgeBands] as Part["edges"] : frontBand();
-    const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges, component.thickness_mm10 ?? t.shelf);
+    const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges, component.thickness_mm10 ?? t.shelf, "internal_shelf");
     if (component.partialDouble) return partialDoublePanels(base, component.partialDouble.front_mm10);
     return component.doubled ? doublePanel(base) : [base];
   }
@@ -313,7 +315,7 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
     }
     // A facade is banded on all four visible edges by default; a user #39 kromka override wins.
     const edges = component.edgeBands ? [...component.edgeBands] as Part["edges"] : allBand();
-    const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges, component.thickness_mm10 ?? t.facade);
+    const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges, component.thickness_mm10 ?? t.facade, "facade");
     return component.doubled ? doublePanel(base) : [base];
   }
   return [];

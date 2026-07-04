@@ -21,13 +21,14 @@ describe("Phase 5 — estimate", () => {
   it("computes area, mm dims and price for a single panel", () => {
     const e = estimate([onePart]);
     expect(e.count).toBe(1);
-    expect(e.parts[0].w_mm).toBe(600);
-    expect(e.parts[0].l_mm).toBe(400);
-    expect(e.parts[0].t_mm).toBe(16);
+    const p0 = e.parts[0]!;
+    expect(p0.w_mm).toBe(600);
+    expect(p0.l_mm).toBe(400);
+    expect(p0.t_mm).toBe(16);
     expect(e.areaM2).toBeCloseTo(0.24, 6); // 0.6 × 0.4
     // banded edges: face1 (width 0.6) + face2 (length 0.4) = 1.0 m
     expect(e.edgeM).toBeCloseTo(1.0, 6);
-    expect(e.parts[0].bands).toEqual([true, true, false, false]);
+    expect(p0.bands).toEqual([true, true, false, false]);
     // price = 0.24·560 + 1.0·28 = 134.4 + 28 = 162.4 → 162
     expect(e.priceRub).toBe(Math.round(0.24 * DEFAULT_RATES.boardPerM2 + 1.0 * DEFAULT_RATES.edgePerM));
   });

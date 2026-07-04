@@ -106,6 +106,14 @@ export interface Part {
   grain: Grain;
   edges: [mm10, mm10, mm10, mm10];
   operations: Operation[];
+  /**
+   * Panel role this part plays — a PanelRole value ("carcass_side" | "carcass_top" |
+   * "carcass_bottom" | "carcass_back" | "facade" | "internal_shelf", see contracts/structure.ts).
+   * Optional/additive (Phase 5.C): the structure solver stamps it so a material plan + cut list can
+   * price/label each part by role. Absent = untagged (callers fall back to the carcass decor). Typed
+   * as `string` to keep this foundational contract free of an upward dependency on structure.ts.
+   */
+  role?: string;
 }
 
 /** User/runtime-level container. A Project is the unit handed to the entry point. */
