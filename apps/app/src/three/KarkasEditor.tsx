@@ -28,6 +28,8 @@ interface RT {
   controls: OrbitControls;
   group: THREE.Group | null;
   raf: number;
+  labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
+  aabb: THREE.Box3 | null;
 }
 
 export function KarkasEditor({ onClose }: { onClose?: () => void }) {
@@ -129,7 +131,19 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     scene3.add(new THREE.HemisphereLight(0xffffff, 0xc8c8c8, 1.0));
     const key = new THREE.DirectionalLight(0xffffff, 1.15); key.position.set(2, 4, 3); scene3.add(key);
     const fill = new THREE.DirectionalLight(0xffffff, 0.25); fill.position.set(-3, 2, -2); scene3.add(fill);
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, raf: 0 };
+    // C5 — three HTML dimension labels overlaid on the canvas (width / height / depth)
+    const mkLabel = (): HTMLDivElement => {
+      const d = document.createElement("div");
+      Object.assign(d.style, {
+        position: "absolute", transform: "translate(-50%, -50%)", padding: "1px 6px", borderRadius: "6px",
+        background: "rgba(24,36,29,0.82)", color: "#fff", font: "600 11px ui-monospace, monospace",
+        pointerEvents: "none", whiteSpace: "nowrap", zIndex: "4",
+      } as CSSStyleDeclaration);
+      mount.appendChild(d);
+      return d;
+    };
+    const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, raf: 0, labels, aabb: null };
 
     const raycaster = new THREE.Raycaster();
     const down = { x: 0, y: 0 };
@@ -149,7 +163,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     renderer.domElement.addEventListener("pointerdown", onDown);
     renderer.domElement.addEventListener("pointerup", onUp);
 
-    const loop = () => { controls.update(); renderer.render(scene3, camera); if (rt.current) rt.current.raf = requestAnimationFrame(loop); };
+    const tmp = new THREE.Vector3();
+    const positionLabels = () => {
+      const r = rt.current;
+      if (!r?.labels || !r.aabb || r.aabb.isEmpty()) return;
+      const { min, max } = r.aabb;
+      const w = renderer.domElement.clientWidth || 1;
+      const h = renderer.domElement.clientHeight || 1;
+      const place = (el: HTMLDivElement, x: number, y: number, z: number) => {
+        tmp.set(x, y, z).project(camera);
+        el.style.left = `${(tmp.x * 0.5 + 0.5) * w}px`;
+        el.style.top = `${(-tmp.y * 0.5 + 0.5) * h}px`;
+        el.style.display = tmp.z < 1 ? "block" : "none";
+      };
+      place(r.labels.w, (min.x + max.x) / 2, min.y, max.z); // width — bottom front edge
+      place(r.labels.h, max.x, (min.y + max.y) / 2, max.z); // height — right front edge
+      place(r.labels.d, max.x, min.y, (min.z + max.z) / 2); // depth — bottom right edge
+    };
+    const loop = () => { controls.update(); renderer.render(scene3, camera); positionLabels(); if (rt.current) rt.current.raf = requestAnimationFrame(loop); };
     rt.current.raf = requestAnimationFrame(loop);
     const onResize = () => { const w = mount.clientWidth || 320, h = mount.clientHeight || 480; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); };
     window.addEventListener("resize", onResize);
@@ -161,6 +192,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       renderer.domElement.removeEventListener("pointerup", onUp);
       controls.dispose();
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
+      labels.w.remove(); labels.h.remove(); labels.d.remove();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
       rt.current = null;
@@ -176,6 +208,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     r.scene.add(group);
     r.group = group;
     highlightBoard(group, selectedId);
+    // C5 — refresh the dimension overlay: bounding box + W/H/D text (mm)
+    r.aabb = new THREE.Box3().setFromObject(group);
+    if (r.labels) {
+      const d = sceneDimsMm(scene);
+      r.labels.w.textContent = `${d.w}`;
+      r.labels.h.textContent = `${d.h}`;
+      r.labels.d.textContent = `${d.d}`;
+    }
     const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
     const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
     r.controls.target.copy(ctr);
