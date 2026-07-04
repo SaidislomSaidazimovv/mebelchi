@@ -35,7 +35,7 @@ describe("Phase 5 / 5.C — estimate", () => {
     const facadeRate = boardById(DEFAULT_PLAN.facade)!.pricePerM2;
     const edgeRate = edgeById(DEFAULT_PLAN.edge)!.pricePerM;
     expect(p0.materialName).toBe(boardForRole(DEFAULT_PLAN, "facade")!.name);
-    expect(e.priceRub).toBe(Math.round(0.24 * facadeRate + 1.0 * edgeRate));
+    expect(e.priceUzs).toBe(Math.round(0.24 * facadeRate + 1.0 * edgeRate));
   });
 
   it("prices each part by its role's decor and groups by material", () => {
@@ -43,8 +43,8 @@ describe("Phase 5 / 5.C — estimate", () => {
     const e = estimate(parts);
     // per-material counts + prices sum back to the totals
     expect(e.byMaterial.reduce((a, g) => a + g.count, 0)).toBe(e.count);
-    expect(Math.round(e.byMaterial.reduce((a, g) => a + g.priceRub, 0))).toBe(e.priceRub);
-    expect(e.byMaterial).toEqual([...e.byMaterial].sort((a, b) => b.priceRub - a.priceRub)); // dearest first
+    expect(Math.round(e.byMaterial.reduce((a, g) => a + g.priceUzs, 0))).toBe(e.priceUzs);
+    expect(e.byMaterial).toEqual([...e.byMaterial].sort((a, b) => b.priceUzs - a.priceUzs)); // dearest first
     // a thin ХДФ back priced cheaper per m² than the carcass proves role→decor is applied
     expect(e.byMaterial.some((g) => g.name === boardById(DEFAULT_PLAN.back)!.name)).toBe(true);
   });
@@ -57,12 +57,12 @@ describe("Phase 5 / 5.C — estimate", () => {
     expect(e.byThickness.reduce((a, g) => a + g.areaM2, 0)).toBeCloseTo(e.areaM2, 6);
     expect(e.byThickness).toEqual([...e.byThickness].sort((a, b) => b.t_mm - a.t_mm)); // thickest first
     expect(e.areaM2).toBeGreaterThan(0);
-    expect(e.priceRub).toBeGreaterThan(0);
+    expect(e.priceUzs).toBeGreaterThan(0);
   });
 
   it("empty parts → zeroed estimate, no crash", () => {
     const e = estimate([]);
-    expect(e).toMatchObject({ count: 0, areaM2: 0, edgeM: 0, priceRub: 0 });
+    expect(e).toMatchObject({ count: 0, areaM2: 0, edgeM: 0, priceUzs: 0 });
     expect(e.byThickness).toEqual([]);
     expect(e.byMaterial).toEqual([]);
   });

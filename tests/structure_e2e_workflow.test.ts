@@ -45,12 +45,12 @@ describe("E2E — full usta workflow (A + B + C)", () => {
     // ── A/5.C: material plan drives the price ──
     S().setPlanMaterial("facade", "mdf_white_matt");
     const est = estimate(S().parts, S().plan);
-    expect(est.priceRub).toBeGreaterThan(0);
+    expect(est.priceUzs).toBeGreaterThan(0);
     expect(est.byMaterial.some((g) => g.name === boardById("mdf_white_matt")!.name)).toBe(true);
 
     // ── A/7.2: hardware counted (hinges + a drawer slide + shelf pins) ──
     const hw = hardwareEstimate(S().model);
-    expect(hw.priceRub).toBeGreaterThan(0);
+    expect(hw.priceUzs).toBeGreaterThan(0);
     expect(hw.lines.some((l) => l.name.includes("Петля"))).toBe(true);
     expect(hw.lines.some((l) => l.name.includes("Направляющая"))).toBe(true);
 

@@ -15,7 +15,7 @@ describe("Phase 7.2 — hardware estimate", () => {
     const dowels = hw.lines.find((l) => l.name === HARDWARE.dowel.name)!;
     expect(cams.qty).toBe(CAMS_PER_CARCASS); // demo = 1 block
     expect(dowels.qty).toBe(DOWELS_PER_CARCASS);
-    expect(cams.priceRub).toBe(CAMS_PER_CARCASS * HARDWARE.cam.priceRub);
+    expect(cams.priceUzs).toBe(CAMS_PER_CARCASS * HARDWARE.cam.priceUzs);
   });
 
   it("adding a shelf adds 4 pins", () => {
@@ -35,11 +35,11 @@ describe("Phase 7.2 — hardware estimate", () => {
     const afterHinges = after.lines.find((l) => l.name === HARDWARE.hinge.name)!.qty;
     expect(afterHinges).toBeGreaterThanOrEqual(beforeHinges + 2);
     expect(afterHinges).toBeLessThanOrEqual(beforeHinges + 4);
-    expect(after.priceRub).toBeGreaterThan(before.priceRub);
+    expect(after.priceUzs).toBeGreaterThan(before.priceUzs);
   });
 
   it("total price is the sum of the line prices", () => {
     const hw = hardwareEstimate(divideSection(buildDemoModel(), "sec_left", { kind: "equal", axis: "x", count: 2 }));
-    expect(hw.priceRub).toBe(hw.lines.reduce((a, l) => a + l.priceRub, 0));
+    expect(hw.priceUzs).toBe(hw.lines.reduce((a, l) => a + l.priceUzs, 0));
   });
 });

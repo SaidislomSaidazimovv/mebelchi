@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas } from "./karkasStore";
 import { useStore } from "../store";
+import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
 import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup } from "./structureRenderer";
@@ -478,13 +479,14 @@ function TreePanel({ onClose }: { onClose: () => void }) {
 function MatSelect({ label, slot }: { label: string; slot: keyof Omit<MaterialPlan, "edge"> }) {
   const value = useKarkas((s) => s.plan[slot]);
   const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
+  const money = useMoney();
   const hex = BOARDS.find((b) => b.id === value)?.hex ?? "#ccc";
   return (
     <label style={matRow}>
       <span style={{ ...mono, width: 62 }}>{label}</span>
       <span style={{ ...swatch, background: hex }} />
       <select style={matSel} value={value} onChange={(ev) => setPlanMaterial(slot, ev.target.value)}>
-        {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name} · {b.pricePerM2}₽/м²</option>)}
+        {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name} · {money(b.pricePerM2)}/м²</option>)}
       </select>
     </label>
   );
@@ -496,9 +498,10 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
   const plan = useKarkas((s) => s.plan);
   const model = useKarkas((s) => s.model);
   const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
+  const money = useMoney();
   const e = estimate(parts, plan);
   const hw = hardwareEstimate(model);
-  const total = e.priceRub + hw.priceRub;
+  const total = e.priceUzs + hw.priceUzs;
   return (
     <div style={specPanel}>
       <div style={specHead}>
@@ -516,7 +519,7 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
           <span style={{ ...mono, width: 62 }}>Кромка</span>
           <span style={{ ...swatch, background: "#8a6d1f" }} />
           <select style={matSel} value={plan.edge} onChange={(ev) => setPlanMaterial("edge", ev.target.value)}>
-            {EDGES.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.pricePerM}₽/м</option>)}
+            {EDGES.map((m) => <option key={m.id} value={m.id}>{m.name} · {money(m.pricePerM)}/м</option>)}
           </select>
         </label>
       </div>
@@ -525,19 +528,19 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
         <div style={cell}><span style={mono}>Detallar</span><b>{e.count}</b></div>
         <div style={cell}><span style={mono}>List</span><b>{e.areaM2.toFixed(2)} m²</b></div>
         <div style={cell}><span style={mono}>Kromka</span><b>{e.edgeM.toFixed(2)} m</b></div>
-        <div style={cell}><span style={mono}>Narx</span><b>{e.priceRub.toLocaleString("ru-RU")} ₽</b></div>
+        <div style={cell}><span style={mono}>Narx</span><b>{money(e.priceUzs)}</b></div>
       </div>
       <div style={{ ...mono, padding: "2px 14px 6px" }}>
-        {e.byMaterial.map((g) => `${g.name}: ${g.count} · ${g.priceRub.toLocaleString("ru-RU")}₽`).join("     ")}
+        {e.byMaterial.map((g) => `${g.name}: ${g.count} · ${money(g.priceUzs)}`).join("     ")}
       </div>
       {hw.lines.length > 0 && (
         <div style={{ ...mono, padding: "0 14px 6px" }}>
-          Фурнитура: {hw.lines.map((l) => `${l.name} ×${l.qty}`).join(" · ")} — {hw.priceRub.toLocaleString("ru-RU")}₽
+          Фурнитура: {hw.lines.map((l) => `${l.name} ×${l.qty}`).join(" · ")} — {money(hw.priceUzs)}
         </div>
       )}
       <div style={totalRow}>
         <span>Итого</span>
-        <span>{total.toLocaleString("ru-RU")} ₽</span>
+        <span>{money(total)}</span>
       </div>
       <div style={specList}>
         {e.parts.map((p) => (
