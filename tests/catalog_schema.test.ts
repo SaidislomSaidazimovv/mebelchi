@@ -15,14 +15,18 @@ import type {
 } from "../engine/primitives/types.js";
 
 describe("catalog schema extension — additive, no behavior change", () => {
-  it("the existing dummy catalog still loads and typechecks", () => {
+  it("the dummy catalog loads with provenance + the optional schema fields", () => {
     const spec = loadHardwareSpec();
-    // Old required provenance fields are intact; unverified entries stay false.
-    expect(spec.connectors.DUMMY_RASTEX_15!.verified).toBe(false);
+    // Provenance fields are intact. RASTEX_15 has since been confirmed against golden fixtures,
+    // so it now carries verified:true + a grade (source still cites the CONFIRM(ED) fixtures).
+    expect(spec.connectors.DUMMY_RASTEX_15!.verified).toBe(true);
     expect(spec.connectors.DUMMY_RASTEX_15!.source).toContain("CONFIRM");
-    // New fields are optional: absent on legacy entries, present on the verified hinge.
-    expect(spec.connectors.DUMMY_RASTEX_15!.grade).toBeUndefined();
+    expect(spec.connectors.DUMMY_RASTEX_15!.grade).toBe("manufacturing");
+    // packVersion is an optional field not yet tracked on any entry — stays absent.
     expect(spec.connectors.DUMMY_RASTEX_15!.packVersion).toBeUndefined();
+    // system32 claims manufacturing grade but its row setbacks are NOT factory-confirmed, so it
+    // stays verified:false — the mayDriveDrilling invariant (below) then reads false for it.
+    expect(spec.system32.verified).toBe(false);
     expect(spec.hinges.DUMMY_CUP_110!.verified).toBe(true);
     expect(spec.hinges.DUMMY_CUP_110!.grade).toBe("manufacturing");
   });

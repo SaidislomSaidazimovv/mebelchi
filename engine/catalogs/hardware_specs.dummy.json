@@ -63,9 +63,9 @@
   },
 
   "system32": {
-    "verified": true,
+    "verified": false,
     "grade": "manufacturing",
-    "source": "verticalPitch 32 is the locked System-32 industry standard; row setbacks use the 37mm standard for the generic solver. NOTE: factory cabinets vary (YON BAK-1 used 91.5/108.5 front/back) — per-design overrides land when the constructor confirms.",
+    "source": "verticalPitch 32 is the locked System-32 industry standard (confirmed); row setbacks use the 37mm generic standard and are NOT factory-confirmed (YON BAK-1 used 91.5/108.5 front/back) — verified stays false until per-design rows land. mayDriveDrilling => false.",
     "verticalPitch": 32,
     "firstHoleOffset": 37,
     "comment_firstOffset": "System-32 standard: 37mm from the reference edge. Factory cabinets place custom rows; the solver uses the standard until per-design rows are confirmed.",

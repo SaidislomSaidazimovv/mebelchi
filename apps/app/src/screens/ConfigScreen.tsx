@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useKarkas } from "../three/karkasStore";
 import { buildCarcassModel } from "../../../../engine/structure/demoModel.js";
+import { cellToKarkasBlock } from "../three/cellToKarkas";
 import { useT } from "../i18n/useT";
 import { priceCabs } from "../model/toProject";
 import { useMoney } from "../useMoney";
@@ -125,6 +126,7 @@ export function ConfigScreen() {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [libTab, setLibTab] = useState<"catalog" | "mine">("catalog"); // Biblioteka sheet: catalog vs saved blocks
   const [fillOpen, setFillOpen] = useState(false); // focused full-screen Наполнение editor
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null); // D3b — picked room karkas block
   const [sheetClosing, setSheetClosing] = useState(false);
   // when set, picking a catalog item REPLACES this module (instead of adding a new one)
   const [replaceId, setReplaceId] = useState<string | null>(null);
@@ -435,6 +437,9 @@ export function ConfigScreen() {
             style={runStyle}
             cabs={cabs}
             projectBlocks={projectBlocks}
+            selectedBlockId={selectedBlockId}
+            onSelectBlock={setSelectedBlockId}
+            onBlockMove={setBlockPosition}
             mode={mode}
             magnet={g3dMagnet}
             nav
@@ -486,6 +491,21 @@ export function ConfigScreen() {
             onReorder={onReorder}
             className="scene-canvas"
           />
+        )}
+
+        {/* D3b — selected room karkas block: edit it in the karkas editor */}
+        {selectedBlockId && projectBlocks.some((b) => b.id === selectedBlockId) && (
+          <div style={{ position: "absolute", left: "50%", bottom: 88, transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 20 }}>
+            <button
+              onClick={() => {
+                const b = projectBlocks.find((x) => x.id === selectedBlockId);
+                if (b) { useKarkas.getState().importProject(b.karkasJson, b.id); setSelectedBlockId(null); }
+              }}
+              style={{ padding: "10px 16px", borderRadius: 999, border: "1px solid #4b74c9", background: "#e0e8f7", color: "#1f478a", font: "700 14px system-ui", cursor: "pointer", boxShadow: "0 4px 14px rgba(0,0,0,0.12)" }}
+              type="button"
+            >🔧 Blokni tahrirlash</button>
+            <button onClick={() => setSelectedBlockId(null)} style={{ padding: "10px 14px", borderRadius: 999, border: "1px solid #d8d2c4", background: "#fff", color: "#5c6a61", font: "600 14px system-ui", cursor: "pointer" }} type="button">✕</button>
+          </div>
         )}
 
         {/* selected-module info card */}
@@ -800,6 +820,14 @@ export function ConfigScreen() {
                 onOpenFill={() => setFillOpen(true)}
                 onReplace={onReplaceCab}
                 onSaveToLibrary={() => saveToLibrary(cabs[i])}
+                onOpenKarkas={() => {
+                  // Phase W1 — edit this module in the karkas editor WITH its converted interior.
+                  // fromCabinet: this is a COPY of the kitchen module — saving adds a new block, it
+                  // does not write back to the original cabinet (labelled "nusxa" in the editor).
+                  const { model, plan } = cellToKarkasBlock(cabs[i]);
+                  useKarkas.getState().openWith(model, plan, { fromCabinet: true });
+                  closeSheet();
+                }}
                 flash={flash}
               />
             )}

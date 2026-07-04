@@ -11,12 +11,12 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, setLoadBearing, setComponentThickness, setComponentMaterial, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { layoutToScene, type Scene } from "./structureScene";
-import { DEFAULT_PLAN, type MaterialPlan } from "./materials";
+import { DEFAULT_PLAN, planThickness, boardThicknessMm10, type MaterialPlan } from "./materials";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
 interface Derived {
@@ -24,14 +24,18 @@ interface Derived {
   parts: Part[]; // manufacturing leaves (for the future price / cut list / CNC)
   scene: Scene; // positioned render boxes (metres)
   warnings: string[]; // non-blocking engineering ⚠ (stability + motion + hinge fit), Russian text
+  sections: { id: string; label: string }[]; // leaf sections you can add into (the add-target picker)
 }
-function derive(model: StructuralModel): Derived {
+function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   const warnings = [
     ...checkStability(model),
     ...checkMotionClearance(model),
     ...checkHingeFit(model),
   ].map((f) => f.message_ru);
-  return { model, parts: solveStructure(model), scene: layoutToScene(solveLayout(model)), warnings };
+  const sections: { id: string; label: string }[] = [];
+  for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) sections.push({ id: s.id, label: `${sections.length + 1}` });
+  // 7b — each role's board thickness comes from its plan decor (ЛДСП 16 / МДФ 18 / ХДФ 3)
+  return { model, parts: solveStructure(model, planThickness(plan)), scene: layoutToScene(solveLayout(model)), warnings, sections };
 }
 
 /** First leaf section of the model (the default edit target when nothing is selected). */
@@ -101,11 +105,16 @@ function rehomeInstances(model: StructuralModel, ids: Set<string>, sectionId: st
 interface KarkasState extends Derived {
   open: boolean;
   selectedId: string | null;
+  /** The leaf section new content is added into (placement, issue #1). Set by tapping a part or the
+   *  «Qayerga» picker; falls back to the first leaf. */
+  targetId: string | null;
+  setTarget: (id: string) => void;
   past: StructuralModel[];
   /** Which decor each panel role is cut from (drives the spec price). Persists across model edits. */
   plan: MaterialPlan;
   setPlanMaterial: (slot: keyof MaterialPlan, id: string) => void;
-  openWith: (model: StructuralModel) => void;
+  /** Open a fresh block; an optional plan (e.g. from a converted Cell module) sets the materials too. */
+  openWith: (model: StructuralModel, plan?: MaterialPlan, meta?: { fromCabinet?: boolean }) => void;
   setModel: (model: StructuralModel) => void;
   close: () => void;
   tapPart: (id: string | null) => void;
@@ -117,6 +126,8 @@ interface KarkasState extends Derived {
   addShelves: (n: number) => void;
   /** Add content to the target section; opts carry the 32mm doubled build / glazed-grid door (P6). */
   add: (kind: AddKind, opts?: AddOpts) => void;
+  /** Delete the selected instance (shelf / door / drawer). No-op if a carcass panel is selected. */
+  remove: () => void;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
   selectedComponent: () => Component | null;
   /** Toggle the selected component's load-bearing declaration (drives the stability ⚠). */
@@ -140,6 +151,9 @@ interface KarkasState extends Derived {
   importProject: (json: string, blockId?: string) => void;
   /** The project block currently being edited (Phase E), or null — set only by re-opening one. */
   editingBlockId: string | null;
+  /** True when opened FROM an existing kitchen module (converter copy): saving adds a COPY, it does
+   *  not edit the original cabinet in place. Drives the "nusxa" wording in the editor. */
+  fromCabinet: boolean;
 }
 
 /** The on-disk project shape (P7). Versioned so a future schema change can migrate. */
@@ -153,26 +167,36 @@ export const useKarkas = create<KarkasState>((set, get) => {
   // push the current model onto the undo stack, then swap in + re-derive the next one. Structural
   // edits clear the selection (the tapped part id may be gone); property edits keep it (keepSel).
   const apply = (next: StructuralModel, keepSel = false): void =>
-    set((s) => ({ ...derive(next), past: [...s.past.slice(-49), s.model], selectedId: keepSel ? s.selectedId : null }));
+    set((s) => ({ ...derive(next, s.plan), past: [...s.past.slice(-49), s.model], selectedId: keepSel ? s.selectedId : null }));
   // the section an edit targets: the section of the selected panel's instance, else the first leaf.
   const targetSection = (): string | undefined => {
     const s = get();
+    if (s.targetId && s.sections.some((x) => x.id === s.targetId)) return s.targetId; // explicit pick / last tap
     const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
     return r ? r.inst.sectionId : firstLeafId(s.model);
   };
   return {
-    ...derive(buildDemoModel()),
+    ...derive(buildDemoModel(), DEFAULT_PLAN),
     open: false,
     selectedId: null,
+    targetId: null,
+    setTarget: (id) => set({ targetId: id }),
     past: [],
     plan: DEFAULT_PLAN,
     editingBlockId: null,
-    setPlanMaterial: (slot, id) => set((s) => ({ plan: { ...s.plan, [slot]: id } })),
-    // a fresh model (new block / template) is NOT tied to a placed project block → clear the link
-    openWith: (model) => set({ ...derive(model), open: true, selectedId: null, past: [], editingBlockId: null }),
-    setModel: (model) => set({ ...derive(model), selectedId: null, past: [], editingBlockId: null }),
+    fromCabinet: false,
+    // 7b — a plan decor change also changes that role's thickness → re-derive the parts
+    setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, ...derive(s.model, plan) }; }),
+    // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
+    // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
+    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, open: true, selectedId: null, past: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
+    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], editingBlockId: null, fromCabinet: false })),
     close: () => set({ open: false }),
-    tapPart: (id) => set({ selectedId: id }),
+    tapPart: (id) => {
+      // tapping a placed part also targets its section, so the next add lands where you're looking
+      const r = id ? resolveInstance(get().model, id) : null;
+      set({ selectedId: id, ...(r ? { targetId: r.inst.sectionId } : {}) });
+    },
     divide: () => get().divideBy("x", 2),
     divideBy: (axis, count) => {
       const t = targetSection();
@@ -202,6 +226,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const t = targetSection();
       if (t) apply(addInstance(get().model, t, kind, opts));
     },
+    remove: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (r) apply(removeInstance(s.model, r.inst.id));
+    },
     selectedComponent: () => {
       const s = get();
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
@@ -217,7 +246,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     setMaterial: (id) => {
       const comp = get().selectedComponent();
-      if (comp) apply(setComponentMaterial(get().model, comp.id, id), true);
+      if (!comp) return;
+      // 7b — a per-part decor also sets that part's thickness (material carries thickness)
+      let next = setComponentMaterial(get().model, comp.id, id);
+      if (id) next = setComponentThickness(next, comp.id, boardThicknessMm10(id));
+      apply(next, true);
     },
     resize: (dim, mm) => {
       const m = get().model;
@@ -234,7 +267,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       set((s) => {
         const prev = s.past[s.past.length - 1];
         if (!prev) return {};
-        return { ...derive(prev), past: s.past.slice(0, -1), selectedId: null };
+        return { ...derive(prev, s.plan), past: s.past.slice(0, -1), selectedId: null };
       }),
     canUndo: () => get().past.length > 0,
     exportProject: () => {
@@ -247,7 +280,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!data || !data.model || !Array.isArray(data.model.blocks)) {
         throw new Error("BAD_PROJECT: not a karkas project file");
       }
-      set({ ...derive(data.model), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null });
+      set({ ...derive(data.model, data.plan ?? DEFAULT_PLAN), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null, fromCabinet: false });
     },
   };
 });

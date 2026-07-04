@@ -30,6 +30,7 @@ interface RT {
   raf: number;
   labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
   aabb: THREE.Box3 | null;
+  framedKey: string; // F3 — last camera-framing signature; lives on rt so a remount reframes fresh
 }
 
 export function KarkasEditor({ onClose }: { onClose?: () => void }) {
@@ -55,9 +56,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   }, [parts, plan]);
   const colorRef = useRef(colorFn);
   colorRef.current = colorFn;
-  const framedRef = useRef(""); // F3 — last camera-framing signature (centre+radius); reframe only on change
   const selComp = useKarkas((s) => s.selectedComponent());
+  const sections = useKarkas((s) => s.sections);
+  const targetId = useKarkas((s) => s.targetId);
+  const setTarget = useKarkas((s) => s.setTarget);
+  const activeTarget = targetId && sections.some((x) => x.id === targetId) ? targetId : sections[0]?.id;
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
+  const remove = useKarkas((s) => s.remove);
   const setThickness = useKarkas((s) => s.setThickness);
   const setMaterial = useKarkas((s) => s.setMaterial);
   const exportProject = useKarkas((s) => s.exportProject);
@@ -73,6 +78,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const addProjectBlock = useStore((s) => s.addProjectBlock);
   const updateProjectBlock = useStore((s) => s.updateProjectBlock);
   const editingBlockId = useKarkas((s) => s.editingBlockId);
+  const fromCabinet = useKarkas((s) => s.fromCabinet);
   const [showSpec, setShowSpec] = useState(false);
   const [showTree, setShowTree] = useState(false);
 
@@ -93,7 +99,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     } else {
       const d = sceneDimsMm(scene);
       addProjectBlock(`Blok ${d.w}×${d.h}`, exportProject());
-      window.alert("Loyihaga qo'shildi ✓");
+      // A converter copy of a kitchen module is a NEW block, not an in-place edit of the cabinet —
+      // say so, so the usta isn't surprised to see both the original module and the copy.
+      window.alert(fromCabinet ? "Nusxa loyihaga qo'shildi ✓ — asl oshxona moduli o'zgarmaydi" : "Loyihaga qo'shildi ✓");
     }
   };
 
@@ -169,7 +177,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       return d;
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, raf: 0, labels, aabb: null };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, raf: 0, labels, aabb: null, framedKey: "" };
 
     const raycaster = new THREE.Raycaster();
     const down = { x: 0, y: 0 };
@@ -245,8 +253,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // F3 — reframe the camera ONLY when the block's bounds change (resize / a different block), so a
     // property edit (material / thickness / load-bearing / add) keeps the user's current orbit.
     const framing = `${scene.center.map((n) => Math.round(n * 100)).join(",")}|${Math.round(scene.radius * 100)}`;
-    if (framing !== framedRef.current) {
-      framedRef.current = framing;
+    if (framing !== r.framedKey) {
+      r.framedKey = framing;
       const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
       const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
       r.controls.target.copy(ctr);
@@ -287,7 +295,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button onClick={() => setModel(buildDemoModel())} style={pill} type="button">Тумба</button>
         <button onClick={() => setModel(buildLCornerModel())} style={pill} type="button">L-угол</button>
         <span style={{ ...mono, color: "#006b3f" }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
-        <button onClick={addToProject} style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }} type="button">{editingBlockId ? "💾 Loyihada yangilash" : "＋ Loyihaga"}</button>
+        <button onClick={addToProject} style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }} type="button">{editingBlockId ? "💾 Loyihada yangilash" : fromCabinet ? "＋ Nusxани loyihaga" : "＋ Loyihaga"}</button>
         <button onClick={saveToBiblioteka} style={{ ...pill, borderColor: "#00a961", color: "#006b3f", fontWeight: 700 }} type="button">📚 Bibliotekaga</button>
         <button onClick={saveProject} style={pill} type="button">💾 Saqlash</button>
         <button onClick={() => fileRef.current?.click()} style={pill} type="button">📂 Ochish</button>
@@ -309,6 +317,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spetsifikatsiya</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC · SWJ008</button>
       </div>
+      {/* Placement (#1) — choose which compartment the next add lands in; tapping a part also sets it */}
+      {sections.length > 1 && (
+        <div style={selBar}>
+          <span style={mono}>Qayerga:</span>
+          {sections.map((s) => (
+            <button key={s.id} style={{ ...pill, ...(activeTarget === s.id ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f", fontWeight: 700 } : {}) }} onClick={() => setTarget(s.id)} type="button">{s.label}-bo'lim</button>
+          ))}
+        </div>
+      )}
       {/* C3 — numeric divide + shelf count (imos AS_O_Number). x = columns, y = rows/floors. */}
       {showDivide && (
         <div style={selBar}>
@@ -342,6 +359,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button style={{ ...act, marginLeft: "auto", ...(selComp.loadBearing ? { borderColor: "#8a52c9", background: "#efe3fa", color: "#5b2a86" } : {}) }} onClick={toggleLoadBearing} type="button">
             ⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}
           </button>
+          <button style={{ ...act, borderColor: "#d1495b", background: "#fbe4e8", color: "#a01a2e" }} onClick={remove} type="button">🗑 O'chirish</button>
         </div>
       )}
       {/* Phase 6 — non-blocking engineering warnings (stability / motion / hinge) */}
