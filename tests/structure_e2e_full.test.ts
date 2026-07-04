@@ -48,7 +48,7 @@ describe("E2E v2 — full A–F chain + round-trip preservation", () => {
     const e = estimate(S().parts, S().plan);
     expect(e.byMaterial.some((g) => g.name === boardById("ldsp_wenge")!.name)).toBe(true);
     expect(e.byMaterial.some((g) => g.name === boardById("mdf_white_matt")!.name)).toBe(true);
-    expect(e.priceRub).toBeGreaterThan(0);
+    expect(e.priceUzs).toBeGreaterThan(0);
 
     // 7.2: hardware — hinges (door) + a slide (drawer) + pins (shelves)
     const hw = hardwareEstimate(S().model);
@@ -87,7 +87,7 @@ describe("E2E v2 — full A–F chain + round-trip preservation", () => {
       S().divideBy("y", 3);
       S().addShelves(2);
       S().add("door");
-      return { n: S().parts.length, price: estimate(S().parts, S().plan).priceRub };
+      return { n: S().parts.length, price: estimate(S().parts, S().plan).priceUzs };
     };
     const a = build();
     const b = build();

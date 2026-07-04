@@ -80,6 +80,9 @@ export function ConfigScreen() {
   const myLibrary = useStore((s) => s.myLibrary);
   const projectBlocks = useStore((s) => s.projectBlocks);
   const removeProjectBlock = useStore((s) => s.removeProjectBlock);
+  const restoreLastBlock = useStore((s) => s.restoreLastBlock);
+  const dismissLastDeleted = useStore((s) => s.dismissLastDeleted);
+  const lastDeletedBlock = useStore((s) => s.lastDeletedBlock);
   const setBlockPosition = useStore((s) => s.setBlockPosition);
   const saveToLibrary = useStore((s) => s.saveToLibrary);
   const removeLibraryItem = useStore((s) => s.removeLibraryItem);
@@ -127,6 +130,12 @@ export function ConfigScreen() {
   const [libTab, setLibTab] = useState<"catalog" | "mine">("catalog"); // Biblioteka sheet: catalog vs saved blocks
   const [fillOpen, setFillOpen] = useState(false); // focused full-screen Наполнение editor
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null); // D3b — picked room karkas block
+  // auto-dismiss the block-delete undo toast after a few seconds
+  useEffect(() => {
+    if (!lastDeletedBlock) return;
+    const t = setTimeout(() => dismissLastDeleted(), 7000);
+    return () => clearTimeout(t);
+  }, [lastDeletedBlock, dismissLastDeleted]);
   const [sheetClosing, setSheetClosing] = useState(false);
   // when set, picking a catalog item REPLACES this module (instead of adding a new one)
   const [replaceId, setReplaceId] = useState<string | null>(null);
@@ -493,18 +502,34 @@ export function ConfigScreen() {
           />
         )}
 
-        {/* D3b — selected room karkas block: edit it in the karkas editor */}
-        {selectedBlockId && projectBlocks.some((b) => b.id === selectedBlockId) && (
-          <div style={{ position: "absolute", left: "50%", bottom: 88, transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 20 }}>
-            <button
-              onClick={() => {
-                const b = projectBlocks.find((x) => x.id === selectedBlockId);
-                if (b) { useKarkas.getState().importProject(b.karkasJson, b.id); setSelectedBlockId(null); }
-              }}
-              style={{ padding: "10px 16px", borderRadius: 999, border: "1px solid #4b74c9", background: "#e0e8f7", color: "#1f478a", font: "700 14px system-ui", cursor: "pointer", boxShadow: "0 4px 14px rgba(0,0,0,0.12)" }}
-              type="button"
-            >🔧 Blokni tahrirlash</button>
-            <button onClick={() => setSelectedBlockId(null)} style={{ padding: "10px 14px", borderRadius: 999, border: "1px solid #d8d2c4", background: "#fff", color: "#5c6a61", font: "600 14px system-ui", cursor: "pointer" }} type="button">✕</button>
+        {/* D3b — selected room karkas block: full control bar at parity with a kitchen module
+            (name · edit · delete-with-confirm · deselect). */}
+        {selectedBlockId && !lastDeletedBlock && projectBlocks.some((b) => b.id === selectedBlockId) && (() => {
+          const blk = projectBlocks.find((b) => b.id === selectedBlockId)!;
+          return (
+            <div style={{ position: "absolute", left: "50%", bottom: 88, transform: "translateX(-50%)", display: "flex", gap: 8, alignItems: "center", zIndex: 20, background: "rgba(255,255,255,0.96)", borderRadius: 999, padding: "6px 8px 6px 15px", boxShadow: "0 6px 20px rgba(0,0,0,0.14)", border: "1px solid #e3ddcf" }}>
+              <span style={{ font: "700 13px system-ui", color: "#2b2b2b", whiteSpace: "nowrap" }}>🧩 {blk.name}</span>
+              <button
+                onClick={() => { useKarkas.getState().importProject(blk.karkasJson, blk.id); setSelectedBlockId(null); }}
+                style={{ padding: "8px 14px", borderRadius: 999, border: "1px solid #4b74c9", background: "#e0e8f7", color: "#1f478a", font: "700 13px system-ui", cursor: "pointer" }}
+                type="button"
+              >🔧 Tahrirlash</button>
+              <button
+                onClick={() => { if (window.confirm(`"${blk.name}" bloki xonadan butunlay o'chiriladi. Davom etasizmi?`)) { removeProjectBlock(blk.id); setSelectedBlockId(null); } }}
+                style={{ padding: "8px 14px", borderRadius: 999, border: "1px solid #d1495b", background: "#fbe4e8", color: "#a01a2e", font: "700 13px system-ui", cursor: "pointer" }}
+                type="button"
+              >🗑 O'chirish</button>
+              <button onClick={() => setSelectedBlockId(null)} style={{ padding: "8px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "#fff", color: "#5c6a61", font: "600 13px system-ui", cursor: "pointer" }} type="button">✕</button>
+            </div>
+          );
+        })()}
+
+        {/* Undo a whole-block delete — a transient toast with a restore action (task 3) */}
+        {lastDeletedBlock && (
+          <div style={{ position: "absolute", left: "50%", bottom: 88, transform: "translateX(-50%)", display: "flex", gap: 10, alignItems: "center", zIndex: 21, background: "#2b2b2b", color: "#fff", borderRadius: 999, padding: "8px 10px 8px 16px", boxShadow: "0 6px 20px rgba(0,0,0,0.22)" }}>
+            <span style={{ font: "600 13px system-ui" }}>Blok o'chirildi</span>
+            <button onClick={() => restoreLastBlock()} style={{ padding: "6px 14px", borderRadius: 999, border: "none", background: "#00a961", color: "#fff", font: "700 13px system-ui", cursor: "pointer" }} type="button">↩ Qaytarish</button>
+            <button onClick={() => dismissLastDeleted()} style={{ padding: "6px 10px", borderRadius: 999, border: "none", background: "transparent", color: "#c9c4bb", font: "600 13px system-ui", cursor: "pointer" }} type="button">✕</button>
           </div>
         )}
 

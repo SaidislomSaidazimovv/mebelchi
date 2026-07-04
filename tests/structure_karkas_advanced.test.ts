@@ -32,7 +32,9 @@ describe("Phase 6 — karkasStore advanced", () => {
     const comp = useKarkas.getState().selectedComponent()!;
     expect(comp.loadBearing).not.toBe(true);
     useKarkas.getState().toggleLoadBearing();
-    const after = useKarkas.getState().model.blocks.flatMap((b) => b.components).find((c) => c.id === comp.id)!;
+    // imos-individual: the edit forks a private component for the selected shelf, so read it back
+    // through the (still-selected) instance rather than the old shared component id.
+    const after = useKarkas.getState().selectedComponent()!;
     expect(after.loadBearing).toBe(true);
   });
 });

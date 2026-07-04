@@ -16,7 +16,11 @@
 //   • Both faces: the factory drills Face A AND Face B on a middle panel (a shelf each side);
 //     shelfPinPattern emits Face A only here.
 //   • Spec verified:false (dummy catalog) — values now match the ORTA_BAK file but await full
-//     factory sign-off (S3-E7). This path is NOT wired to any shipped CNC export yet.
+//     factory sign-off (S3-E7). NOTE: this path IS wired to a shipped export — cnc.ts
+//     (solveModelToParts → applyDrilling → exportModelToSWJ008) drives the karkas editor's
+//     ⬇ CNC button, so these provisional cups/pins DO land in a downloaded SWJ008. Nothing
+//     currently gates the export on verified:false — treat karkas SWJ008 as provisional until
+//     the factory sign-off lands (tracked as an open manufacturing-readiness item).
 //
 // PURITY / SAFETY: imports ONLY primitives + types — never the hardware catalog JSON. The
 // spec is passed IN by the caller (engine/cnc.ts), keeping the JSON import-attribute out of

@@ -7,6 +7,7 @@
 
 import type { Part } from "../../../../engine/contracts/types.js";
 import type { StructuralModel, Section } from "../../../../engine/contracts/structure.js";
+import { solveStructure } from "../../../../engine/structure/solve.js";
 import {
   partBoard,
   edgeById,
@@ -16,6 +17,7 @@ import {
   CAMS_PER_CARCASS,
   DOWELS_PER_CARCASS,
   PINS_PER_SHELF,
+  planThickness,
   type MaterialPlan,
 } from "./materials.js";
 
@@ -36,7 +38,7 @@ export interface PartSpec {
   bands: [boolean, boolean, boolean, boolean];
   role?: string;
   materialName: string; // decor this part is cut from under the plan
-  priceRub: number; // this part's board + edge cost
+  priceUzs: number; // this part's board + edge cost
 }
 
 export interface ThicknessGroup {
@@ -49,7 +51,7 @@ export interface MaterialGroup {
   name: string;
   count: number;
   areaM2: number;
-  priceRub: number;
+  priceUzs: number;
 }
 
 export interface Estimate {
@@ -59,7 +61,7 @@ export interface Estimate {
   edgeM: number; // total edge-band length
   byThickness: ThicknessGroup[];
   byMaterial: MaterialGroup[];
-  priceRub: number;
+  priceUzs: number;
 }
 
 /** Build the cut list + totals + price for a solved model's parts under a material plan. */
@@ -74,7 +76,7 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
     // SWJ008 perimeter convention: faces 1 & 3 run along Width, faces 2 & 4 along Length.
     const edgeM = (bands[0] ? w : 0) + (bands[2] ? w : 0) + (bands[1] ? l : 0) + (bands[3] ? l : 0);
     const board = partBoard(plan, p.role, p.materialId);
-    const priceRub = areaM2 * (board?.pricePerM2 ?? 0) + edgeM * edgeRate;
+    const priceUzs = areaM2 * (board?.pricePerM2 ?? 0) + edgeM * edgeRate;
     return {
       id: p.id,
       name: p.name,
@@ -86,7 +88,7 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
       bands,
       role: p.role,
       materialName: board?.name ?? "—",
-      priceRub,
+      priceUzs,
     };
   });
 
@@ -98,27 +100,27 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
   }, new Map<number, ThicknessGroup>()).values()].sort((a, b) => b.t_mm - a.t_mm);
 
   const byMaterial = [...specs.reduce((m, s) => {
-    const g = m.get(s.materialName) ?? { name: s.materialName, count: 0, areaM2: 0, priceRub: 0 };
+    const g = m.get(s.materialName) ?? { name: s.materialName, count: 0, areaM2: 0, priceUzs: 0 };
     g.count += 1;
     g.areaM2 += s.areaM2;
-    g.priceRub += s.priceRub;
+    g.priceUzs += s.priceUzs;
     return m.set(s.materialName, g);
-  }, new Map<string, MaterialGroup>()).values()].sort((a, b) => b.priceRub - a.priceRub);
+  }, new Map<string, MaterialGroup>()).values()].sort((a, b) => b.priceUzs - a.priceUzs);
 
   const areaM2 = sum(specs.map((s) => s.areaM2));
   const edgeM = sum(specs.map((s) => s.edgeM));
-  const priceRub = Math.round(sum(specs.map((s) => s.priceRub)));
-  return { parts: specs, count: specs.length, areaM2, edgeM, byThickness, byMaterial, priceRub };
+  const priceUzs = Math.round(sum(specs.map((s) => s.priceUzs)));
+  return { parts: specs, count: specs.length, areaM2, edgeM, byThickness, byMaterial, priceUzs };
 }
 
 export interface HardwareLine {
   name: string;
   qty: number;
-  priceRub: number;
+  priceUzs: number;
 }
 export interface HardwareEstimate {
   lines: HardwareLine[];
-  priceRub: number;
+  priceUzs: number;
 }
 
 /** Height (mm) of the section with `id`, searched over the given zone roots (or null if absent). */
@@ -163,11 +165,41 @@ export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
     }
   }
   const lines = [
-    { name: HARDWARE.hinge.name, qty: hinges, priceRub: hinges * HARDWARE.hinge.priceRub },
-    { name: HARDWARE.slide.name, qty: slides, priceRub: slides * HARDWARE.slide.priceRub },
-    { name: HARDWARE.pin.name, qty: pins, priceRub: pins * HARDWARE.pin.priceRub },
-    { name: HARDWARE.cam.name, qty: cams, priceRub: cams * HARDWARE.cam.priceRub },
-    { name: HARDWARE.dowel.name, qty: dowels, priceRub: dowels * HARDWARE.dowel.priceRub },
+    { name: HARDWARE.hinge.name, qty: hinges, priceUzs: hinges * HARDWARE.hinge.priceUzs },
+    { name: HARDWARE.slide.name, qty: slides, priceUzs: slides * HARDWARE.slide.priceUzs },
+    { name: HARDWARE.pin.name, qty: pins, priceUzs: pins * HARDWARE.pin.priceUzs },
+    { name: HARDWARE.cam.name, qty: cams, priceUzs: cams * HARDWARE.cam.priceUzs },
+    { name: HARDWARE.dowel.name, qty: dowels, priceUzs: dowels * HARDWARE.dowel.priceUzs },
   ].filter((l) => l.qty > 0);
-  return { lines, priceRub: sum(lines.map((l) => l.priceRub)) };
+  return { lines, priceUzs: sum(lines.map((l) => l.priceUzs)) };
+}
+
+/**
+ * The full UZS price of a saved karkas block (boards + edges + hardware), solved fresh from its
+ * on-disk `{model, plan}` JSON. Used to fold placed project-blocks into the kitchen quote + handoff.
+ * Tolerant: a malformed / empty block prices at 0 rather than throwing.
+ */
+export function blockPriceUzs(karkasJson: string): number {
+  try {
+    const { model, plan } = JSON.parse(karkasJson) as { model?: StructuralModel; plan?: MaterialPlan };
+    if (!model?.blocks?.length) return 0;
+    const p = plan ?? DEFAULT_PLAN;
+    const parts = solveStructure(model, planThickness(p));
+    return estimate(parts, p).priceUzs + hardwareEstimate(model).priceUzs;
+  } catch {
+    return 0;
+  }
+}
+
+/** A saved block's cut list rows (part · material · L×W×T mm) for the factory handoff. Tolerant. */
+export function blockCutList(karkasJson: string): { part: string; material: string; lengthMm: number; widthMm: number; thicknessMm: number }[] {
+  try {
+    const { model, plan } = JSON.parse(karkasJson) as { model?: StructuralModel; plan?: MaterialPlan };
+    if (!model?.blocks?.length) return [];
+    const p = plan ?? DEFAULT_PLAN;
+    const parts = solveStructure(model, planThickness(p));
+    return estimate(parts, p).parts.map((s) => ({ part: s.name, material: s.materialName, lengthMm: s.l_mm, widthMm: s.w_mm, thicknessMm: s.t_mm }));
+  } catch {
+    return [];
+  }
 }

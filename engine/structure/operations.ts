@@ -1034,6 +1034,68 @@ export function setJunction(
  * The declaration is honoured by `checkStability` (a declared panel over the 16mm span limit raises
  * a non-blocking ⚠ even when its role is not an internal shelf).
  */
+/**
+ * Set the hinge side of a door INSTANCE (not the shared component): re-point it to the left/right
+ * variant of its facade component — creating that variant if absent — and drop the old component if
+ * nothing else references it. Left is the default (no hingeEdge field, no "_hr" id suffix), so a
+ * left door round-trips to the exact original component. No-op for a non-facade instance or when the
+ * side is already set.
+ */
+export function setHingeEdge(
+  model: StructuralModel,
+  instanceId: InstanceId,
+  edge: "left" | "right",
+): StructuralModel {
+  const wantRight = edge === "right";
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst) return block;
+    const cur = block.components.find((c) => c.id === inst.componentId);
+    if (!cur || cur.role !== "facade") return block; // only doors carry a hinge
+    if ((cur.hingeEdge === "right") === wantRight) return block; // already that side
+    changed = true;
+    const targetId = wantRight ? `${cur.id}_hr` : cur.id.replace(/_hr$/, "");
+    let components = block.components;
+    if (!components.some((c) => c.id === targetId)) {
+      const { hingeEdge: prevEdge, ...rest } = cur;
+      void prevEdge;
+      const variant: Component = wantRight ? { ...rest, id: targetId, hingeEdge: "right" } : { ...rest, id: targetId };
+      components = [...components, variant];
+    }
+    const instances = block.instances.map((i) => (i.id === instanceId ? { ...i, componentId: targetId } : i));
+    const stillUsed = instances.some((i) => i.componentId === cur.id);
+    const cleaned = stillUsed ? components : components.filter((c) => c.id !== cur.id);
+    return { ...block, components: cleaned, instances };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Give a placed instance its OWN component if it currently shares one with other instances (imos
+ * treats every placed part individually). Copies the shared component to a per-instance id and
+ * re-points just this instance; a component used by only one instance is already private → no-op
+ * (same reference). Callers fork before a per-part material/thickness/load-bearing edit so editing
+ * one shelf/door no longer changes its siblings.
+ */
+export function forkComponentForInstance(model: StructuralModel, instanceId: InstanceId): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst) return block;
+    const shared = block.instances.filter((i) => i.componentId === inst.componentId).length > 1;
+    if (!shared) return block; // already this instance's own component
+    const cur = block.components.find((c) => c.id === inst.componentId);
+    if (!cur) return block;
+    changed = true;
+    const privateId = `${cur.id}__i_${instanceId}`;
+    const components = block.components.some((c) => c.id === privateId) ? block.components : [...block.components, { ...cur, id: privateId }];
+    const instances = block.instances.map((i) => (i.id === instanceId ? { ...i, componentId: privateId } : i));
+    return { ...block, components, instances };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
 export function setLoadBearing(
   model: StructuralModel,
   componentId: ComponentId,

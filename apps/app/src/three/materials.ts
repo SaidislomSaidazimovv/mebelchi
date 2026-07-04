@@ -1,9 +1,10 @@
 // three/materials.ts — the material / decor catalog for the KARKAS editor (Phase 5.C). A small,
 // pure data module kept SEPARATE from the kitchen's model/materials.ts (Eman.uz catalog) so the
-// kitchen Стиль flow is never touched. Board decors (ЛДСП / МДФ / ХДФ with a ₽/m² rate and a swatch
-// colour), edge-band materials (₽/m), and a MaterialPlan saying which decor each PANEL ROLE is cut
+// kitchen Стиль flow is never touched. Board decors (ЛДСП / МДФ / ХДФ with a сум/m² rate and a swatch
+// colour), edge-band materials (сум/m), and a MaterialPlan saying which decor each PANEL ROLE is cut
+// — all prices are PROVISIONAL placeholders in UZS (the app's base currency), pending a real feed.
 // from. estimate.ts prices a solved model against a plan; the «Спецификация» panel picks the decors.
-// Rates are realistic-but-illustrative RU retail figures — swap for a live rate table later.
+// Rates are realistic-but-illustrative UZS figures — swap for a live rate table later.
 
 /** A sheet-good decor: priced per square metre, drawn with a swatch colour, cut at a thickness (mm). */
 export interface BoardMaterial {
@@ -22,20 +23,20 @@ export interface EdgeMaterial {
 }
 
 export const BOARDS: readonly BoardMaterial[] = [
-  { id: "ldsp_white", name: "ЛДСП Белый", hex: "#f4f2ec", pricePerM2: 520, thickness_mm: 16 },
-  { id: "ldsp_sonoma", name: "ЛДСП Дуб Сонома", hex: "#c9a877", pricePerM2: 610, thickness_mm: 16 },
-  { id: "ldsp_wenge", name: "ЛДСП Венге", hex: "#4b3a2f", pricePerM2: 620, thickness_mm: 16 },
-  { id: "ldsp_graphite", name: "ЛДСП Графит", hex: "#4a4d52", pricePerM2: 640, thickness_mm: 16 },
-  { id: "ldsp_anthracite", name: "ЛДСП Антрацит", hex: "#2f3237", pricePerM2: 680, thickness_mm: 16 },
-  { id: "mdf_white_matt", name: "МДФ Белый мат", hex: "#eceae4", pricePerM2: 1350, thickness_mm: 18 },
-  { id: "hdf_white", name: "ХДФ Белый (задняя)", hex: "#e8e4d8", pricePerM2: 190, thickness_mm: 3 },
+  { id: "ldsp_white", name: "ЛДСП Белый", hex: "#f4f2ec", pricePerM2: 150000, thickness_mm: 16 },
+  { id: "ldsp_sonoma", name: "ЛДСП Дуб Сонома", hex: "#c9a877", pricePerM2: 175000, thickness_mm: 16 },
+  { id: "ldsp_wenge", name: "ЛДСП Венге", hex: "#4b3a2f", pricePerM2: 178000, thickness_mm: 16 },
+  { id: "ldsp_graphite", name: "ЛДСП Графит", hex: "#4a4d52", pricePerM2: 185000, thickness_mm: 16 },
+  { id: "ldsp_anthracite", name: "ЛДСП Антрацит", hex: "#2f3237", pricePerM2: 195000, thickness_mm: 16 },
+  { id: "mdf_white_matt", name: "МДФ Белый мат", hex: "#eceae4", pricePerM2: 380000, thickness_mm: 18 },
+  { id: "hdf_white", name: "ХДФ Белый (задняя)", hex: "#e8e4d8", pricePerM2: 55000, thickness_mm: 3 },
 ];
 
 export const EDGES: readonly EdgeMaterial[] = [
-  { id: "pvc_white_2", name: "ПВХ 2мм Белый", pricePerM: 28 },
-  { id: "pvc_sonoma_2", name: "ПВХ 2мм Сонома", pricePerM: 34 },
-  { id: "pvc_graphite_2", name: "ПВХ 2мм Графит", pricePerM: 34 },
-  { id: "abs_05", name: "ABS 0.5мм в цвет", pricePerM: 16 },
+  { id: "pvc_white_2", name: "ПВХ 2мм Белый", pricePerM: 8000 },
+  { id: "pvc_sonoma_2", name: "ПВХ 2мм Сонома", pricePerM: 10000 },
+  { id: "pvc_graphite_2", name: "ПВХ 2мм Графит", pricePerM: 10000 },
+  { id: "abs_05", name: "ABS 0.5мм в цвет", pricePerM: 4500 },
 ];
 
 /**
@@ -62,13 +63,13 @@ export const DEFAULT_PLAN: MaterialPlan = {
 export const boardById = (id: string): BoardMaterial | undefined => BOARDS.find((b) => b.id === id);
 export const edgeById = (id: string): EdgeMaterial | undefined => EDGES.find((e) => e.id === id);
 
-/** Hardware unit prices (₽ each), realistic-but-illustrative (Phase 7.2). */
+/** Hardware unit prices (сум each) — provisional UZS placeholders (Phase 7.2). */
 export const HARDWARE = {
-  hinge: { name: "Петля Clip 110°", priceRub: 45 },
-  slide: { name: "Направляющая (комплект)", priceRub: 320 },
-  pin: { name: "Полкодержатель", priceRub: 4 },
-  cam: { name: "Стяжка Minifix", priceRub: 12 },
-  dowel: { name: "Шкант 8×30", priceRub: 2 },
+  hinge: { name: "Петля Clip 110°", priceUzs: 13000 },
+  slide: { name: "Направляющая (комплект)", priceUzs: 90000 },
+  pin: { name: "Полкодержатель", priceUzs: 1200 },
+  cam: { name: "Стяжка Minifix", priceUzs: 3500 },
+  dowel: { name: "Шкант 8×30", priceUzs: 600 },
 } as const;
 
 /** Cam-and-dowel joints per carcass box: top↔side ×2 + bottom↔side ×2 = 4, each 2 cams + 2 dowels. */
