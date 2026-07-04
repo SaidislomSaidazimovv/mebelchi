@@ -51,6 +51,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const importProject = useKarkas((s) => s.importProject);
   const saveKarkasToLibrary = useStore((s) => s.saveKarkasToLibrary);
   const [showSpec, setShowSpec] = useState(false);
+  const [showTree, setShowTree] = useState(false);
 
   // Save the current from-scratch block into «Mening bloklarim» so the usta can reuse it (Phase K).
   const saveToBiblioteka = () => {
@@ -207,7 +208,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={act} onClick={() => divide()} type="button">⊟ Bo'lish</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
-        <button style={{ ...act, marginLeft: "auto", borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spetsifikatsiya</button>
+        <button style={{ ...act, marginLeft: "auto", borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
+        <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spetsifikatsiya</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC · SWJ008</button>
       </div>
       {/* Phase 6 — selected-component actions: doubling / glazing status + load-bearing declaration */}
@@ -232,7 +234,37 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       )}
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
         <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
+        {showTree && <TreePanel onClose={() => setShowTree(false)} />}
         {showSpec && <SpecPanel onClose={() => setShowSpec(false)} />}
+      </div>
+    </div>
+  );
+}
+
+/** Left «Detallar» drawer (C1) — every solved part listed; click a row to select it (syncs both
+ *  ways with the 3D highlight), like imos's Article-Designer component tree. */
+function TreePanel({ onClose }: { onClose: () => void }) {
+  const parts = useKarkas((s) => s.parts);
+  const plan = useKarkas((s) => s.plan);
+  const selectedId = useKarkas((s) => s.selectedId);
+  const tapPart = useKarkas((s) => s.tapPart);
+  const rows = estimate(parts, plan).parts;
+  return (
+    <div style={treePanel}>
+      <div style={specHead}>
+        <b style={{ fontSize: 15 }}>Detallar ({rows.length})</b>
+        <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
+      </div>
+      <div style={specList}>
+        {rows.map((p) => {
+          const on = p.id === selectedId;
+          return (
+            <div key={p.id} onClick={() => tapPart(on ? null : p.id)} style={{ ...treeRow, ...(on ? treeRowOn : {}) }}>
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+              <span style={{ ...mono, ...(on ? { color: "#1f478a" } : {}) }}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -336,6 +368,9 @@ const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8,
 const badge: CSSProperties = { padding: "3px 8px", borderRadius: 999, background: "#e3f3ea", color: "#006b3f", font: "600 11px system-ui" };
 const warnBar: CSSProperties = { margin: "0 14px 10px", padding: "8px 12px", borderRadius: 8, background: "#fdf3e0", border: "1px solid #f0d9a8", color: "#8a5a1f", display: "flex", gap: 10, alignItems: "center", font: "13px system-ui", minWidth: 0 };
 const specPanel: CSSProperties = { position: "absolute", top: 0, right: 0, bottom: 0, width: "min(380px, 92vw)", background: "#fbfaf6", borderLeft: "1px solid #e0dccf", boxShadow: "-8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };
+const treePanel: CSSProperties = { position: "absolute", top: 0, left: 0, bottom: 0, width: "min(300px, 84vw)", background: "#fbfaf6", borderRight: "1px solid #e0dccf", boxShadow: "8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };
+const treeRow: CSSProperties = { display: "flex", gap: 8, alignItems: "center", padding: "8px 8px", borderBottom: "1px solid #f0ece1", fontFamily: "system-ui", fontSize: 13, cursor: "pointer", borderRadius: 6 };
+const treeRowOn: CSSProperties = { background: "#e0ecff", color: "#1f478a", fontWeight: 700 };
 const specHead: CSSProperties = { padding: "12px 14px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #e6e1d4", fontFamily: "system-ui" };
 const specTotals: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "#e6e1d4", padding: 1, margin: "10px 14px 6px", borderRadius: 8, overflow: "hidden" };
 const cell: CSSProperties = { background: "#fff", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 2, fontFamily: "system-ui", fontSize: 15 };
