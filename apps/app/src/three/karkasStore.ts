@@ -16,7 +16,7 @@ import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { layoutToScene, type Scene } from "./structureScene";
-import { DEFAULT_PLAN, type MaterialPlan } from "./materials";
+import { DEFAULT_PLAN, planThickness, boardThicknessMm10, type MaterialPlan } from "./materials";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
 interface Derived {
@@ -26,7 +26,7 @@ interface Derived {
   warnings: string[]; // non-blocking engineering ⚠ (stability + motion + hinge fit), Russian text
   sections: { id: string; label: string }[]; // leaf sections you can add into (the add-target picker)
 }
-function derive(model: StructuralModel): Derived {
+function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   const warnings = [
     ...checkStability(model),
     ...checkMotionClearance(model),
@@ -34,7 +34,8 @@ function derive(model: StructuralModel): Derived {
   ].map((f) => f.message_ru);
   const sections: { id: string; label: string }[] = [];
   for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) sections.push({ id: s.id, label: `${sections.length + 1}` });
-  return { model, parts: solveStructure(model), scene: layoutToScene(solveLayout(model)), warnings, sections };
+  // 7b — each role's board thickness comes from its plan decor (ЛДСП 16 / МДФ 18 / ХДФ 3)
+  return { model, parts: solveStructure(model, planThickness(plan)), scene: layoutToScene(solveLayout(model)), warnings, sections };
 }
 
 /** First leaf section of the model (the default edit target when nothing is selected). */
@@ -162,7 +163,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
   // push the current model onto the undo stack, then swap in + re-derive the next one. Structural
   // edits clear the selection (the tapped part id may be gone); property edits keep it (keepSel).
   const apply = (next: StructuralModel, keepSel = false): void =>
-    set((s) => ({ ...derive(next), past: [...s.past.slice(-49), s.model], selectedId: keepSel ? s.selectedId : null }));
+    set((s) => ({ ...derive(next, s.plan), past: [...s.past.slice(-49), s.model], selectedId: keepSel ? s.selectedId : null }));
   // the section an edit targets: the section of the selected panel's instance, else the first leaf.
   const targetSection = (): string | undefined => {
     const s = get();
@@ -171,7 +172,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     return r ? r.inst.sectionId : firstLeafId(s.model);
   };
   return {
-    ...derive(buildDemoModel()),
+    ...derive(buildDemoModel(), DEFAULT_PLAN),
     open: false,
     selectedId: null,
     targetId: null,
@@ -179,10 +180,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
     past: [],
     plan: DEFAULT_PLAN,
     editingBlockId: null,
-    setPlanMaterial: (slot, id) => set((s) => ({ plan: { ...s.plan, [slot]: id } })),
+    // 7b — a plan decor change also changes that role's thickness → re-derive the parts
+    setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, ...derive(s.model, plan) }; }),
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link
-    openWith: (model) => set({ ...derive(model), open: true, selectedId: null, past: [], editingBlockId: null }),
-    setModel: (model) => set({ ...derive(model), selectedId: null, past: [], editingBlockId: null }),
+    openWith: (model) => set((s) => ({ ...derive(model, s.plan), open: true, selectedId: null, past: [], editingBlockId: null })),
+    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], editingBlockId: null })),
     close: () => set({ open: false }),
     tapPart: (id) => {
       // tapping a placed part also targets its section, so the next add lands where you're looking
@@ -238,7 +240,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     setMaterial: (id) => {
       const comp = get().selectedComponent();
-      if (comp) apply(setComponentMaterial(get().model, comp.id, id), true);
+      if (!comp) return;
+      // 7b — a per-part decor also sets that part's thickness (material carries thickness)
+      let next = setComponentMaterial(get().model, comp.id, id);
+      if (id) next = setComponentThickness(next, comp.id, boardThicknessMm10(id));
+      apply(next, true);
     },
     resize: (dim, mm) => {
       const m = get().model;
@@ -255,7 +261,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       set((s) => {
         const prev = s.past[s.past.length - 1];
         if (!prev) return {};
-        return { ...derive(prev), past: s.past.slice(0, -1), selectedId: null };
+        return { ...derive(prev, s.plan), past: s.past.slice(0, -1), selectedId: null };
       }),
     canUndo: () => get().past.length > 0,
     exportProject: () => {
@@ -268,7 +274,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!data || !data.model || !Array.isArray(data.model.blocks)) {
         throw new Error("BAD_PROJECT: not a karkas project file");
       }
-      set({ ...derive(data.model), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null });
+      set({ ...derive(data.model, data.plan ?? DEFAULT_PLAN), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null });
     },
   };
 });

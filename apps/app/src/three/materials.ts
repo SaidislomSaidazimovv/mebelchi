@@ -5,12 +5,13 @@
 // from. estimate.ts prices a solved model against a plan; the «Спецификация» panel picks the decors.
 // Rates are realistic-but-illustrative RU retail figures — swap for a live rate table later.
 
-/** A sheet-good decor: priced per square metre, drawn with a swatch colour. */
+/** A sheet-good decor: priced per square metre, drawn with a swatch colour, cut at a thickness (mm). */
 export interface BoardMaterial {
   id: string;
   name: string;
   hex: string;
   pricePerM2: number;
+  thickness_mm: number;
 }
 
 /** An edge-banding material: priced per running metre. */
@@ -21,13 +22,13 @@ export interface EdgeMaterial {
 }
 
 export const BOARDS: readonly BoardMaterial[] = [
-  { id: "ldsp_white", name: "ЛДСП Белый", hex: "#f4f2ec", pricePerM2: 520 },
-  { id: "ldsp_sonoma", name: "ЛДСП Дуб Сонома", hex: "#c9a877", pricePerM2: 610 },
-  { id: "ldsp_wenge", name: "ЛДСП Венге", hex: "#4b3a2f", pricePerM2: 620 },
-  { id: "ldsp_graphite", name: "ЛДСП Графит", hex: "#4a4d52", pricePerM2: 640 },
-  { id: "ldsp_anthracite", name: "ЛДСП Антрацит", hex: "#2f3237", pricePerM2: 680 },
-  { id: "mdf_white_matt", name: "МДФ Белый мат", hex: "#eceae4", pricePerM2: 1350 },
-  { id: "hdf_white", name: "ХДФ Белый (задняя)", hex: "#e8e4d8", pricePerM2: 190 },
+  { id: "ldsp_white", name: "ЛДСП Белый", hex: "#f4f2ec", pricePerM2: 520, thickness_mm: 16 },
+  { id: "ldsp_sonoma", name: "ЛДСП Дуб Сонома", hex: "#c9a877", pricePerM2: 610, thickness_mm: 16 },
+  { id: "ldsp_wenge", name: "ЛДСП Венге", hex: "#4b3a2f", pricePerM2: 620, thickness_mm: 16 },
+  { id: "ldsp_graphite", name: "ЛДСП Графит", hex: "#4a4d52", pricePerM2: 640, thickness_mm: 16 },
+  { id: "ldsp_anthracite", name: "ЛДСП Антрацит", hex: "#2f3237", pricePerM2: 680, thickness_mm: 16 },
+  { id: "mdf_white_matt", name: "МДФ Белый мат", hex: "#eceae4", pricePerM2: 1350, thickness_mm: 18 },
+  { id: "hdf_white", name: "ХДФ Белый (задняя)", hex: "#e8e4d8", pricePerM2: 190, thickness_mm: 3 },
 ];
 
 export const EDGES: readonly EdgeMaterial[] = [
@@ -120,4 +121,14 @@ export function partColor(plan: MaterialPlan, role: string | undefined, material
   if (role === "glass") return GLASS_HEX;
   const b = partBoard(plan, role, materialId);
   return b ? hexToInt(b.hex) : 0xe7ddc9;
+}
+
+/** A decor's board thickness in mm10 (defaults to 16mm) — F2/7b: material carries thickness. */
+export const boardThicknessMm10 = (id: string): number => (boardById(id)?.thickness_mm ?? 16) * 10;
+
+/** Per-role board thickness (mm10) derived from the plan's decors, fed to solveStructure so a МДФ
+ *  facade is 18mm while a ЛДСП carcass stays 16mm and a ХДФ back is 3mm (Phase 7b). */
+export function planThickness(plan: MaterialPlan): { carcass: number; back: number; shelf: number; facade: number; divider: number } {
+  const t = (id: string) => boardThicknessMm10(id);
+  return { carcass: t(plan.carcass), back: t(plan.back), shelf: t(plan.shelf), facade: t(plan.facade), divider: t(plan.carcass) };
 }

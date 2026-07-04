@@ -29,11 +29,11 @@ describe("E2E v2 — full A–F chain + round-trip preservation", () => {
     expect(comps().some((c) => c.glazed === true)).toBe(true);
     expect(comps().some((c) => c.drawer === true)).toBe(true);
 
-    // C4: per-part thickness · F2: per-part material (on the selected shelf's shared component)
+    // F2: per-part material (sets the material's 16mm thickness) · C4: explicit thickness override wins
     const shelf = S().parts.find((p) => p.role === "internal_shelf")!;
     S().tapPart(shelf.id);
-    S().setThickness(18);
-    S().setMaterial("ldsp_wenge");
+    S().setMaterial("ldsp_wenge"); // 7b — also sets ЛДСП's 16mm
+    S().setThickness(18); // explicit override → 18mm wins
     expect(S().parts.find((p) => p.role === "internal_shelf")!.thickness_mm10).toBe(180);
     expect(S().parts.some((p) => p.materialId === "ldsp_wenge")).toBe(true);
 
