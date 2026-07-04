@@ -7,6 +7,7 @@
 
 import type { Part } from "../../../../engine/contracts/types.js";
 import type { StructuralModel, Section } from "../../../../engine/contracts/structure.js";
+import { solveStructure } from "../../../../engine/structure/solve.js";
 import {
   partBoard,
   edgeById,
@@ -16,6 +17,7 @@ import {
   CAMS_PER_CARCASS,
   DOWELS_PER_CARCASS,
   PINS_PER_SHELF,
+  planThickness,
   type MaterialPlan,
 } from "./materials.js";
 
@@ -170,4 +172,34 @@ export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
     { name: HARDWARE.dowel.name, qty: dowels, priceUzs: dowels * HARDWARE.dowel.priceUzs },
   ].filter((l) => l.qty > 0);
   return { lines, priceUzs: sum(lines.map((l) => l.priceUzs)) };
+}
+
+/**
+ * The full UZS price of a saved karkas block (boards + edges + hardware), solved fresh from its
+ * on-disk `{model, plan}` JSON. Used to fold placed project-blocks into the kitchen quote + handoff.
+ * Tolerant: a malformed / empty block prices at 0 rather than throwing.
+ */
+export function blockPriceUzs(karkasJson: string): number {
+  try {
+    const { model, plan } = JSON.parse(karkasJson) as { model?: StructuralModel; plan?: MaterialPlan };
+    if (!model?.blocks?.length) return 0;
+    const p = plan ?? DEFAULT_PLAN;
+    const parts = solveStructure(model, planThickness(p));
+    return estimate(parts, p).priceUzs + hardwareEstimate(model).priceUzs;
+  } catch {
+    return 0;
+  }
+}
+
+/** A saved block's cut list rows (part · material · L×W×T mm) for the factory handoff. Tolerant. */
+export function blockCutList(karkasJson: string): { part: string; material: string; lengthMm: number; widthMm: number; thicknessMm: number }[] {
+  try {
+    const { model, plan } = JSON.parse(karkasJson) as { model?: StructuralModel; plan?: MaterialPlan };
+    if (!model?.blocks?.length) return [];
+    const p = plan ?? DEFAULT_PLAN;
+    const parts = solveStructure(model, planThickness(p));
+    return estimate(parts, p).parts.map((s) => ({ part: s.name, material: s.materialName, lengthMm: s.l_mm, widthMm: s.w_mm, thicknessMm: s.t_mm }));
+  } catch {
+    return [];
+  }
 }

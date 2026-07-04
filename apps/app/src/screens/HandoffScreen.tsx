@@ -8,6 +8,7 @@ import { useStore, HW_GRADE_LABEL } from "../store";
 import { useT } from "../i18n/useT";
 import { production, productionCSV } from "../model/cncExport";
 import { panelsDXF } from "../model/dxfExport";
+import { blockCutList } from "../three/estimate";
 import { machiningReport, runSWJ008 } from "../model/machining";
 import { DrawingSheet } from "../components/DrawingSheet";
 import { TopPlanSheet } from "../components/TopPlanSheet";
@@ -20,6 +21,7 @@ import type { Cabinet } from "../model/cabinet";
 export function HandoffScreen() {
   const t = useT();
   const cabs = useStore((s) => s.cabs);
+  const projectBlocks = useStore((s) => s.projectBlocks);
   const ceiling = useStore((s) => s.ceiling);
   const roomName = useStore((s) => s.roomName);
   const points = useStore((s) => s.roomPoints);
@@ -46,6 +48,9 @@ export function HandoffScreen() {
   const [allHw, setAllHw] = useState(false);
   const PREVIEW = 4;
   const prod = useMemo(() => production(cabs), [cabs]);
+  // placed karkas blocks — their cut list joins the factory package (D2)
+  const blockRows = useMemo(() => projectBlocks.map((b) => ({ name: b.name, rows: blockCutList(b.karkasJson) })).filter((b) => b.rows.length > 0), [projectBlocks]);
+  const blockPanelCount = blockRows.reduce((s, b) => s + b.rows.length, 0);
   // run the drilling solver + safety gate over the whole run (the machine-ready plan)
   const machining = useMemo(() => machiningReport(cabs), [cabs]);
   // shared module numbering (same order as the cut list) so a module has ONE number
@@ -303,7 +308,7 @@ export function HandoffScreen() {
       <button className="ho-download" style={{ marginTop: 18 }} onClick={printPDF} type="button">{t.handoff.dlPdf}</button>
 
       <div className="ho-stats">
-        <div className="ho-stat"><span className="ho-stat-n">{prod.panels.length}</span><span className="ho-stat-l">{t.handoff.parts}</span></div>
+        <div className="ho-stat"><span className="ho-stat-n">{prod.panels.length + blockPanelCount}</span><span className="ho-stat-l">{t.handoff.parts}</span></div>
         <div className="ho-stat"><span className="ho-stat-n">{prod.boardM2}</span><span className="ho-stat-l">{t.handoff.boardM2}</span></div>
         <div className="ho-stat"><span className="ho-stat-n">{prod.moduleCount}</span><span className="ho-stat-l">{t.handoff.modules}</span></div>
       </div>
@@ -358,6 +363,27 @@ export function HandoffScreen() {
           {allPanels ? t.handoff.collapse : t.handoff.showAll(prod.panels.length)}
         </button>
       )}
+
+      {/* karkas blocks — their solved cut list, so the factory package is complete (D2) */}
+      {blockRows.map((b) => (
+        <div key={b.name}>
+          <div className="cost-sec-title">🧩 {b.name}</div>
+          <div className="ho-table">
+            <div className="ho-row ho-head">
+              <span className="ho-c-part">{t.handoff.colPart}</span>
+              <span className="ho-c-mat">{t.handoff.colMat}</span>
+              <span className="ho-c-dim">{t.handoff.colDim}</span>
+            </div>
+            {b.rows.map((r, i) => (
+              <div className="ho-row" key={i}>
+                <span className="ho-c-part">{r.part}</span>
+                <span className="ho-c-mat">{r.material}</span>
+                <span className="ho-c-dim">{r.lengthMm}×{r.widthMm}×{r.thicknessMm}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
 
       <div className="cost-sec-title">{t.handoff.hwList}</div>
       <div className="ho-items">
