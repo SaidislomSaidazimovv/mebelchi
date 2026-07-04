@@ -928,6 +928,16 @@ export function resizeBlockWidth(
   return resizeBlockAxis(model, blockId, "x", newWidth_mm10);
 }
 
+/** Structure-level HEIGHT edit (Phase C2): set a block's height; sections, y-dividers and shelves
+ *  reflow proportionally (the subtree is scaled, so content is preserved — no orphaning). */
+export function resizeBlockHeight(
+  model: StructuralModel,
+  blockId: BlockId,
+  newHeight_mm10: mm10,
+): StructuralModel {
+  return resizeBlockAxis(model, blockId, "y", newHeight_mm10);
+}
+
 // ===========================================================================
 // 5 · setBandTransition / setJunction — the edit seams for #39 / #40
 // ===========================================================================

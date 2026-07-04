@@ -49,6 +49,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
+  const resize = useKarkas((s) => s.resize);
   const saveKarkasToLibrary = useStore((s) => s.saveKarkasToLibrary);
   const [showSpec, setShowSpec] = useState(false);
   const [showTree, setShowTree] = useState(false);
@@ -188,7 +189,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     <div style={overlay}>
       <div style={bar}>
         <b style={{ fontSize: 15 }}>Karkas blok</b>
-        <span style={mono}>{dims.w}×{dims.h}×{dims.d} mm</span>
+        {/* C2 — live W×H×D: type the client's dimensions; the block reflows (content scales) */}
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <DimField label="Ш" value={dims.w} onCommit={(mm) => resize("w", mm)} />
+          <DimField label="В" value={dims.h} onCommit={(mm) => resize("h", mm)} />
+          <DimField label="Г" value={dims.d} onCommit={(mm) => resize("d", mm)} />
+          <span style={{ ...mono, fontSize: 10 }}>mm</span>
+        </div>
         <button onClick={() => setModel(buildDemoModel())} style={pill} type="button">Тумба</button>
         <button onClick={() => setModel(buildLCornerModel())} style={pill} type="button">L-угол</button>
         <span style={{ ...mono, color: "#006b3f" }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
@@ -238,6 +245,31 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         {showSpec && <SpecPanel onClose={() => setShowSpec(false)} />}
       </div>
     </div>
+  );
+}
+
+/** One live dimension input (C2). Holds a local string, resyncs when the model changes, and commits
+ *  the resize on blur / Enter only (so a single edit is one undo step, not one per keystroke). */
+function DimField({ label, value, onCommit }: { label: string; value: number; onCommit: (mm: number) => void }) {
+  const [v, setV] = useState(String(value));
+  useEffect(() => { setV(String(value)); }, [value]);
+  const commit = () => {
+    const n = parseInt(v, 10);
+    if (n > 0 && n !== value) onCommit(n);
+    else setV(String(value)); // reject empty / unchanged
+  };
+  return (
+    <label style={dimField}>
+      <span style={dimLabel}>{label}</span>
+      <input
+        style={dimInput}
+        value={v}
+        inputMode="numeric"
+        onChange={(e) => setV(e.target.value.replace(/[^\d]/g, ""))}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      />
+    </label>
   );
 }
 
@@ -360,6 +392,9 @@ export function KarkasOverlay() {
 const overlay: CSSProperties = { position: "fixed", inset: 0, background: "#f0efe9", display: "flex", flexDirection: "column", zIndex: 50 };
 const bar: CSSProperties = { padding: "10px 14px", display: "flex", gap: 10, alignItems: "center", fontFamily: "system-ui", flexWrap: "wrap" };
 const mono: CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#5c6a61" };
+const dimField: CSSProperties = { display: "flex", alignItems: "center", gap: 2, border: "1px solid #d8d2c4", borderRadius: 7, padding: "1px 3px", background: "#fff" };
+const dimLabel: CSSProperties = { fontFamily: "system-ui", fontSize: 11, fontWeight: 700, color: "#8a6d1f", width: 12, textAlign: "center" };
+const dimInput: CSSProperties = { width: 44, border: "none", outline: "none", background: "transparent", font: "600 13px ui-monospace, monospace", color: "#18241d", textAlign: "right", padding: "3px 2px" };
 const pill: CSSProperties = { padding: "6px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer" };
 const editbar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, flexWrap: "wrap" };
 const act: CSSProperties = { padding: "8px 13px", borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer" };

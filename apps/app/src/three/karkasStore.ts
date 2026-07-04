@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, setLoadBearing, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, setLoadBearing, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -117,6 +117,8 @@ interface KarkasState extends Derived {
   selectedComponent: () => Component | null;
   /** Toggle the selected component's load-bearing declaration (drives the stability ⚠). */
   toggleLoadBearing: () => void;
+  /** Set the block's width / height / depth in mm (C2). Content reflows proportionally. */
+  resize: (dim: "w" | "h" | "d", mm: number) => void;
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
@@ -181,6 +183,17 @@ export const useKarkas = create<KarkasState>((set, get) => {
     toggleLoadBearing: () => {
       const comp = get().selectedComponent();
       if (comp) apply(setLoadBearing(get().model, comp.id, !(comp.loadBearing === true)));
+    },
+    resize: (dim, mm) => {
+      const m = get().model;
+      const b = m.blocks[0];
+      if (!b) return;
+      const mm10 = Math.max(1, Math.round(mm)) * 10;
+      const next =
+        dim === "w" ? resizeBlockWidth(m, b.id, mm10)
+        : dim === "h" ? resizeBlockHeight(m, b.id, mm10)
+        : resizeBlockDepth(m, b.id, mm10);
+      if (next !== m) apply(next);
     },
     undo: () =>
       set((s) => {
