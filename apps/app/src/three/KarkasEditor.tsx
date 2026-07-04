@@ -30,6 +30,7 @@ interface RT {
   raf: number;
   labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
   aabb: THREE.Box3 | null;
+  framedKey: string; // F3 — last camera-framing signature; lives on rt so a remount reframes fresh
 }
 
 export function KarkasEditor({ onClose }: { onClose?: () => void }) {
@@ -55,7 +56,6 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   }, [parts, plan]);
   const colorRef = useRef(colorFn);
   colorRef.current = colorFn;
-  const framedRef = useRef(""); // F3 — last camera-framing signature (centre+radius); reframe only on change
   const selComp = useKarkas((s) => s.selectedComponent());
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const setThickness = useKarkas((s) => s.setThickness);
@@ -169,7 +169,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       return d;
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, raf: 0, labels, aabb: null };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, raf: 0, labels, aabb: null, framedKey: "" };
 
     const raycaster = new THREE.Raycaster();
     const down = { x: 0, y: 0 };
@@ -245,8 +245,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // F3 — reframe the camera ONLY when the block's bounds change (resize / a different block), so a
     // property edit (material / thickness / load-bearing / add) keeps the user's current orbit.
     const framing = `${scene.center.map((n) => Math.round(n * 100)).join(",")}|${Math.round(scene.radius * 100)}`;
-    if (framing !== framedRef.current) {
-      framedRef.current = framing;
+    if (framing !== r.framedKey) {
+      r.framedKey = framing;
       const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
       const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
       r.controls.target.copy(ctr);
