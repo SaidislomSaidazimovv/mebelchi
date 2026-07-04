@@ -26,6 +26,7 @@ export const PERSIST_KEYS = [
   "cabs",
   "cabsFrom",
   "selIdx",
+  "projectBlocks",
   "runLayout",
   "runStyle",
   "view",

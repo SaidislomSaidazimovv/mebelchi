@@ -1162,6 +1162,10 @@ export function VariantScene({
           if (child && w) {
             blockDragRef.current = { id: selId, downX: w.x, downZ: w.z, x0: (child.userData.karkasX as number) ?? 0, z0: (child.userData.karkasZ as number) ?? 0 };
             controls.enabled = false;
+            // capture the pointer so a release OFF the canvas still fires onUp (else the drag
+            // strands: controls stay disabled + the move never commits). Mirrors the gizmo's
+            // window-listener trick, done via the Pointer Events API.
+            try { renderer.domElement.setPointerCapture(e.pointerId); } catch { /* unsupported → falls back to canvas-only */ }
           }
         }
       }
@@ -1181,6 +1185,7 @@ export function VariantScene({
       if (d) {
         blockDragRef.current = null;
         controls.enabled = true;
+        try { renderer.domElement.releasePointerCapture(e.pointerId); } catch { /* was never captured */ }
         if (d.lastX != null && d.lastZ != null) cbRef.current.onBlockMove?.(d.id, d.lastX, d.lastZ);
         return;
       }

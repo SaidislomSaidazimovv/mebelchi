@@ -369,6 +369,9 @@ function freshDesign() {
     recFixed: false,
     adviceApplied: false,
     exported: false,
+    // Karkas blocks placed in THIS project's room. Must reset per project (leaks across
+    // openProject/newProject otherwise) and persist alongside cabs (see PERSIST_KEYS).
+    projectBlocks: [] as ProjectBlock[],
   };
 }
 
