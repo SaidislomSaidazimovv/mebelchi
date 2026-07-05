@@ -10,7 +10,7 @@ import { solveStructure } from "../../../../engine/structure/solve.js";
 import type { StructuralModel } from "../../../../engine/contracts/structure.js";
 import { layoutToScene } from "./structureScene";
 import { buildStructureGroup } from "./structureRenderer";
-import { partColor, DEFAULT_PLAN, type MaterialPlan } from "./materials";
+import { partColorLookup, DEFAULT_PLAN, type MaterialPlan } from "./materials";
 
 const GAP_M = 0.06; // 6 cm between placed blocks
 
@@ -42,9 +42,11 @@ export function buildProjectBlocksGroup(
     // is built during the SHARED room scene init, so one bad block must not tank the kitchen —
     // skip it and keep going.
     try {
-      // F1 — colour each board by its decor (part role → plan → colour)
-      const cmap = new Map(solveStructure(model).map((p) => [p.id, partColor(plan, p.role, p.materialId)]));
-      const g = buildStructureGroup(layoutToScene(solveLayout(model)), (id) => cmap.get(id));
+      // F1 — colour each board by its decor (part role → plan → colour), via the SAME shared lookup
+      // the editor uses so a placed block matches its karkas exactly (incl. doubled 32mm / glazed
+      // parts, whose split ids would otherwise miss the single render board → bare WOOD).
+      const colorOf = partColorLookup(solveStructure(model), plan);
+      const g = buildStructureGroup(layoutToScene(solveLayout(model)), colorOf);
       const box = new THREE.Box3().setFromObject(g);
       if (box.isEmpty()) return;
       const ctr = new THREE.Vector3();
