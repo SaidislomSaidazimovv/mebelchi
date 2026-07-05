@@ -124,6 +124,34 @@ export function partColor(plan: MaterialPlan, role: string | undefined, material
   return b ? hexToInt(b.hex) : 0xe7ddc9;
 }
 
+/** Strip a doubled / partial-double LAYER suffix so a split manufacturing part maps back to the
+ *  SINGLE render board `solveLayout` draws for it. `solveStructure` emits two boards for a 32mm build
+ *  (`X__a` outer + `X__b` inner) and a front strip for a partial double (`X__front`), while the
+ *  viewport draws one box `X` — without this the render board finds no colour and falls back to bare
+ *  WOOD (F1 regression for 32mm shelves/doors and glazed-grid stiles/rails). */
+const layoutBaseId = (id: string): string => id.replace(/__(a|b|front)$/, "");
+
+/**
+ * Build the `id → colour` lookup the renderer (structureRenderer.buildStructureGroup) needs, from a
+ * solved part list + material plan. Registers each part's exact id AND its layout base id, so a
+ * doubled/partial-double part still colours its single render board. The OUTER layer (`__a`, listed
+ * first by `doublePanel`) wins the base id; an un-split part's own id is authoritative. Used by BOTH
+ * the karkas editor and the room layer so their colours are guaranteed identical.
+ */
+export function partColorLookup(
+  parts: readonly { id: string; role?: string; materialId?: string }[],
+  plan: MaterialPlan,
+): (id: string) => number | undefined {
+  const m = new Map<string, number>();
+  for (const p of parts) {
+    const c = partColor(plan, p.role, p.materialId);
+    m.set(p.id, c); // exact match (single boards, glass panes, muntins)
+    const base = layoutBaseId(p.id);
+    if (base !== p.id && !m.has(base)) m.set(base, c); // doubled/partial → colour the single render board
+  }
+  return (id) => m.get(id);
+}
+
 /** A decor's board thickness in mm10 (defaults to 16mm) — F2/7b: material carries thickness. */
 export const boardThicknessMm10 = (id: string): number => (boardById(id)?.thickness_mm ?? 16) * 10;
 

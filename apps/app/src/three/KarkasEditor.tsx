@@ -14,7 +14,7 @@ import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
 import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup } from "./structureRenderer";
 import { sceneDimsMm } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, partColor, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, boardForRole, partColorLookup, type MaterialPlan } from "./materials";
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
@@ -50,11 +50,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const plan = useKarkas((s) => s.plan);
   const parts = useKarkas((s) => s.parts);
   const warnings = useKarkas((s) => s.warnings);
-  // F1 — part id → decor colour (int). Recomputed when parts or the material plan change.
-  const colorFn = useMemo(() => {
-    const m = new Map(parts.map((p) => [p.id, partColor(plan, p.role, p.materialId)]));
-    return (id: string) => m.get(id);
-  }, [parts, plan]);
+  // F1 — part id → decor colour (int). Recomputed when parts or the material plan change. Uses the
+  // shared lookup so a doubled/partial-double part still colours its single render board (else it
+  // falls back to bare WOOD — the 32mm-shelf / glazed-frame colour regression).
+  const colorFn = useMemo(() => partColorLookup(parts, plan), [parts, plan]);
   const colorRef = useRef(colorFn);
   colorRef.current = colorFn;
   const selComp = useKarkas((s) => s.selectedComponent());
