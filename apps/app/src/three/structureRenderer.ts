@@ -21,6 +21,24 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
       new THREE.MeshStandardMaterial({ color: colorOf?.(b.id) ?? WOOD, roughness: 0.82, metalness: 0 }),
     );
     mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
+    // Inclined shelf (imos AS_O_Angle): tilt the board so the FRONT edge stays LOW at its mount and
+    // the BACK edge rises toward the back panel — exactly as imos does. We pivot about the shelf's
+    // FRONT-BOTTOM edge (front = local −z since the back panel sits at the larger z; bottom = local
+    // −y) so the shelf only lifts UPWARD and never dips below its slot (no poke-through downward).
+    // A centred BoxGeometry rotates about its centre, so after rotating we shift the mesh by (e − R·e)
+    // to pin that edge in place. The edge outline is a child of the mesh, so it follows. (rotX is in
+    // radians; only set when the shelf is actually inclined, so flat shelves are untouched.)
+    if (b.rotX) {
+      const ang = -b.rotX; // negative raises the back edge (front stays low)
+      const ey = -b.size[1] / 2; // bottom, local y
+      const ez = -b.size[2] / 2; // front, local z (back panel is at +z)
+      const cos = Math.cos(ang), sin = Math.sin(ang);
+      const ry = ey * cos - ez * sin;
+      const rz = ey * sin + ez * cos;
+      mesh.rotation.x = ang;
+      mesh.position.y += ey - ry; // pin the front-bottom edge: position += (e − R·e)
+      mesh.position.z += ez - rz;
+    }
     mesh.userData.partId = b.id;
     // thin edge outline so adjacent panels read as separate boards
     const edges = new THREE.LineSegments(

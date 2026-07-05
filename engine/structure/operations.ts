@@ -1180,6 +1180,67 @@ export function setComponentThickness(
  * (an opaque app decor key). The solver stamps it onto the parts (`Part.materialId`). Pure; same
  * reference when unchanged.
  */
+/**
+ * Set (or clear with `null`) an internal shelf's incline angle in degrees (imos AS_O_Angle · "qiya
+ * polka"). Additive: `null`/`0` drops the field so the shelf is flat again. Mirrors the per-part
+ * thickness/material setters — pure, no-op when unchanged, and never touches sibling components.
+ */
+export function setComponentAngle(
+  model: StructuralModel,
+  componentId: ComponentId,
+  angle_deg: number | null,
+): StructuralModel {
+  // clamp to a sane display range; 0 (or null) means "flat" and drops the field entirely
+  const next = angle_deg == null ? null : Math.max(0, Math.min(45, Math.round(angle_deg)));
+  const cleared = next === null || next === 0 ? null : next;
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.angle_deg ?? null) === (cleared ?? null)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (cleared === null) {
+        const { angle_deg: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, angle_deg: cleared };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Largest incline (degrees) an internal shelf can take and still stay INSIDE its bay — i.e. the
+ * raised BACK edge (which lifts by `depth·sin θ`) must not rise past the shelf above it (or, for the
+ * topmost, the carcass top). imos itself doesn't clamp, but our app keeps the shelf contained so it
+ * never poke-throughs the carcass. Returns 45 for a non-shelf (unconstrained), 0 when there is no
+ * headroom. Pure geometry: `block` + `inst` carry everything (section box, sibling shelf heights).
+ */
+export function shelfMaxAngleDeg(block: Block, inst: Instance): number {
+  const B = 160; // 16mm board (matches solve's BOARD_MM10)
+  const comp = block.components.find((c) => c.id === inst.componentId);
+  if (!comp || comp.role !== "internal_shelf") return 45;
+  let sb: Box3D | null = null;
+  forEachSection(block, (s) => { if (s.id === inst.sectionId) sb = s.box; });
+  if (!sb) return 45;
+  const box: Box3D = sb;
+  if (box.d <= 0) return 0;
+  const isShelf = (i: Instance) =>
+    block.components.find((c) => c.id === i.componentId)?.role === "internal_shelf";
+  // the bay ceiling: the next shelf up in this section, else the section top (leave the top clear)
+  const above = block.instances
+    .filter((i) => i.sectionId === inst.sectionId && isShelf(i) && i.anchor.y > inst.anchor.y)
+    .map((i) => i.anchor.y);
+  const ceiling = above.length ? Math.min(...above) : box.y + box.h - B;
+  const headroom = ceiling - inst.anchor.y - B; // vertical room the raised back edge may use
+  if (headroom <= 0) return 0;
+  // depth·sin θ ≤ headroom → θ ≤ asin(headroom/depth). floor so we never round UP past the fit.
+  return Math.max(0, Math.min(45, Math.floor((Math.asin(Math.min(1, headroom / box.d)) * 180) / Math.PI)));
+}
+
 export function setComponentMaterial(
   model: StructuralModel,
   componentId: ComponentId,

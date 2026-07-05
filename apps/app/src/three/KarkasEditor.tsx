@@ -65,6 +65,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const remove = useKarkas((s) => s.remove);
   const setThickness = useKarkas((s) => s.setThickness);
+  const setAngle = useKarkas((s) => s.setAngle);
+  const shelfMaxAngle = useKarkas((s) => s.selectedShelfMaxAngle());
   const setMaterial = useKarkas((s) => s.setMaterial);
   const setPlanMaterialTop = useKarkas((s) => s.setPlanMaterial);
   const setHinge = useKarkas((s) => s.setHinge);
@@ -393,9 +395,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           {selComp.glazedGrid && <span style={badge}>Витрина ×{selComp.glazedGrid.lights}</span>}
           {selComp.glazed && !selComp.glazedGrid && <span style={badge}>Стекло</span>}
           {selComp.loadBearing && <span style={{ ...badge, background: "#e7d6f5", color: "#5b2a86" }}>⚖ Yuk</span>}
+          {selComp.role === "internal_shelf" && selComp.angle_deg ? <span style={{ ...badge, background: "#d8ecf7", color: "#1f5f86" }}>⤢ {selComp.angle_deg}°</span> : null}
           {/* C4 — per-part thickness (imos Part Thickness) */}
           <span style={{ ...mono, marginLeft: 6 }}>Qalinlik:</span>
           <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
+          {/* qiya polka (imos AS_O_Angle) — inclined display shelf; only for internal shelves */}
+          {selComp.role === "internal_shelf" && (
+            <>
+              <span style={mono}>Burchak:</span>
+              <DimField label="°" value={selComp.angle_deg ?? 0} onCommit={setAngle} min={0} />
+              {shelfMaxAngle != null && <span style={{ ...mono, opacity: 0.55, fontSize: 11 }} title="Bu bo'yga sig'adigan eng katta burchak">max {shelfMaxAngle}°</span>}
+            </>
+          )}
           {/* F2 — per-part material override (imos Material_O per part) */}
           <span style={mono}>Material:</span>
           <select value={selComp.material ?? ""} onChange={(e) => setMaterial(e.target.value || null)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 160 }}>
@@ -458,13 +469,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
 
 /** One live dimension input (C2). Holds a local string, resyncs when the model changes, and commits
  *  the resize on blur / Enter only (so a single edit is one undo step, not one per keystroke). */
-function DimField({ label, value, onCommit }: { label: string; value: number; onCommit: (mm: number) => void }) {
+function DimField({ label, value, onCommit, min = 1 }: { label: string; value: number; onCommit: (mm: number) => void; min?: number }) {
   const [v, setV] = useState(String(value));
   useEffect(() => { setV(String(value)); }, [value]);
   const commit = () => {
     const n = parseInt(v, 10);
-    if (n > 0 && n !== value) onCommit(n);
-    else setV(String(value)); // reject empty / unchanged
+    // `min` lets the angle field accept 0 (flatten a tilted shelf); dimensions keep min = 1.
+    if (Number.isFinite(n) && n >= min && n !== value) onCommit(n);
+    else setV(String(value)); // reject empty / below-min / unchanged
   };
   return (
     <label style={dimField}>

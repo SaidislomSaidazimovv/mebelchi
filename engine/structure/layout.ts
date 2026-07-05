@@ -18,6 +18,7 @@ import type {
   StructuralModel,
 } from "../contracts/structure.js";
 import { leafSections } from "../contracts/structure.js";
+import { shelfMaxAngleDeg } from "./operations.js";
 import type { mm10 } from "../contracts/types.js";
 import {
   BOARD_MM10,
@@ -38,6 +39,12 @@ export interface PanelPlacement {
   readonly w_mm10: mm10;
   readonly h_mm10: mm10;
   readonly d_mm10: mm10;
+  /**
+   * Tilt about the width (X) axis, in degrees — an inclined shelf (imos AS_O_Angle · "qiya polka").
+   * The box keeps its rectangular size; the renderer rotates the mesh in place about its centre.
+   * Optional/additive — absent or `0` = an axis-aligned board (every existing placement is unchanged).
+   */
+  readonly rotX_deg?: number;
 }
 
 const B = BOARD_MM10;
@@ -151,7 +158,7 @@ function shelfPlacement(block: Block, inst: Instance): PanelPlacement | null {
   const component = componentById(block, inst.componentId);
   if (!section || !component || component.role !== "internal_shelf") return null;
   const s = section.box;
-  return place(
+  const p = place(
     `${block.id}__inst_${inst.id}`,
     component.name,
     block.box.x + s.x + B,
@@ -161,6 +168,13 @@ function shelfPlacement(block: Block, inst: Instance): PanelPlacement | null {
     B,
     s.d,
   );
+  // Inclined shelf (imos AS_O_Angle): carry the tilt so the renderer leans the board. Clamp it to
+  // what fits the bay (shelfMaxAngleDeg) so the raised back edge never pokes through the carcass /
+  // the shelf above — a safety net that also holds when more shelves are added later. Only added
+  // when nonzero, so a flat shelf's placement stays byte-identical to before.
+  const requested = component.angle_deg ?? 0;
+  const angle = requested > 0 ? Math.min(requested, shelfMaxAngleDeg(block, inst)) : 0;
+  return angle ? { ...p, rotX_deg: angle } : p;
 }
 
 /** A facade/door placement: covers its section's front opening (single door only; the glazed-grid

@@ -272,6 +272,14 @@ export interface Component {
    * default. Optional/additive — absent = the role's material from the plan (nothing regresses).
    */
   readonly material?: string;
+  /**
+   * Inclined shelf tilt (imos AS_O_Angle · "qiya polka"): the front edge is raised by `angle_deg`
+   * degrees about the shelf's width axis, so an internal shelf leans back like a display / shoe rack.
+   * Applies to `internal_shelf` components only. The board itself is the SAME rectangle (the cut list,
+   * pricing and CNC are unchanged) — only its mounted orientation tilts, which the layout renders.
+   * Optional/additive — absent or `0` = a flat shelf (nothing regresses).
+   */
+  readonly angle_deg?: number;
 }
 
 /** How two edge bands meet at a panel corner (#39). "mitre" 45° geometry is V2-deferred. */

@@ -16,6 +16,8 @@ export interface Board {
   pos: [number, number, number];
   /** full size [w, h, d] in metres */
   size: [number, number, number];
+  /** tilt about the X (width) axis in RADIANS — an inclined shelf. Absent = axis-aligned. */
+  rotX?: number;
 }
 
 export interface Scene {
@@ -39,6 +41,8 @@ interface RawBox {
   w: number;
   h: number;
   d: number;
+  /** tilt about X in DEGREES (from a PanelPlacement's rotX_deg); converted to radians on the Board. */
+  rot?: number;
 }
 
 /**
@@ -61,6 +65,7 @@ export function boxesToScene(boxes: RawBox[]): Scene {
     name: b.name,
     pos: [M(b.x + b.w / 2 - cx), M(b.y + b.h / 2 - minY), M(b.z + b.d / 2 - cz)],
     size: [M(b.w), M(b.h), M(b.d)],
+    ...(b.rot ? { rotX: (b.rot * Math.PI) / 180 } : {}),
   }));
   const w = M(maxX - minX), h = M(maxY - minY), d = M(maxZ - minZ);
   return { boards, center: [0, h / 2, 0], radius: Math.max(w, h, d) };
@@ -74,6 +79,7 @@ export function layoutToScene(panels: readonly PanelPlacement[]): Scene {
       name: p.name,
       x: p.x_mm10, y: p.y_mm10, z: p.z_mm10,
       w: p.w_mm10, h: p.h_mm10, d: p.d_mm10,
+      rot: p.rotX_deg,
     })),
   );
 }
