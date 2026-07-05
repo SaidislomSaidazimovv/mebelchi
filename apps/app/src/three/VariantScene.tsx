@@ -383,7 +383,7 @@ export function VariantScene({
   const vertGuideRef = useRef<SVGLineElement>(null);
   const gizmoScreenRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef<Drag | null>(null);
-  const blockDragRef = useRef<{ id: string; downX: number; downZ: number; x0: number; z0: number; lastX?: number; lastZ?: number } | null>(null); // D3b.4
+  const blockDragRef = useRef<{ id: string; downX: number; downZ: number; x0: number; z0: number; halfX: number; halfZ: number; lastX?: number; lastZ?: number } | null>(null); // D3b.4
   // camera-walk joystick: the live push vector (−1..1) the render loop reads each frame
   const navRef = useRef({ x: 0, z: 0 });
   const joyRef = useRef<HTMLDivElement>(null);
@@ -1160,7 +1160,7 @@ export function VariantScene({
           const child = karkasLayer.children.find((o) => o.userData.karkasBlockId === selId);
           const w = floorAt(e.clientX, e.clientY);
           if (child && w) {
-            blockDragRef.current = { id: selId, downX: w.x, downZ: w.z, x0: (child.userData.karkasX as number) ?? 0, z0: (child.userData.karkasZ as number) ?? 0 };
+            blockDragRef.current = { id: selId, downX: w.x, downZ: w.z, x0: (child.userData.karkasX as number) ?? 0, z0: (child.userData.karkasZ as number) ?? 0, halfX: (child.userData.blockHalfX as number) ?? 300, halfZ: (child.userData.blockHalfZ as number) ?? 300 };
             controls.enabled = false;
             // capture the pointer so a release OFF the canvas still fires onUp (else the drag
             // strands: controls stay disabled + the move never commits). Mirrors the gizmo's
@@ -1175,9 +1175,22 @@ export function VariantScene({
       if (!d) return;
       const w = floorAt(e.clientX, e.clientY);
       if (!w) return;
-      d.lastX = Math.round(d.x0 + (w.x - d.downX) * 1000);
-      d.lastZ = Math.round(d.z0 + (w.z - d.downZ) * 1000);
-      apiRef.current?.applyBlockTransform(d.id, d.lastX, d.lastZ);
+      // raw floor delta → block room-centre-relative mm
+      let bx = Math.round(d.x0 + (w.x - d.downX) * 1000);
+      let bz = Math.round(d.z0 + (w.z - d.downZ) * 1000);
+      // snap + wall-clamp like a cabinet: snapMove works in ABSOLUTE room mm (Foot.cx = px), so shift
+      // the block's centre-relative coords by the room centre (g.cx/cy), snap, then shift back.
+      const g = geomRef.current;
+      if (g) {
+        const absX = bx + g.cx, absZ = bz + g.cy;
+        const foot: Foot = { id: d.id, appliance: "none", cx: absX, cy: absZ, ux: 1, uy: 0, ix: 0, iy: 1, w: 2 * d.halfX, depth: 2 * d.halfZ, rotDeg: 0, upper: false, ...halfExtents(1, 0, 0, 1, 2 * d.halfX, 2 * d.halfZ) };
+        const s = snapMove(foot, absX, absZ, g, { magnet: cbRef.current.magnet });
+        bx = Math.round(s.x - g.cx);
+        bz = Math.round(s.y - g.cy);
+      }
+      d.lastX = bx;
+      d.lastZ = bz;
+      apiRef.current?.applyBlockTransform(d.id, bx, bz);
     };
     const onUp = (e: PointerEvent) => {
       // D3b.4 — commit a block drag and swallow the pick
