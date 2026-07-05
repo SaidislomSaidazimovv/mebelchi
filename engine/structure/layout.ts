@@ -182,6 +182,36 @@ function facadePlacement(block: Block, inst: Instance): PanelPlacement | null {
   );
 }
 
+/** Runner clearance per drawer side (mm10) — mirrors DRAWER_SLIDE_CLEAR_MM10 in solve.ts so the box
+ *  the viewport draws sits exactly where the cut-list box is. */
+const DRAWER_SLIDE_CLEAR_MM10 = 130;
+
+/** A drawer placement → the 5-panel box (facade front + 2 sides + back + bottom) laid into its
+ *  section, matching the ids + geometry `drawerBoxParts` emits in solve.ts so the 3D shows the drawer
+ *  and its parts colour correctly. Was MISSING — drawers were counted in the cut list but invisible. */
+function drawerBoxPlacement(block: Block, inst: Instance): PanelPlacement[] | null {
+  const section = sectionById(block, inst.sectionId);
+  const component = componentById(block, inst.componentId);
+  if (!section || !component || !component.drawer) return null;
+  const s = section.box;
+  const x0 = block.box.x + s.x, y0 = block.box.y + s.y, z0 = block.box.z + s.z;
+  const idBase = `${block.id}__inst_${inst.id}`;
+  const bodyX = x0 + DRAWER_SLIDE_CLEAR_MM10; // left runner clearance
+  const bodyW = s.w - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width between the runners
+  const innerW = bodyW - 2 * B; // between the two box sides
+  const bodyY = y0 + B; // above the bottom clearance
+  const sideH = s.h - 2 * B; // box side height within the opening
+  const boxZ = z0 + B; // behind the front facade
+  const boxD = s.d - 2 * B; // body depth (leave a little back clearance)
+  return [
+    place(`${idBase}__front`, "Ящик · фасад", x0, y0, z0, s.w, s.h, B), // full front opening
+    place(`${idBase}__side_l`, "Ящик · бок Л", bodyX, bodyY, boxZ, B, sideH, boxD),
+    place(`${idBase}__side_r`, "Ящик · бок П", bodyX + bodyW - B, bodyY, boxZ, B, sideH, boxD),
+    place(`${idBase}__back`, "Ящик · задняя", bodyX + B, bodyY, boxZ + boxD - B, innerW, sideH, B),
+    place(`${idBase}__bottom`, "Ящик · дно", bodyX + B, bodyY, boxZ, innerW, B, boxD),
+  ];
+}
+
 /**
  * A glazed-GRID door positioned in the front opening (E2): the outer frame (2 stiles + 2 rails),
  * `lights−1` muntins, and `lights` glass panes, all laid into the section's front face. Mirrors the
@@ -270,8 +300,9 @@ export function solveLayout(model: StructuralModel): PanelPlacement[] {
     out.push(...(block.footprint ? lCornerLayout(block) : carcass(block)));
     for (const line of block.lines) out.push(dividerPlacement(block, line));
     for (const inst of block.instances) {
+      const drawer = drawerBoxPlacement(block, inst); // E: drawer box (5 panels) — was missing → drawers were invisible
       const grid = glazedGridPlacement(block, inst); // E2: multi-panel glazed-grid door
-      const placements = grid ?? [motionPlacement(block, inst) ?? shelfPlacement(block, inst) ?? facadePlacement(block, inst)]
+      const placements = drawer ?? grid ?? [motionPlacement(block, inst) ?? shelfPlacement(block, inst) ?? facadePlacement(block, inst)]
         .filter((p): p is PanelPlacement => p !== null);
       for (const p of placements) out.push(inst.junction ? applyJunction(p, inst.junction) : p);
     }

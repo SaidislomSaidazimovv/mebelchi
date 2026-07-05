@@ -7,6 +7,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { useKarkas } from "../three/karkasStore";
+import { KarkasBlockEditor } from "../components/KarkasBlockEditor";
+import { resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, setComponentMaterial, setComponentThickness } from "../../../../engine/structure/operations.js";
+import { boardThicknessMm10 } from "../three/materials";
+import type { StructuralModel } from "../../../../engine/contracts/structure.js";
 import { buildCarcassModel } from "../../../../engine/structure/demoModel.js";
 import { cellToKarkasBlock } from "../three/cellToKarkas";
 import { useT } from "../i18n/useT";
@@ -46,7 +50,7 @@ import {
 /** A real built-in appliance (excludes plain modules and render-only fillers). */
 const isAppliance = (c: Cabinet) => !!c.appliance && c.appliance !== "none" && c.appliance !== "filler";
 
-type Sheet = null | "pickCab" | "pickAppl" | "editor" | "dining" | "extra" | "library";
+type Sheet = null | "pickCab" | "pickAppl" | "editor" | "blockEditor" | "dining" | "extra" | "library";
 
 const MODES = [
   { v: "wire", Icon: IconLines },
@@ -81,6 +85,8 @@ export function ConfigScreen() {
   const projectBlocks = useStore((s) => s.projectBlocks);
   const removeProjectBlock = useStore((s) => s.removeProjectBlock);
   const addProjectBlock = useStore((s) => s.addProjectBlock);
+  const updateProjectBlock = useStore((s) => s.updateProjectBlock);
+  const saveKarkasToLibrary = useStore((s) => s.saveKarkasToLibrary);
   const restoreLastBlock = useStore((s) => s.restoreLastBlock);
   const dismissLastDeleted = useStore((s) => s.dismissLastDeleted);
   const lastDeletedBlock = useStore((s) => s.lastDeletedBlock);
@@ -131,6 +137,7 @@ export function ConfigScreen() {
   const [libTab, setLibTab] = useState<"catalog" | "mine">("catalog"); // Biblioteka sheet: catalog vs saved blocks
   const [fillOpen, setFillOpen] = useState(false); // focused full-screen Наполнение editor
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null); // D3b — picked room karkas block
+  const [insideView, setInsideView] = useState(false); // «Ichini ko'rish» — fade the block's fronts
   // auto-dismiss the block-delete undo toast after a few seconds
   useEffect(() => {
     if (!lastDeletedBlock) return;
@@ -232,6 +239,9 @@ export function ConfigScreen() {
   // dimension arrows, move/resize handles) in every view so material/handle changes read
   // clearly — the selection still works in the background (edits target `i`/selIdx).
   const sceneSelId = sheet === "editor" ? null : picked;
+  // while the block-editor sheet is open OR «Ichini ko'rish» is on, DON'T blue-highlight the block in
+  // 3D — otherwise the blue selection tint masks the live material change / the faded-front interior.
+  const sceneBlockSelId = sheet === "blockEditor" || insideView ? null : selectedBlockId;
   const coveringColor = FLOOR_COVERINGS[floorCovering]?.color ?? "#ecd9b4";
   const floorId = FLOOR_COVERINGS[floorCovering]?.id;
 
@@ -450,7 +460,8 @@ export function ConfigScreen() {
             style={runStyle}
             cabs={cabs}
             projectBlocks={projectBlocks}
-            selectedBlockId={selectedBlockId}
+            selectedBlockId={sceneBlockSelId}
+            insideViewBlockId={insideView && selBlk ? selBlk.id : null}
             onSelectBlock={setSelectedBlockId}
             onBlockMove={setBlockPosition}
             mode={mode}
@@ -670,10 +681,16 @@ export function ConfigScreen() {
             </>
           ) : selBlk ? (
             <>
-              {/* karkas block — the SAME toolbar treatment a cabinet gets (edit / duplicate / delete) */}
-              <button className="tool-btn" onClick={() => { useKarkas.getState().importProject(selBlk.karkasJson, selBlk.id); setSelectedBlockId(null); }} type="button">
+              {/* karkas block — the SAME toolbar treatment a cabinet gets (edit / duplicate / delete).
+                  "Tahrirlash" opens an in-place sheet FIRST (like a cabinet), not a jump to the karkas
+                  editor — the karkas editor opens from inside the sheet. */}
+              <button className="tool-btn" onClick={() => setSheet("blockEditor")} type="button">
                 <span className="ico"><IconEditItem /></span>
                 <span className="lbl">{t.config.edit}</span>
+              </button>
+              <button className="tool-btn" onClick={() => setInsideView((v) => !v)} type="button" style={insideView ? { color: "var(--accent)" } : undefined}>
+                <span className="ico" style={{ fontSize: 22, lineHeight: "32px" }}>👁</span>
+                <span className="lbl">{insideView ? "Ichi ✓" : "Ichini ko'rish"}</span>
               </button>
               <button className="tool-btn" onClick={() => addProjectBlock(`${selBlk.name} (nusxa)`, selBlk.karkasJson)} type="button">
                 <span className="ico"><IconDuplicateItem /></span>
@@ -860,6 +877,40 @@ export function ConfigScreen() {
                   closeSheet();
                 }}
                 flash={flash}
+              />
+            )}
+
+            {sheet === "blockEditor" && selBlk && (
+              <KarkasBlockEditor
+                name={selBlk.name}
+                karkasJson={selBlk.karkasJson}
+                insideView={insideView}
+                onToggleInside={() => setInsideView((v) => !v)}
+                onClose={closeSheet}
+                onOpenKarkas={() => { useKarkas.getState().importProject(selBlk.karkasJson, selBlk.id); setSelectedBlockId(null); closeSheet(); }}
+                onDuplicate={() => { addProjectBlock(`${selBlk.name} (nusxa)`, selBlk.karkasJson); flash("Nusxa qo'shildi ✓"); }}
+                onSaveToLibrary={() => { saveKarkasToLibrary(selBlk.name, selBlk.karkasJson); flash(`${t.fe.saveToLibrary} ✓`); }}
+                onResize={(dim, mm) => {
+                  // resize the block's StructuralModel in place (Ш/В/Г → engine reflow) + re-save the JSON
+                  try {
+                    const parsed = JSON.parse(selBlk.karkasJson) as { model: StructuralModel };
+                    const bid = parsed.model.blocks[0]?.id;
+                    if (!bid) return;
+                    const mm10 = Math.max(1, Math.round(mm)) * 10;
+                    const model = dim === "w" ? resizeBlockWidth(parsed.model, bid, mm10) : dim === "h" ? resizeBlockHeight(parsed.model, bid, mm10) : resizeBlockDepth(parsed.model, bid, mm10);
+                    updateProjectBlock(selBlk.id, JSON.stringify({ ...parsed, model }));
+                  } catch { /* malformed block — ignore the resize */ }
+                }}
+                onSetMaterial={(componentId, boardId) => {
+                  // inline per-element material — the SAME pure engine ops the karkas editor uses
+                  // (material also carries its board thickness). Re-serialize + re-save; the room re-solves.
+                  try {
+                    const parsed = JSON.parse(selBlk.karkasJson) as { model: StructuralModel };
+                    let model = setComponentMaterial(parsed.model, componentId, boardId);
+                    model = setComponentThickness(model, componentId, boardThicknessMm10(boardId));
+                    updateProjectBlock(selBlk.id, JSON.stringify({ ...parsed, model }));
+                  } catch { /* malformed block — ignore */ }
+                }}
               />
             )}
 

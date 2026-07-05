@@ -12,6 +12,7 @@ import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
 import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup } from "./structureRenderer";
+import { tagFacades, fadeFacades } from "./karkasLayer";
 import { sceneDimsMm } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
 import { BOARDS, EDGES, boardForRole, partColorLookup, type MaterialPlan } from "./materials";
@@ -65,6 +66,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const remove = useKarkas((s) => s.remove);
   const setThickness = useKarkas((s) => s.setThickness);
   const setMaterial = useKarkas((s) => s.setMaterial);
+  const setPlanMaterialTop = useKarkas((s) => s.setPlanMaterial);
   const setHinge = useKarkas((s) => s.setHinge);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
@@ -82,6 +84,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const fromCabinet = useKarkas((s) => s.fromCabinet);
   const [showSpec, setShowSpec] = useState(false);
   const [showTree, setShowTree] = useState(false);
+  // «Ichini ko'rish» — fade the fronts so the interior shows. Default ON in the editor (like imos's
+  // always-transparent Article Designer) so you always see the structure you're building.
+  const [insideView, setInsideView] = useState(true);
+  const insideRef = useRef(insideView);
+  insideRef.current = insideView;
   // compact toolbar: which dropdown (add-variants / overflow) is open
   const [menu, setMenu] = useState<null | "polka" | "eshik" | "more">(null);
   useEffect(() => {
@@ -248,6 +255,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     if (!r) return;
     if (r.group) { r.scene.remove(r.group); disposeStructureGroup(r.group); }
     const group = buildStructureGroup(scene, colorRef.current);
+    tagFacades(group, parts); // «Ichini ko'rish» — mark fronts, then apply the current fade state
+    fadeFacades(group, insideRef.current);
     r.scene.add(group);
     r.group = group;
     highlightBoard(group, selectedId);
@@ -288,6 +297,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorFn]);
+
+  // ── «Ichini ko'rish» — fade/restore the fronts when the toggle changes (no rebuild) ──
+  useEffect(() => {
+    if (rt.current?.group) { fadeFacades(rt.current.group, insideView); rt.current.renderer.render(rt.current.scene, rt.current.camera); }
+  }, [insideView]);
 
   const dims = sceneDimsMm(scene);
   return (
@@ -344,7 +358,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowDivide((v) => !v)} type="button">⊟ Bo'lish…</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
-        <button style={{ ...act, marginLeft: "auto", borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
+        <button style={{ ...act, marginLeft: "auto", ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
+        <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
         <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spec</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC</button>
       </div>
@@ -403,6 +418,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button style={{ ...act, borderColor: "#d1495b", background: "#fbe4e8", color: "#a01a2e" }} onClick={remove} type="button">🗑 O'chirish</button>
         </div>
       )}
+      {/* A CARCASS part (bok / верх / низ / задняя / перегородка) isn't a user-added instance, so it
+          has no per-part component — but its material still belongs to a plan slot (Корпус / Задняя).
+          Show that slot's material picker here so selecting ANY part offers an edit (not just drawers
+          / shelves / doors). It applies to the WHOLE carcass, so we say so. */}
+      {!selComp && selectedId && (() => {
+        const part = parts.find((p) => p.id === selectedId);
+        const carcassRoles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back"];
+        if (!part || !carcassRoles.includes(part.role ?? "")) return null;
+        const slot: "carcass" | "back" = part.role === "carcass_back" ? "back" : "carcass";
+        return (
+          <div style={selBar}>
+            <span style={mono}>{part.name}</span>
+            <span style={badge}>karkas</span>
+            <span style={{ ...mono, marginLeft: 6 }}>Material:</span>
+            <select value={plan[slot]} onChange={(e) => setPlanMaterialTop(slot, e.target.value)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 160 }}>
+              {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+            <span style={{ ...mono, fontSize: 10, color: "#8a8a8a", marginLeft: 6 }}>butun karkasga</span>
+          </div>
+        );
+      })()}
       {/* Phase 6 — non-blocking engineering warnings (stability / motion / hinge) */}
       {warnings.length > 0 && (
         <div style={warnBar}>

@@ -16,7 +16,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { makeRoom, makeWoodTexture, type WallInfo } from "./ThreeScene";
 import { PBR, applyPbrFloor, onTexturesReady } from "./pbr";
 import { buildKitchen } from "./kitchen3d";
-import { buildProjectBlocksGroup } from "./karkasLayer";
+import { buildProjectBlocksGroup, blockDimsMm, setBlockInsideView } from "./karkasLayer";
 import { planRuns, type KitchenLayout } from "../model/runPlan";
 import { polygonBoundsMm, offsetPolygon, type Pt, type Opening, type Fitting } from "../model/room";
 import { cabFootprints, halfExtents, footsOverlap, objectOverlapIds, type Foot } from "../model/footprint";
@@ -42,7 +42,7 @@ export interface SceneApi {
   /** move/rotate the live selected module group (px/pz absolute mm, rot degrees) */
   applyTransform: (id: string, pxMm: number, pzMm: number, rotDeg: number, depthM: number) => void;
   /** D3b.4 — live-move a karkas block group to room-centre-relative x/z (mm). */
-  applyBlockTransform: (id: string, xMm: number, zMm: number) => void;
+  applyBlockTransform: (id: string, xMm: number, zMm: number, rotDeg?: number) => void;
   /** live-resize preview: rebuild the kitchen with one module's width/height overridden
    *  (real geometry via buildKitchen, so it matches the commit exactly — no jump) */
   previewResize: (id: string, wMm?: number, hMm?: number) => void;
@@ -50,6 +50,7 @@ export interface SceneApi {
   setUpperY: (id: string, dyM: number) => void;
   /** tint a module's meshes: a hex colour (red warn / blue selected) or null to clear */
   setTint: (id: string, color: number | null) => void;
+  setInsideView: (id: string | null) => void;
   /** screen pixels per world metre (vertical) at a world point — for the up/down drag */
   pxPerMeterY: (x: number, y: number, z: number) => number;
   rect: () => DOMRect;
@@ -119,25 +120,6 @@ function highlightCab(root: THREE.Object3D, id: string | null) {
 }
 
 /** D3b — blue emissive tint on the selected karkas block group (matches highlightCab). */
-function highlightBlock(root: THREE.Object3D, id: string | null) {
-  if (!id) return;
-  for (const child of root.children) {
-    if (child.userData.karkasBlockId !== id) continue;
-    child.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const mm of mats) {
-        const m = mm as THREE.MeshStandardMaterial;
-        if ("emissive" in m) {
-          m.emissive = new THREE.Color(0x2a6df0);
-          m.emissiveIntensity = 0.5;
-          m.needsUpdate = true;
-        }
-      }
-    });
-  }
-}
 
 // gizmo geometry (CSS px / metres) — handle radius, ring radius, icon scale, lift
 const HANDLE_R = 17;
@@ -295,6 +277,7 @@ export function VariantScene({
   openIds,
   selectedId = null,
   selectedBlockId = null,
+  insideViewBlockId = null,
   onSelectCab,
   onSelectBlock,
   onBlockMove,
@@ -318,7 +301,9 @@ export function VariantScene({
   style: KitchenStyle;
   cabs: Cabinet[];
   /** Phase D — karkas blocks placed into the project, rendered as a parallel layer (optional). */
-  projectBlocks?: readonly { karkasJson: string; x?: number; z?: number; id?: string }[];
+  projectBlocks?: readonly { id: string; karkasJson: string; x: number; z: number; rot?: number }[];
+  /** «Ichini ko'rish» — block id whose front panels are faded so the interior shows (or null). */
+  insideViewBlockId?: string | null;
   /** constructor render style — defaults to realistic (other screens omit it) */
   mode?: RenderMode;
   /** camera framing — 3/4 orbit or top-down plan (constructor only) */
@@ -334,8 +319,8 @@ export function VariantScene({
   /** D3b — the selected karkas project block id (blue-highlighted in the room). */
   selectedBlockId?: string | null;
   onSelectBlock?: (id: string | null) => void;
-  /** D3b.4 — commit a dragged block to a new room-centre-relative x/z (mm). */
-  onBlockMove?: (id: string, xMm: number, zMm: number) => void;
+  /** D3b.4 — commit a dragged block to a new room-centre-relative x/z (mm) + optional floor rotation (deg). */
+  onBlockMove?: (id: string, xMm: number, zMm: number, rotDeg?: number) => void;
   /** tap a module → its id (or null when tapping empty space) */
   onSelectCab?: (id: string | null) => void;
   /** commit a free plan transform (move/rotate) — same path the 2D plan uses */
@@ -383,7 +368,7 @@ export function VariantScene({
   const vertGuideRef = useRef<SVGLineElement>(null);
   const gizmoScreenRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef<Drag | null>(null);
-  const blockDragRef = useRef<{ id: string; downX: number; downZ: number; x0: number; z0: number; halfX: number; halfZ: number; lastX?: number; lastZ?: number } | null>(null); // D3b.4
+  const blockDragRef = useRef<{ id: string; downX: number; downZ: number; x0: number; z0: number; halfX: number; halfZ: number; rot: number; lastX?: number; lastZ?: number } | null>(null); // D3b.4
   // camera-walk joystick: the live push vector (−1..1) the render loop reads each frame
   const navRef = useRef({ x: 0, z: 0 });
   const joyRef = useRef<HTMLDivElement>(null);
@@ -399,18 +384,33 @@ export function VariantScene({
   onReadyRef.current = onReady;
 
   // keep latest room inputs without re-initialising the scene
-  const propsRef = useRef({ points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId, selectedBlockId });
-  propsRef.current = { points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId, selectedBlockId };
+  const propsRef = useRef({ points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId, selectedBlockId, insideViewBlockId });
+  propsRef.current = { points, ceiling, openings, coveringColor, floorId, interiorWalls, fittings, wallSurfaces, waterWall, layout, mode, view, selectedId, selectedBlockId, insideViewBlockId };
 
   // footprints + selection geometry, recomputed when the run/selection changes
   const geomRef = useRef<Geom | null>(null);
   {
     const b = polygonBoundsMm(points);
     const foots = cabFootprints(cabs, points, waterWall, layout, openings);
-    const selFoot = selectedId ? foots.find((f) => f.id === selectedId) : undefined;
+    // D3b — a placed karkas block is a first-class Foot too, so a cabinet ↔ block clash (red), the
+    // wall/neighbour snap, and the selection gizmo all treat it EXACTLY like a module. Its footprint
+    // comes from the solved model (memoised); Foot.cx/cy are absolute mm (block x/z + room centre).
+    for (const blk of projectBlocks) {
+      const dims = blockDimsMm(blk.karkasJson);
+      if (!dims) continue;
+      const rot = blk.rot ?? 0;
+      const r = rot / DEG;
+      const ux = Math.cos(r), uy = Math.sin(r), ix = -Math.sin(r), iy = Math.cos(r);
+      foots.push({ id: blk.id, appliance: "none", cx: blk.x + b.cx, cy: blk.z + b.cy, ux, uy, ix, iy, w: dims.w, depth: dims.depth, rotDeg: rot, upper: false, ...halfExtents(ux, uy, ix, iy, dims.w, dims.depth) });
+    }
+    const selBlk = selectedBlockId ? projectBlocks.find((x) => x.id === selectedBlockId) : undefined;
+    const selBlkDims = selBlk ? blockDimsMm(selBlk.karkasJson) : null;
+    // the selected module OR block drives the gizmo. A block stands on the floor (mountY 0) and is
+    // never resized in-room (dims live in the karkas editor → resize opens it).
+    const selFoot = (selectedId ? foots.find((f) => f.id === selectedId) : undefined) ?? (selBlk ? foots.find((f) => f.id === selBlk.id) : undefined);
     const selCab = selectedId ? cabs.find((c) => c.id === selectedId) : undefined;
-    const selMountY = selCab?.mountY ?? UPPER_BOTTOM_MM;
-    const selH = selCab?.h ?? 720;
+    const selMountY = selBlk ? 0 : (selCab?.mountY ?? UPPER_BOTTOM_MM);
+    const selH = selBlk ? (selBlkDims?.h ?? 720) : (selCab?.h ?? 720);
     // candidate snap heights for the up/down drag: align the dragged unit's bottom to
     // other wall units' bottoms (and its top to their tops), plus the default level
     const upperLevels: number[] = [];
@@ -701,7 +701,12 @@ export function VariantScene({
         if (dr.mode === "vertical") cb2.onMountY?.(dr.id, dr.mountY); // patchCab → own undo step
         else if (dr.mode === "resizeW") cb2.onResize?.(dr.id, { w: dr.liveW });
         else if (dr.mode === "resizeH") cb2.onResize?.(dr.id, { h: dr.liveH });
-        else if (cb2.onMovePlan) {
+        else if (propsRef.current.selectedBlockId === dr.id) {
+          // a karkas block moved/rotated via the shared gizmo → commit to the block store (abs mm →
+          // room-centre-relative), NOT the cabinet plan path.
+          const g = geomRef.current;
+          cb2.onBlockMove?.(dr.id, Math.round(dr.px - (g?.cx ?? 0)), Math.round(dr.pz - (g?.cy ?? 0)), Math.round(dr.rot));
+        } else if (cb2.onMovePlan) {
           cb2.onBeginEdit?.(); // one undo step for the whole gesture
           cb2.onMovePlan(dr.id, { px: dr.px, pz: dr.pz, rot: dr.rot });
         }
@@ -874,6 +879,29 @@ export function VariantScene({
       }
     };
 
+    // same emissive tint, but for a placed karkas block (parallel layer, keyed by karkasBlockId).
+    const tintBlock = (id: string, color: number | null) => {
+      if (!karkasLayer) return;
+      for (const child of karkasLayer.children) {
+        if (child.userData.karkasBlockId !== id) continue;
+        child.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const mm of mats) {
+            const m = mm as THREE.MeshStandardMaterial;
+            if ("emissive" in m) {
+              m.emissive = color === RED ? REDC : color === BLUE ? BLUEC : BLACKC;
+              m.emissiveIntensity = color == null ? 0 : 0.5;
+              m.needsUpdate = true;
+            }
+          }
+        });
+      }
+    };
+    // one tint entry point for the gizmo/drag code — cab and block ids are disjoint, so try both.
+    const tintAny = (id: string, color: number | null) => { tintCab(id, color); tintBlock(id, color); };
+
     // open/close a module's doors + drawers (amount 0..1): hinge doors, slide drawers
     const applyOpen = (id: string, amount: number) => {
       const grp = kitchen?.children.find((o) => o.userData.cabId === id);
@@ -937,7 +965,8 @@ export function VariantScene({
         const m = o as THREE.Mesh;
         if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; }
       });
-      highlightBlock(karkasLayer, propsRef.current.selectedBlockId); // D3b — re-tint the selected block
+      if (propsRef.current.selectedBlockId) tintBlock(propsRef.current.selectedBlockId, BLUE); // D3b — blue-highlight the selected block (1:1 with a cabinet)
+      if (propsRef.current.insideViewBlockId) setBlockInsideView(karkasLayer, propsRef.current.insideViewBlockId, true); // «Ichini ko'rish» survives a rebuild
       scene.add(karkasLayer);
       invalidate();
     };
@@ -1160,7 +1189,7 @@ export function VariantScene({
           const child = karkasLayer.children.find((o) => o.userData.karkasBlockId === selId);
           const w = floorAt(e.clientX, e.clientY);
           if (child && w) {
-            blockDragRef.current = { id: selId, downX: w.x, downZ: w.z, x0: (child.userData.karkasX as number) ?? 0, z0: (child.userData.karkasZ as number) ?? 0, halfX: (child.userData.blockHalfX as number) ?? 300, halfZ: (child.userData.blockHalfZ as number) ?? 300 };
+            blockDragRef.current = { id: selId, downX: w.x, downZ: w.z, x0: (child.userData.karkasX as number) ?? 0, z0: (child.userData.karkasZ as number) ?? 0, halfX: (child.userData.blockHalfX as number) ?? 300, halfZ: (child.userData.blockHalfZ as number) ?? 300, rot: (child.userData.karkasRot as number) ?? 0 };
             controls.enabled = false;
             // capture the pointer so a release OFF the canvas still fires onUp (else the drag
             // strands: controls stay disabled + the move never commits). Mirrors the gizmo's
@@ -1182,15 +1211,18 @@ export function VariantScene({
       // the block's centre-relative coords by the room centre (g.cx/cy), snap, then shift back.
       const g = geomRef.current;
       if (g) {
-        const absX = bx + g.cx, absZ = bz + g.cy;
-        const foot: Foot = { id: d.id, appliance: "none", cx: absX, cy: absZ, ux: 1, uy: 0, ix: 0, iy: 1, w: 2 * d.halfX, depth: 2 * d.halfZ, rotDeg: 0, upper: false, ...halfExtents(1, 0, 0, 1, 2 * d.halfX, 2 * d.halfZ) };
-        const s = snapMove(foot, absX, absZ, g, { magnet: cbRef.current.magnet });
+        const r = d.rot / DEG;
+        const ux = Math.cos(r), uy = Math.sin(r), ix = -Math.sin(r), iy = Math.cos(r);
+        const mkFoot = (absX: number, absZ: number): Foot => ({ id: d.id, appliance: "none", cx: absX, cy: absZ, ux, uy, ix, iy, w: 2 * d.halfX, depth: 2 * d.halfZ, rotDeg: d.rot, upper: false, ...halfExtents(ux, uy, ix, iy, 2 * d.halfX, 2 * d.halfZ) });
+        const s = snapMove(mkFoot(bx + g.cx, bz + g.cy), bx + g.cx, bz + g.cy, g, { magnet: cbRef.current.magnet });
         bx = Math.round(s.x - g.cx);
         bz = Math.round(s.y - g.cy);
+        // live overlap warning — tint the dragged block red when it clashes with a cabinet/other block
+        tintClash(g, d.id, mkFoot(bx + g.cx, bz + g.cy));
       }
       d.lastX = bx;
       d.lastZ = bz;
-      apiRef.current?.applyBlockTransform(d.id, bx, bz);
+      apiRef.current?.applyBlockTransform(d.id, bx, bz, d.rot);
     };
     const onUp = (e: PointerEvent) => {
       // D3b.4 — commit a block drag and swallow the pick
@@ -1254,6 +1286,16 @@ export function VariantScene({
       },
       project: (x, y, z) => project(tmpV.set(x, y, z)),
       applyTransform: (id, pxMm, pzMm, rotDeg, depthM) => {
+        // a karkas block moved via the shared gizmo: its pivot is centre-based (no back/depth offset
+        // like a cabinet), so re-place the centre at (px,pz) and spin it about that centre.
+        const blk = karkasLayer?.children.find((o) => o.userData.karkasBlockId === id);
+        if (blk) {
+          const bb = polygonBoundsMm(propsRef.current.points);
+          blk.position.x = (pxMm - bb.cx) / 1000;
+          blk.position.z = (pzMm - bb.cy) / 1000;
+          blk.rotation.y = -(rotDeg * Math.PI) / 180;
+          return;
+        }
         if (!kitchen) return;
         const child = kitchen.children.find((o) => o.userData.cabId === id);
         if (!child) return;
@@ -1266,13 +1308,15 @@ export function VariantScene({
         const vz = (pzMm - b.cy) / 1000;
         child.position.set(vx - fwdX * (depthM / 2), 0, vz - fwdZ * (depthM / 2));
       },
-      applyBlockTransform: (id, xMm, zMm) => {
+      applyBlockTransform: (id, xMm, zMm, rotDeg) => {
         if (!karkasLayer) return;
         const child = karkasLayer.children.find((o) => o.userData.karkasBlockId === id);
         if (!child) return;
-        // x/z are room-centre-relative mm (world origin); re-place the block centre there
+        // x/z are room-centre-relative mm (world origin); re-place the block centre there. The pivot
+        // group is centred on the block, so no bbox offset is needed (blockCenterX/Z are 0).
         child.position.x = xMm / 1000 - (child.userData.blockCenterX ?? 0);
         child.position.z = zMm / 1000 - (child.userData.blockCenterZ ?? 0);
+        if (rotDeg != null) child.rotation.y = -(rotDeg * Math.PI) / 180;
         invalidate();
       },
       previewResize: (id, wMm, hMm) => {
@@ -1288,7 +1332,13 @@ export function VariantScene({
         const child = kitchen.children.find((o) => o.userData.cabId === id);
         if (child) child.position.y = dyM;
       },
-      setTint: tintCab,
+      setTint: tintAny,
+      setInsideView: (id: string | null) => {
+        if (!karkasLayer) return;
+        setBlockInsideView(karkasLayer, null, false); // restore every block first
+        if (id) setBlockInsideView(karkasLayer, id, true);
+        invalidate();
+      },
       pxPerMeterY: (x, y, z) => {
         const a = project(tmpV.set(x, y, z));
         const b = project(tmpV.set(x, y + 1, z));
@@ -1353,6 +1403,11 @@ export function VariantScene({
   useEffect(() => {
     apiRef.current?.setKarkasBlocks(projectBlocks);
   }, [projectBlocks, selectedBlockId]);
+
+  // «Ichini ko'rish» — fade the target block's fronts (no rebuild) whenever the toggle changes
+  useEffect(() => {
+    apiRef.current?.setInsideView(insideViewBlockId);
+  }, [insideViewBlockId]);
 
   // 3D ⇄ plan camera framing
   useEffect(() => {
