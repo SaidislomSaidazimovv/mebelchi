@@ -103,6 +103,8 @@ export interface ProjectBlock {
   karkasJson: string;
   x: number;
   z: number;
+  /** floor rotation in degrees (like a cabinet's `rot`); absent = 0 */
+  rot?: number;
 }
 
 export interface AppState {
@@ -160,8 +162,8 @@ export interface AppState {
   removeProjectBlock: (id: string) => void;
   /** Update a placed block's karkas JSON in place (Phase E — edit, not duplicate). Keeps id/name/pos. */
   updateProjectBlock: (id: string, json: string) => void;
-  /** Move a placed karkas block to a room position (block-centre X/Z, mm) — D3. */
-  setBlockPosition: (id: string, x: number, z: number) => void;
+  /** Move a placed karkas block to a room position (block-centre X/Z, mm) + optional floor rotation (deg) — D3. */
+  setBlockPosition: (id: string, x: number, z: number, rot?: number) => void;
   /** The last block removed from the room, kept so a delete can be undone. Cleared on restore. */
   lastDeletedBlock: ProjectBlock | null;
   /** Put the last-deleted block back into the room (undo a whole-block delete). */
@@ -1272,8 +1274,8 @@ export const useStore = create<AppState>((set, get) => ({
   dismissLastDeleted: () => set({ lastDeletedBlock: null }),
   updateProjectBlock: (id, json) =>
     set((s) => ({ projectBlocks: s.projectBlocks.map((b) => (b.id === id ? { ...b, karkasJson: json } : b)) })),
-  setBlockPosition: (id, x, z) =>
-    set((s) => ({ projectBlocks: s.projectBlocks.map((b) => (b.id === id ? { ...b, x, z } : b)) })),
+  setBlockPosition: (id, x, z, rot) =>
+    set((s) => ({ projectBlocks: s.projectBlocks.map((b) => (b.id === id ? { ...b, x, z, ...(rot !== undefined ? { rot } : {}) } : b)) })),
   removeLibraryItem: (id) => {
     deleteLibraryItem(id);
     // TODO: Supabase sync (phase 2) — mirror the delete to the cloud here

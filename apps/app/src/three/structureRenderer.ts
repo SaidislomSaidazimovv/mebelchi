@@ -27,6 +27,10 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
       new THREE.EdgesGeometry(geom),
       new THREE.LineBasicMaterial({ color: EDGE }),
     );
+    // Lines raycast with a default 1-unit (= 1 METRE here) threshold, so a click up to ~1m off a
+    // board would still "hit" its outline — grabbing/selecting the block from empty space. The
+    // outline is purely decorative → exclude it from raycasts so only the solid boards are pickable.
+    edges.raycast = () => {};
     mesh.add(edges);
     group.add(mesh);
   }
