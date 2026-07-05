@@ -57,6 +57,9 @@ export function buildProjectBlocksGroup(
       g.userData.blockCenterZ = ctr.z;
       g.userData.karkasX = xMm; // logical room x/z (mm) at drag start
       g.userData.karkasZ = zMm;
+      // half-extents (mm) of the footprint — lets the room drag snap/clamp the block like a cabinet
+      g.userData.blockHalfX = Math.round(((box.max.x - box.min.x) / 2) * 1000);
+      g.userData.blockHalfZ = Math.round(((box.max.z - box.min.z) / 2) * 1000);
       root.add(g);
     } catch {
       /* skip an unrenderable block rather than break the shared room scene */

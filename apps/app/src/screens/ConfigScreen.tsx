@@ -80,6 +80,7 @@ export function ConfigScreen() {
   const myLibrary = useStore((s) => s.myLibrary);
   const projectBlocks = useStore((s) => s.projectBlocks);
   const removeProjectBlock = useStore((s) => s.removeProjectBlock);
+  const addProjectBlock = useStore((s) => s.addProjectBlock);
   const restoreLastBlock = useStore((s) => s.restoreLastBlock);
   const dismissLastDeleted = useStore((s) => s.dismissLastDeleted);
   const lastDeletedBlock = useStore((s) => s.lastDeletedBlock);
@@ -224,6 +225,9 @@ export function ConfigScreen() {
   const i = selIdx >= 0 && selIdx < cabs.length ? selIdx : 0;
   const sel = picked ? cabs.find((c) => c.id === picked) ?? null : null;
   const selIndex = picked ? cabs.findIndex((c) => c.id === picked) : -1;
+  // the selected room karkas block (mutually exclusive with a picked cabinet) — drives the SAME
+  // bottom toolbar + info card treatment a cabinet gets, so a block behaves like every other block.
+  const selBlk = selectedBlockId ? projectBlocks.find((b) => b.id === selectedBlockId) ?? null : null;
   // while the module editor sheet is open, HIDE the on-cabinet selection UI (blue highlight,
   // dimension arrows, move/resize handles) in every view so material/handle changes read
   // clearly — the selection still works in the background (edits target `i`/selIdx).
@@ -502,27 +506,8 @@ export function ConfigScreen() {
           />
         )}
 
-        {/* D3b — selected room karkas block: full control bar at parity with a kitchen module
-            (name · edit · delete-with-confirm · deselect). */}
-        {selectedBlockId && !lastDeletedBlock && projectBlocks.some((b) => b.id === selectedBlockId) && (() => {
-          const blk = projectBlocks.find((b) => b.id === selectedBlockId)!;
-          return (
-            <div style={{ position: "absolute", left: "50%", bottom: 88, transform: "translateX(-50%)", display: "flex", gap: 8, alignItems: "center", zIndex: 20, background: "rgba(255,255,255,0.96)", borderRadius: 999, padding: "6px 8px 6px 15px", boxShadow: "0 6px 20px rgba(0,0,0,0.14)", border: "1px solid #e3ddcf" }}>
-              <span style={{ font: "700 13px system-ui", color: "#2b2b2b", whiteSpace: "nowrap" }}>🧩 {blk.name}</span>
-              <button
-                onClick={() => { useKarkas.getState().importProject(blk.karkasJson, blk.id); setSelectedBlockId(null); }}
-                style={{ padding: "8px 14px", borderRadius: 999, border: "1px solid #4b74c9", background: "#e0e8f7", color: "#1f478a", font: "700 13px system-ui", cursor: "pointer" }}
-                type="button"
-              >🔧 Tahrirlash</button>
-              <button
-                onClick={() => { if (window.confirm(`"${blk.name}" bloki xonadan butunlay o'chiriladi. Davom etasizmi?`)) { removeProjectBlock(blk.id); setSelectedBlockId(null); } }}
-                style={{ padding: "8px 14px", borderRadius: 999, border: "1px solid #d1495b", background: "#fbe4e8", color: "#a01a2e", font: "700 13px system-ui", cursor: "pointer" }}
-                type="button"
-              >🗑 O'chirish</button>
-              <button onClick={() => setSelectedBlockId(null)} style={{ padding: "8px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "#fff", color: "#5c6a61", font: "600 13px system-ui", cursor: "pointer" }} type="button">✕</button>
-            </div>
-          );
-        })()}
+        {/* (A selected karkas block now uses the shared bottom .toolbar-row + .item-card, exactly like
+            a cabinet — see below. The old floating pill was removed for parity.) */}
 
         {/* Undo a whole-block delete — a transient toast with a restore action (task 3) */}
         {lastDeletedBlock && (
@@ -533,8 +518,8 @@ export function ConfigScreen() {
           </div>
         )}
 
-        {/* selected-module info card */}
-        {sel && (
+        {/* selected-module info card (a cabinet shows name/desc/dims; a karkas block shows its name) */}
+        {sel ? (
           <div className="item-card">
             <div className="item-card-name">
               {labelFor(sel)}
@@ -543,7 +528,12 @@ export function ConfigScreen() {
             <div className="item-card-desc">{subFor(sel)}</div>
             <div className="item-card-dim">{sel.w} × {sel.h} {t.config.mm}</div>
           </div>
-        )}
+        ) : selBlk ? (
+          <div className="item-card">
+            <div className="item-card-name">🧩 {selBlk.name}</div>
+            <div className="item-card-desc">Karkas blok</div>
+          </div>
+        ) : null}
 
         {/* contextual "fill empty space" — only when the selected module borders a gap */}
         {fillSpan && sel && (
@@ -674,6 +664,22 @@ export function ConfigScreen() {
                 <span className="lbl">{t.config.duplicate}</span>
               </button>
               <button className="tool-btn" onClick={delSel} type="button">
+                <span className="ico"><IconDeleteItem /></span>
+                <span className="lbl">{t.config.del}</span>
+              </button>
+            </>
+          ) : selBlk ? (
+            <>
+              {/* karkas block — the SAME toolbar treatment a cabinet gets (edit / duplicate / delete) */}
+              <button className="tool-btn" onClick={() => { useKarkas.getState().importProject(selBlk.karkasJson, selBlk.id); setSelectedBlockId(null); }} type="button">
+                <span className="ico"><IconEditItem /></span>
+                <span className="lbl">{t.config.edit}</span>
+              </button>
+              <button className="tool-btn" onClick={() => addProjectBlock(`${selBlk.name} (nusxa)`, selBlk.karkasJson)} type="button">
+                <span className="ico"><IconDuplicateItem /></span>
+                <span className="lbl">{t.config.duplicate}</span>
+              </button>
+              <button className="tool-btn" onClick={() => { if (window.confirm(`"${selBlk.name}" bloki xonadan butunlay o'chiriladi. Davom etasizmi?`)) { removeProjectBlock(selBlk.id); setSelectedBlockId(null); } }} type="button">
                 <span className="ico"><IconDeleteItem /></span>
                 <span className="lbl">{t.config.del}</span>
               </button>
