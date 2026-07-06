@@ -5,7 +5,7 @@
 // for each shelf position along X, drill a front-row and a back-row Ø-pin hole on
 // Face A. The rows are set back from the panel's Y edges by the System-32 setbacks.
 
-import type { mm10, DrillOp } from "../contracts/types.js";
+import type { mm10, DrillOp, PanelFace } from "../contracts/types.js";
 import { mmToMm10 } from "../core/units.js";
 import type { Panel, ShelfPinSpec, System32Spec } from "./types.js";
 
@@ -13,6 +13,9 @@ export function shelfPinPattern(
   sidePanel: Panel,
   shelfPositionsX: mm10[],
   spec: { pin: ShelfPinSpec; system32: System32Spec },
+  /** which face to drill — a divider carries a shelf column on EACH side, so it is drilled on both
+   *  faces (one per adjacent column). An outer side is drilled on its inner face only (default A). */
+  face: PanelFace = "A",
 ): DrillOp[] {
   const diameter = mmToMm10(spec.pin.diameter);
   const depth = mmToMm10(spec.pin.depth);
@@ -25,8 +28,8 @@ export function shelfPinPattern(
     for (const y of [frontY, backY]) {
       ops.push({
         op: "drill",
-        id: `pin_${sidePanel.id}_${seq++}`,
-        face: "A",
+        id: `pin_${sidePanel.id}_${face}_${seq++}`,
+        face,
         x_mm10: x,
         y_mm10: y,
         diameter_mm10: diameter,

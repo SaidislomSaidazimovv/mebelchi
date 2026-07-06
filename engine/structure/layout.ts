@@ -27,6 +27,7 @@ import {
   GLAZED_FRAME_W,
   GLAZED_MUNTIN_W,
   sectionOfLine,
+  shelfSpanX,
 } from "./solve.js";
 
 /** A panel placed in the cabinet: position + size in mm10 (block-local; X=width, Y=height, Z=depth). */
@@ -158,13 +159,16 @@ function shelfPlacement(block: Block, inst: Instance): PanelPlacement | null {
   const component = componentById(block, inst.componentId);
   if (!section || !component || component.role !== "internal_shelf") return null;
   const s = section.box;
+  // Clear span between the bounding panels: a carcass side insets a full board, a divider (centred on
+  // the cut) only half — so the shelf reaches the divider face instead of leaving a half-board gap.
+  const span = shelfSpanX(block, section, B);
   const p = place(
     `${block.id}__inst_${inst.id}`,
     component.name,
-    block.box.x + s.x + B,
+    block.box.x + s.x + span.x0,
     block.box.y + inst.anchor.y,
     block.box.z + s.z,
-    s.w - 2 * B,
+    span.width,
     B,
     s.d,
   );
@@ -192,13 +196,14 @@ function shelfLipPlacement(block: Block, inst: Instance): PanelPlacement | null 
   const component = componentById(block, inst.componentId);
   if (!section || !component || component.role !== "internal_shelf" || !component.lip_mm10) return null;
   const s = section.box;
+  const span = shelfSpanX(block, section, B); // same clear span as the shelf it sits on
   return place(
     `${block.id}__inst_${inst.id}__lip`,
     `${component.name} · борт`,
-    block.box.x + s.x + B, // same X span as the shelf
+    block.box.x + s.x + span.x0, // same X span as the shelf
     block.box.y + inst.anchor.y, // stands up from the shelf's front-bottom edge (the tilt pivot)
     block.box.z + s.z, // FRONT face
-    s.w - 2 * B,
+    span.width,
     component.lip_mm10, // upstand height (Y) — world-vertical, no rotX
     B, // thin strip in depth (Z)
   );
@@ -237,8 +242,12 @@ function drawerBoxPlacement(block: Block, inst: Instance): PanelPlacement[] | nu
   const s = section.box;
   const x0 = block.box.x + s.x, y0 = block.box.y + s.y, z0 = block.box.z + s.z;
   const idBase = `${block.id}__inst_${inst.id}`;
-  const bodyX = x0 + DRAWER_SLIDE_CLEAR_MM10; // left runner clearance
-  const bodyW = s.w - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width between the runners
+  // Body sits inside the CLEAR interior (past the carcass side / divider face) less a runner clearance
+  // each side — matching solve.ts's drawerBoxParts. Old code measured from the section-box edge, so it
+  // ignored the bounding board and overhung the carcass by 2 boards.
+  const span = shelfSpanX(block, section, B);
+  const bodyX = x0 + span.x0 + DRAWER_SLIDE_CLEAR_MM10; // carcass inner face + left runner clearance
+  const bodyW = span.width - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width between the runners
   const innerW = bodyW - 2 * B; // between the two box sides
   const bodyY = y0 + B; // above the bottom clearance
   const sideH = s.h - 2 * B; // box side height within the opening

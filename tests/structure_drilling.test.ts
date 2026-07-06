@@ -13,10 +13,12 @@ import { buildDemoModel } from "../engine/structure/demoModel.js";
 import { solveStructure } from "../engine/structure/solve.js";
 import { solveModelToParts } from "../engine/cnc.js";
 import { validateParts } from "../engine/core/validate.js";
+import type { DrillOp, Part } from "../engine/contracts/types.js";
 
-// The demo block has three internal shelves (anchor heights 2400 / 4800 / 3600).
-const SHELVES = 3;
+// The demo block has three internal shelves: LEFT column 2400 / 4800, RIGHT column 3600.
 const ROWS = 2; // front + back row per shelf
+const pinsOf = (p: Part): DrillOp[] =>
+  p.operations.filter((o): o is DrillOp => o.op === "drill" && (o as DrillOp).diameter_mm10 === 50);
 
 describe("S3-E2 drilling integration", () => {
   it("solveStructure alone leaves every panel blank (drilling is a separate pass)", () => {
@@ -25,30 +27,31 @@ describe("S3-E2 drilling integration", () => {
     expect(parts.every((p) => p.operations.length === 0)).toBe(true);
   });
 
-  it("drills a front+back Ø5 pair per shelf on the side panels (real positions, not a column)", () => {
+  it("drills each side ONLY for the shelves in its own column (not every shelf) — C2", () => {
     const parts = solveModelToParts(buildDemoModel());
-    const sides = parts.filter(
-      (p) => p.id.endsWith("__side_l") || p.id.endsWith("__side_r"),
-    );
-    expect(sides.length).toBe(2);
-    for (const side of sides) {
-      // exactly one front+back Ø5 PIN pair per shelf — NOT a synthesised System-32 column. (The side
-      // also carries Ø15 carcass cams now; filter to the pins so this asserts only the pin pattern.)
-      const pins = side.operations.filter((o) => o.op === "drill" && o.diameter_mm10 === 50);
-      expect(pins.length).toBe(SHELVES * ROWS);
-      expect(pins.every((o) => o.op === "drill" && o.face === "A" && o.depth_mm10 === 110)).toBe(true);
-    }
+    const sl = pinsOf(parts.find((p) => p.id.endsWith("__side_l"))!);
+    const sr = pinsOf(parts.find((p) => p.id.endsWith("__side_r"))!);
+    // left side bounds the left column (2 shelves) → 4 pins; right side the right column (1) → 2 pins
+    expect(sl.length).toBe(2 * ROWS);
+    expect(sr.length).toBe(1 * ROWS);
+    expect([...sl, ...sr].every((o) => o.face === "A" && o.depth_mm10 === 110)).toBe(true);
+    expect(new Set(sl.map((o) => o.x_mm10))).toEqual(new Set([2400, 4800]));
+    expect(new Set(sr.map((o) => o.x_mm10))).toEqual(new Set([3600]));
   });
 
-  it("non-side panels (top/bottom/back/divider/shelf) receive no shelf-pin holes", () => {
+  it("the DIVIDER carries shelf pins for BOTH adjacent columns, on BOTH faces — C1 + C4", () => {
     const parts = solveModelToParts(buildDemoModel());
-    const others = parts.filter(
-      (p) => !p.id.endsWith("__side_l") && !p.id.endsWith("__side_r"),
-    );
+    const div = pinsOf(parts.find((p) => p.id.includes("__div"))!);
+    expect(div.length).toBe((2 + 1) * ROWS); // both columns: 2 left + 1 right shelves
+    expect(div.filter((o) => o.face === "A").length).toBeGreaterThan(0); // one column
+    expect(div.filter((o) => o.face === "B").length).toBeGreaterThan(0); // the other column
+  });
+
+  it("shelves / top / bottom / back get NO shelf pins (only sides + dividers carry pins)", () => {
+    const parts = solveModelToParts(buildDemoModel());
+    const others = parts.filter((p) => !p.id.endsWith("__side_l") && !p.id.endsWith("__side_r") && !p.id.includes("__div"));
     expect(others.length).toBeGreaterThan(0);
-    // no Ø5 shelf pins on non-side panels (top/bottom now carry Ø8 carcass dowels — that's joinery,
-    // not shelf pins, so filter by the Ø5 pin diameter).
-    expect(others.every((p) => p.operations.every((o) => !(o.op === "drill" && o.diameter_mm10 === 50)))).toBe(true);
+    expect(others.every((p) => pinsOf(p).length === 0)).toBe(true);
   });
 
   it("the drilled part set passes the machining safety gate (all holes in bounds)", () => {

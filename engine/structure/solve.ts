@@ -285,6 +285,23 @@ function componentById(block: Block, componentId: string): Component | null {
   return block.components.find((c) => c.id === componentId) ?? null;
 }
 
+/**
+ * The CLEAR span (mm10) a shelf/content occupies inside a section along X — from the inner face of
+ * the LEFT bounding panel to the inner face of the RIGHT one. A block-EDGE boundary is a full carcass
+ * side, so its inner face is one whole board (`board`) inside the section box. An INTERIOR boundary
+ * is a divider CENTRED on the cut, so its face is only HALF a board in. Insetting a fixed whole board
+ * on both sides (the old `w − 2·board`) therefore left a half-board gap wherever a shelf met a
+ * divider. Returns the left inset + the clear width; used by BOTH the cut list (solve) and the render
+ * (layout) so they always agree.
+ */
+export function shelfSpanX(block: Block, section: Section, board: mm10): { x0: mm10; width: mm10 } {
+  const atLeftEdge = section.box.x === block.box.x;
+  const atRightEdge = section.box.x + section.box.w === block.box.x + block.box.w;
+  const li = atLeftEdge ? board : Math.round(board / 2);
+  const ri = atRightEdge ? board : Math.round(board / 2);
+  return { x0: li, width: section.box.w - li - ri };
+}
+
 /** Runner clearance per drawer side (mm10) — the gap the slide occupies between box and carcass. */
 const DRAWER_SLIDE_CLEAR_MM10 = 130;
 
@@ -294,7 +311,11 @@ const DRAWER_SLIDE_CLEAR_MM10 = 130;
 function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
   const idBase = `${block.id}__inst_${inst.id}`;
   const box = section.box;
-  const outerW = box.w - 2 * DRAWER_SLIDE_CLEAR_MM10; // drawer body width between the runners
+  // The drawer body spans the CLEAR interior (between the carcass sides / dividers) less a runner
+  // clearance each side. Using shelfSpanX (not box.w) subtracts the bounding board — a full board at a
+  // carcass side, half at a divider. The old `box.w − 2·clear` forgot the sides entirely, so the box
+  // came out 2 boards (32mm) too wide and collided with the carcass. (Height + depth already inset.)
+  const outerW = shelfSpanX(block, section, t.carcass).width - 2 * DRAWER_SLIDE_CLEAR_MM10;
   const innerW = outerW - 2 * t.carcass; // between the two box sides
   const sideH = box.h - 2 * t.carcass; // box side height within the opening
   return [
@@ -327,7 +348,7 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   }
   // First slice handles shelves; other roles return [] until their step.
   if (component.role === "internal_shelf") {
-    const length = section.box.w - 2 * t.carcass; // span between sides / dividers (X)
+    const length = shelfSpanX(block, section, t.carcass).width; // clear span (sides = full board, dividers = half)
     const width = section.box.d; // depth (Y)
     // Banded on the FRONT edge by default (Face 1 = edges[0]); a user #39 kromka override wins.
     const edges = component.edgeBands ? [...component.edgeBands] as Part["edges"] : frontBand();
