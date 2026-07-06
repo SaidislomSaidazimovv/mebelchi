@@ -99,6 +99,67 @@ function shelvesByBlock(model: StructuralModel): Map<string, { x: mm10; depth: m
   return out;
 }
 
+/** A leaf/section's X-interval within its block (walks all sections). Null if not found. */
+function sectionBoxOf(block: StructuralModel["blocks"][number], sectionId: string): { x: mm10; w: mm10 } | null {
+  for (const zone of block.zones) {
+    let hit: { x: mm10; w: mm10 } | null = null;
+    const walk = (s: { id: string; box: { x: mm10; w: mm10 }; children: readonly unknown[] }): void => {
+      if (hit === null && s.id === sectionId) hit = { x: s.box.x, w: s.box.w };
+      (s.children as { id: string; box: { x: mm10; w: mm10 }; children: readonly unknown[] }[]).forEach(walk);
+    };
+    walk(zone.root as never);
+    if (hit !== null) return hit;
+  }
+  return null;
+}
+
+/** A shelf to the LEFT of a divider drills that divider's face A; a shelf to the RIGHT drills face B.
+ *  (The A/B ↔ physical-side convention is provisional like the rest of this pass — verified:false —
+ *  but the two adjacent columns are consistently kept on DIFFERENT faces, which is the point.) */
+const DIV_FACE_FOR_LEFT_SHELF: PanelFace = "A"; // shelf's RIGHT boundary is this divider
+const DIV_FACE_FOR_RIGHT_SHELF: PanelFace = "B"; // shelf's LEFT boundary is this divider
+
+/**
+ * The correct shelf-pin plan for NON-footprint blocks: `partId → {face, x}[]`. Each shelf is mapped
+ * to the panels that ACTUALLY bound its section along X — the outer carcass side at a block edge, or
+ * the divider at an interior cut — and drilled on the face toward that shelf. This fixes: the divider
+ * being skipped (C1), outer sides drilled for other columns' shelves + a middle-column shelf getting
+ * no pins anywhere (C2), and a divider needing pins on both faces (C4). L-corner blocks are excluded
+ * (the legacy per-side fallback still drives them).
+ */
+function shelfPinPlan(model: StructuralModel): Map<string, { face: PanelFace; x: mm10 }[]> {
+  const plan = new Map<string, { face: PanelFace; x: mm10 }[]>();
+  const add = (id: string, face: PanelFace, x: mm10): void => {
+    const a = plan.get(id) ?? [];
+    a.push({ face, x });
+    plan.set(id, a);
+  };
+  for (const block of model.blocks) {
+    if (block.footprint) continue; // L-corner → legacy fallback in applyDrilling
+    const roleOf = new Map(block.components.map((c) => [c.id, c.role] as const));
+    const interiorL = block.box.x;
+    const interiorR = block.box.x + block.box.w;
+    const xLines = block.lines.filter((l) => l.axis === "x");
+    const dividerIdAt = (X: mm10): string | null => {
+      const ln = xLines.find((l) => l.position_mm10 === X);
+      return ln ? `${block.id}__div_${ln.id}` : null;
+    };
+    for (const inst of block.instances) {
+      if (roleOf.get(inst.componentId) !== "internal_shelf") continue;
+      const box = sectionBoxOf(block, inst.sectionId);
+      if (!box) continue;
+      const leftX = box.x, rightX = box.x + box.w, x = inst.anchor.y;
+      // left boundary → carcass side_l (inner face A) OR the divider at leftX (shelf is to its RIGHT)
+      if (leftX === interiorL) add(`${block.id}__side_l`, "A", x);
+      else { const d = dividerIdAt(leftX); if (d) add(d, DIV_FACE_FOR_RIGHT_SHELF, x); }
+      // right boundary → carcass side_r (inner face A) OR the divider at rightX (shelf is to its LEFT)
+      if (rightX === interiorR) add(`${block.id}__side_r`, "A", x);
+      else { const d = dividerIdAt(rightX); if (d) add(d, DIV_FACE_FOR_LEFT_SHELF, x); }
+    }
+  }
+  return plan;
+}
+
 /** Instance id encoded in a part id `${block}__inst_${instId}` (optionally a doubling layer). */
 function instIdOf(partId: string): string | null {
   const marker = "__inst_";
@@ -300,6 +361,52 @@ function carcassJoineryByPart(model: StructuralModel, parts: Part[], conn: Conne
   return out;
 }
 
+/** Instance ids whose component is a drawer (its box gets back-corner joinery). */
+function drawerInstanceIds(model: StructuralModel): Set<string> {
+  const out = new Set<string>();
+  for (const block of model.blocks) {
+    const isDrawer = new Set(block.components.filter((c) => c.drawer).map((c) => c.id));
+    for (const inst of block.instances) if (isDrawer.has(inst.componentId)) out.add(inst.id);
+  }
+  return out;
+}
+
+/** 30mm dowel-column inset from the box top/bottom, per back corner. */
+const DRAWER_JOINT_INSET: mm10 = 300;
+
+/**
+ * Drawer BOX back-corner joinery: cam+dowel joining each side to the back, REUSING the exact same
+ * verified connector as the carcass corners (no invented hardware). This makes the box's back rigid
+ * so a drawer is no longer emitted with ZERO holes. FOLLOW-UPS (deferred, need factory specs): the
+ * FACADE attachment (adjustable screws), the BOTTOM (groove), and the slide-RUNNER holes — all await
+ * a factory drawer/slide reference, so they are intentionally not fabricated here.
+ */
+function drawerJoineryByPart(model: StructuralModel, parts: Part[], conn: ConnectorSpec | undefined): Map<string, DrillOp[]> {
+  const out = new Map<string, DrillOp[]>();
+  if (!conn) return out;
+  const byId = new Map(parts.map((p) => [p.id, p]));
+  const add = (id: string, ops: DrillOp[]): void => { if (!ops.length) return; const a = out.get(id) ?? []; a.push(...ops); out.set(id, a); };
+  const drawers = drawerInstanceIds(model);
+  for (const block of model.blocks) {
+    for (const inst of block.instances) {
+      if (!drawers.has(inst.id)) continue;
+      const base = `${block.id}__inst_${inst.id}`;
+      const back = byId.get(`${base}__back`);
+      if (!back) continue;
+      for (const [sideId, kind] of [[`${base}__side_l`, "left"], [`${base}__side_r`, "right"]] as const) {
+        const side = byId.get(sideId);
+        if (!side) continue;
+        const h = side.width_mm10; // box side height
+        const jointYs: mm10[] = h > 2 * DRAWER_JOINT_INSET ? [DRAWER_JOINT_INSET, h - DRAWER_JOINT_INSET] : [Math.round(h / 2)];
+        const { camOps, dowelOps } = camDowelJoint(side, back, "top", kind, jointYs, conn);
+        add(side.id, camOps);
+        add(back.id, dowelOps);
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Augment a solved part set with automatic machining: shelf-pins on side panels (for the block's
  * shelves), hinge cups on facade/door panels, and the glass rebate groove on glazed facades.
@@ -311,7 +418,7 @@ export function applyDrilling(
   model: StructuralModel,
   spec: HardwareSpec,
 ): Part[] {
-  const shelves = shelvesByBlock(model);
+  const shelves = shelvesByBlock(model); // legacy per-side fallback (L-corner only)
   const facades = facadeInstanceIds(model);
   const glazed = glazedInstanceIds(model);
   const glazedGrids = glazedGridInstanceIds(model);
@@ -319,19 +426,34 @@ export function applyDrilling(
   const pin = spec.shelfPins[SHELF_PIN_SKU];
   const system32 = spec.system32;
   const hinge = spec.hinges[HINGE_SKU];
+  const pinPlan = pin ? shelfPinPlan(model) : new Map<string, { face: PanelFace; x: mm10 }[]>();
+  const footprintBlockIds = new Set(model.blocks.filter((b) => b.footprint).map((b) => b.id));
   // Carcass cam+dowel joinery is computed up front (it writes to MULTIPLE parts per joint — cams on
   // a side, dowels on a top/bottom — so it can't ride the per-part branches below); it's merged in a
   // final additive pass that leaves the shelf-pin / hinge / glazed logic byte-for-byte untouched.
   const joinery = carcassJoineryByPart(model, parts, spec.connectors[CONNECTOR_SKU]);
+  const drawerJoinery = drawerJoineryByPart(model, parts, spec.connectors[CONNECTOR_SKU]);
 
   const drilled = parts.map((part) => {
-    // Side panel → shelf-pin line for the shelves it bounds (matched by depth, so an L-block's
-    // deep leg-A shelf does not drill the shallow leg-B sides).
-    if (pin && isSidePanel(part.id)) {
-      const inBlock = shelves.get(blockIdOf(part.id));
-      const xs = inBlock ? inBlock.filter((s) => s.depth === part.width_mm10).map((s) => s.x) : [];
-      if (xs.length === 0) return part;
-      return { ...part, operations: [...part.operations, ...shelfPinPattern(part, xs, { pin, system32 })] };
+    // Shelf pins — a side OR a divider, only for the shelves that ACTUALLY bound it, on the correct
+    // face(s). The plan already resolved which shelves and which face (a divider gets both faces).
+    if (pin) {
+      const planned = pinPlan.get(part.id);
+      if (planned && planned.length > 0) {
+        const ops: DrillOp[] = [];
+        for (const f of ["A", "B"] as PanelFace[]) {
+          const xs = planned.filter((h) => h.face === f).map((h) => h.x);
+          if (xs.length) ops.push(...shelfPinPattern(part, xs, { pin, system32 }, f));
+        }
+        return { ...part, operations: [...part.operations, ...ops] };
+      }
+      // L-corner (footprint) blocks keep the legacy all-shelves-by-depth on Face A (leg sections are
+      // not modelled in the plan). A non-footprint side with no shelves just falls through.
+      if (footprintBlockIds.has(blockIdOf(part.id)) && isSidePanel(part.id)) {
+        const inBlock = shelves.get(blockIdOf(part.id));
+        const xs = inBlock ? inBlock.filter((s) => s.depth === part.width_mm10).map((s) => s.x) : [];
+        if (xs.length) return { ...part, operations: [...part.operations, ...shelfPinPattern(part, xs, { pin, system32 })] };
+      }
     }
     // Glazed-grid frame member → a pane-seat rebate on each stile/rail (outer __a board) and each
     // muntin (E3, L8 #38). Glass panes and the inner __b board carry none.
@@ -368,11 +490,12 @@ export function applyDrilling(
     return part;
   });
 
-  // Final pass: append carcass joinery (cams onto sides, dowels onto top/bottom). Non-joinery parts
-  // pass through unchanged.
-  if (joinery.size === 0) return drilled;
+  // Final pass: append carcass joinery (cams onto sides, dowels onto top/bottom) + drawer-box back
+  // joinery (cams onto drawer sides, dowels into the drawer back). Non-joinery parts pass through.
+  if (joinery.size === 0 && drawerJoinery.size === 0) return drilled;
   return drilled.map((part) => {
-    const ops = joinery.get(part.id);
-    return ops && ops.length ? { ...part, operations: [...part.operations, ...ops] } : part;
+    const c = joinery.get(part.id) ?? [];
+    const d = drawerJoinery.get(part.id) ?? [];
+    return c.length || d.length ? { ...part, operations: [...part.operations, ...c, ...d] } : part;
   });
 }

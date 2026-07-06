@@ -121,6 +121,36 @@ export function applyRenderMode(group: THREE.Group, mode: RenderMode): void {
   }
 }
 
+/** Drill-hole markers (imos "shows the borings"): a small dark disc at each hole, pushed to the
+ *  panel's INNER face and oriented to face out of it, so pins/cups appear exactly on the boards.
+ *  `bounds` is the scene recentering from layoutBounds (mm10). Returns a group to add/remove on the
+ *  «Teshiklar» toggle. */
+export function buildHoleMarkers(
+  holes: readonly { x: number; y: number; z: number; r: number; normal: "x" | "y" | "z" }[],
+  bounds: { cx: number; cz: number; minY: number; ctrX: number; ctrY: number; ctrZ: number },
+): THREE.Group {
+  const g = new THREE.Group();
+  const M = (mm10: number): number => mm10 / 10_000;
+  const HALF_T = 80; // 8mm (half a 16mm board) in mm10 — push the marker from mid-thickness to the face
+  for (const h of holes) {
+    let px = h.x * 10, py = h.y * 10, pz = h.z * 10; // mm → mm10
+    // push from mid-thickness onto the INNER face (toward the block centre), 0.3mm proud (no z-fight)
+    if (h.normal === "x") px += (bounds.ctrX >= px ? 1 : -1) * (HALF_T + 3);
+    else if (h.normal === "y") py += (bounds.ctrY >= py ? 1 : -1) * (HALF_T + 3);
+    else pz += (bounds.ctrZ >= pz ? 1 : -1) * (HALF_T + 3);
+    const mesh = new THREE.Mesh(
+      new THREE.CircleGeometry(Math.max(0.0015, h.r / 1000), 14),
+      new THREE.MeshBasicMaterial({ color: 0x13485a, side: THREE.DoubleSide }),
+    );
+    mesh.position.set(M(px - bounds.cx), M(py - bounds.minY), M(pz - bounds.cz));
+    if (h.normal === "x") mesh.rotation.y = Math.PI / 2;
+    else if (h.normal === "y") mesh.rotation.x = Math.PI / 2;
+    mesh.raycast = () => {}; // decorative — never intercept panel picks
+    g.add(mesh);
+  }
+  return g;
+}
+
 /** Free the GPU resources of a structure group (call on unmount / before rebuild). */
 export function disposeStructureGroup(group: THREE.Group): void {
   group.traverse((o) => {

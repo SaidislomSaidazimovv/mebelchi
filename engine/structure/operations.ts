@@ -790,7 +790,15 @@ function addShelfInstance(model: StructuralModel, block: Block, section: Section
     newId,
   ];
   const n = order.length;
-  const yAt = (idx: number) => Math.round(section.box.y + (section.box.h * (idx + 1)) / (n + 1));
+  // Precise distribution: EQUAL clear openings. The old formula spread shelf CENTRES evenly over the
+  // FULL section height, ignoring the 16mm carcass/divider at each end AND each shelf's own 16mm — so
+  // the top gap came out smaller than the rest. Here we inset by the bounding panel (T) at both ends,
+  // subtract every shelf's thickness, and split the remaining CLEAR height into n+1 equal openings.
+  // `anchor.y` is the shelf's BOTTOM, so shelf i bottom = floor + (i+1)·opening + i·T.
+  const T = 160; // 16mm — BOARD_MM10 (carcass/divider at the ends + each shelf's thickness)
+  const usable = section.box.h - 2 * T; // interior clear height between the two bounding panels
+  const opening = Math.max(0, usable - n * T) / (n + 1); // one equal clear gap
+  const yAt = (idx: number) => Math.round(section.box.y + T + (idx + 1) * opening + idx * T);
 
   const instances: Instance[] = block.instances.map((i) => {
     const idx = order.indexOf(i.id);

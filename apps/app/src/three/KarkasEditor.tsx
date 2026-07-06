@@ -10,10 +10,14 @@ import { useKarkas } from "./karkasStore";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
-import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
-import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, type RenderMode } from "./structureRenderer";
+import { exportModelToSWJ008, solveModelToParts } from "../../../../engine/cnc.js";
+import { solveLayout } from "../../../../engine/structure/layout.js";
+import { buildBlockDrawing } from "./blockDrawing";
+import { blockHoles } from "./blockHoles";
+import { drawingSheetSvg } from "./drawingSvg";
+import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades } from "./karkasLayer";
-import { sceneDimsMm } from "./structureScene";
+import { sceneDimsMm, layoutBounds } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
 import { BOARDS, EDGES, boardForRole, partColorLookup, type MaterialPlan } from "./materials";
 
@@ -29,6 +33,7 @@ interface RT {
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   group: THREE.Group | null;
+  holeGroup: THREE.Group | null; // «Teshiklar» — drill-hole markers, toggled on/off
   raf: number;
   labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
   aabb: THREE.Box3 | null;
@@ -102,8 +107,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     applyRenderMode(group, modeRef.current);
     if (modeRef.current !== "wireframe") fadeFacades(group, insideRef.current);
   };
+  // «Teshiklar» — show/hide the drilling markers (Ø5 pins, Ø35 cups) on the 3D block, like imos.
+  const [showHoles, setShowHoles] = useState(false);
+  const holesRef = useRef(showHoles);
+  holesRef.current = showHoles;
+  const rebuildHoles = (): void => {
+    const r = rt.current;
+    if (!r) return;
+    if (r.holeGroup) {
+      r.scene.remove(r.holeGroup);
+      r.holeGroup.traverse((o) => { const mm = o as THREE.Mesh; if (mm.geometry) mm.geometry.dispose(); const mat = mm.material as THREE.Material | undefined; if (mat) mat.dispose(); });
+      r.holeGroup = null;
+    }
+    if (holesRef.current) {
+      const places = solveLayout(model);
+      const g = buildHoleMarkers(blockHoles(solveModelToParts(model), places), layoutBounds(places));
+      r.scene.add(g);
+      r.holeGroup = g;
+    }
+  };
   // compact toolbar: which dropdown (add-variants / overflow) is open
-  const [menu, setMenu] = useState<null | "polka" | "eshik" | "more">(null);
+  const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode">(null);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -148,6 +172,41 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       URL.revokeObjectURL(url);
     } catch (err) {
       alert("SWJ008 eksport xatosi: " + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  // #3+#4 — 2D drawing views (imos Drawing Views): project the block to Front / Plan / Section A-A,
+  // wrap in a title block, and open a print window so the usta can save it as PDF / print it. SVG
+  // only (no GPU) → mobile-safe. Materials label = the carcass decor from the plan.
+  const printDrawing = () => {
+    try {
+      const drawing = buildBlockDrawing(solveLayout(model), solveModelToParts(model));
+      const boardName = (id: string) => BOARDS.find((b) => b.id === id)?.name ?? "—";
+      const carcass = boardName(plan.carcass);
+      const edge = EDGES.find((e) => e.id === plan.edge)?.name ?? "—";
+      const svg = drawingSheetSvg(drawing, {
+        firm: "MEBELCHI",
+        name: "Karkas blok",
+        date: new Date().toISOString().slice(0, 10),
+        materials: carcass,
+        legend: [
+          `Korpus: ${carcass}`,
+          `Fasad: ${boardName(plan.facade)}`,
+          `Orqa: ${boardName(plan.back)}`,
+          `Kromka: ${edge}`,
+        ],
+      });
+      const w = window.open("", "_blank");
+      if (!w) { alert("Chizma oynasi ochilmadi — popup ruxsatини bering."); return; }
+      w.document.write(
+        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chizma — Karkas blok</title><style>` +
+        "@page{size:A4 landscape;margin:0}html,body{margin:0;padding:0}svg{display:block;width:100vw;height:100vh}" +
+        "</style></head><body>" + svg +
+        "<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>",
+      );
+      w.document.close();
+    } catch (err) {
+      alert("Chizma xatosi: " + (err instanceof Error ? err.message : String(err)));
     }
   };
 
@@ -206,7 +265,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       return d;
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, raf: 0, labels, aabb: null, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, holeGroup: null, raf: 0, labels, aabb: null, framedKey: "" };
 
     const raycaster = new THREE.Raycaster();
     const down = { x: 0, y: 0 };
@@ -255,6 +314,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       renderer.domElement.removeEventListener("pointerup", onUp);
       controls.dispose();
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
+      if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
       labels.w.remove(); labels.h.remove(); labels.d.remove();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
@@ -293,9 +353,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       r.camera.lookAt(ctr);
       r.controls.update();
     }
+    rebuildHoles(); // keep the drill markers in sync with the new geometry
     // selectedId intentionally omitted — the next effect owns highlight changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene]);
+
+  // ── «Teshiklar» — rebuild the drill markers when toggled (no geometry rebuild) ──
+  useEffect(() => {
+    if (!rt.current) return;
+    rebuildHoles();
+    rt.current.renderer.render(rt.current.scene, rt.current.camera);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHoles]);
 
   // ── re-tint on selection change (no rebuild) ──
   useEffect(() => {
@@ -377,15 +446,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowDivide((v) => !v)} type="button">⊟ Bo'lish…</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
-        {/* #7 — imos Visual Styles: pick how the block is drawn */}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
-          {([["realistic", "◆ Realistik"], ["wireframe", "◇ Simli"], ["shaded", "◈ Soya"]] as const).map(([m, label]) => (
-            <button key={m} style={{ ...act, ...(renderMode === m ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : { borderColor: "#9aa4ad", background: "#f2f4f6", color: "#4a5560" }) }} onClick={() => setRenderMode(m)} type="button" title="Ko'rinish rejimi">{label}</button>
-          ))}
+        {/* #7 — imos Visual Styles: a proper dropdown (matches the ＋Polka / ＋Eshik menus) */}
+        <div style={{ ...popWrap, marginLeft: "auto" }}>
+          <button style={{ ...act, ...(menu === "mode" ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : { borderColor: "#7aa0b8", color: "#1f5570" }) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "mode" ? null : "mode"); }} type="button" title="Ko'rinish rejimi">
+            🎨 {renderMode === "realistic" ? "Realistik" : renderMode === "wireframe" ? "Simli" : "Soya"} ▾
+          </button>
+          {menu === "mode" && (
+            <div style={popover}>
+              {([["realistic", "Realistik", "To'liq, rangli"], ["wireframe", "Simli", "Faqat qirralar"], ["shaded", "Soya", "Bir xil kulrang"]] as const).map(([m, label, sub]) => (
+                <button key={m} style={{ ...popItem, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, minWidth: 168, ...(renderMode === m ? { background: "#dce9f0", color: "#1f5570", fontWeight: 700 } : {}) }} onClick={() => { setRenderMode(m); setMenu(null); }} type="button">
+                  <span>{renderMode === m ? "✓ " : ""}{label}</span>
+                  <span style={{ fontSize: 11, color: "#8a8577", fontWeight: 400 }}>{sub}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <button style={{ ...act, ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
+        <button style={{ ...act, ...(showHoles ? { borderColor: "#1f6f86", background: "#dcecf2", color: "#13485a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowHoles((v) => !v)} type="button" title="Teshiklarni ko'rsatish (shtok, petlya)">🕳 {showHoles ? "Teshik ✓" : "Teshiklar"}</button>
         <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
         <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spec</button>
+        <button style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a" }} onClick={printDrawing} type="button">📐 Chizma</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC</button>
       </div>
       {/* Placement (#1) — choose which compartment the next add lands in; tapping a part also sets it */}
