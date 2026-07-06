@@ -84,6 +84,19 @@ export function layoutToScene(panels: readonly PanelPlacement[]): Scene {
   );
 }
 
+/** The recentering the scene applies (mm10): views are centred on X/Z and stood on the floor (minY).
+ *  Plus the block centre — used to place drill-hole markers on the correct (inner) panel face so they
+ *  land exactly where buildStructureGroup drew the boards. */
+export function layoutBounds(panels: readonly PanelPlacement[]): { cx: number; cz: number; minY: number; ctrX: number; ctrY: number; ctrZ: number } {
+  let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const p of panels) {
+    minX = Math.min(minX, p.x_mm10); maxX = Math.max(maxX, p.x_mm10 + p.w_mm10);
+    minY = Math.min(minY, p.y_mm10); maxY = Math.max(maxY, p.y_mm10 + p.h_mm10);
+    minZ = Math.min(minZ, p.z_mm10); maxZ = Math.max(maxZ, p.z_mm10 + p.d_mm10);
+  }
+  return { cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2, minY, ctrX: (minX + maxX) / 2, ctrY: (minY + maxY) / 2, ctrZ: (minZ + maxZ) / 2 };
+}
+
 /** Overall cabinet size in millimetres — for a dimension readout. */
 export function sceneDimsMm(scene: Scene): { w: number; h: number; d: number } {
   if (scene.boards.length === 0) return { w: 0, h: 0, d: 0 };
