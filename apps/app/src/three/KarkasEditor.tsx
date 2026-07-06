@@ -11,7 +11,7 @@ import { useStore } from "../store";
 import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
-import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades } from "./karkasLayer";
 import { sceneDimsMm } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
@@ -92,6 +92,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [insideView, setInsideView] = useState(true);
   const insideRef = useRef(insideView);
   insideRef.current = insideView;
+  // #7 — imos Visual Styles: realistic / wireframe / shaded. Ref so the group-rebuild effect reads
+  // the live mode without re-subscribing.
+  const [renderMode, setRenderMode] = useState<RenderMode>("realistic");
+  const modeRef = useRef(renderMode);
+  modeRef.current = renderMode;
+  // apply the current Visual Style + fade state to a group (fade is moot in wireframe — faces vanish)
+  const applyVisuals = (group: THREE.Group): void => {
+    applyRenderMode(group, modeRef.current);
+    if (modeRef.current !== "wireframe") fadeFacades(group, insideRef.current);
+  };
   // compact toolbar: which dropdown (add-variants / overflow) is open
   const [menu, setMenu] = useState<null | "polka" | "eshik" | "more">(null);
   useEffect(() => {
@@ -258,8 +268,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     if (!r) return;
     if (r.group) { r.scene.remove(r.group); disposeStructureGroup(r.group); }
     const group = buildStructureGroup(scene, colorRef.current);
-    tagFacades(group, parts); // «Ichini ko'rish» — mark fronts, then apply the current fade state
-    fadeFacades(group, insideRef.current);
+    tagFacades(group, parts); // «Ichini ko'rish» — mark fronts, then apply the current mode + fade
+    applyVisuals(group);
     r.scene.add(group);
     r.group = group;
     highlightBoard(group, selectedId);
@@ -296,15 +306,21 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   useEffect(() => {
     if (rt.current?.group) {
       recolorBoards(rt.current.group, colorFn);
+      applyVisuals(rt.current.group); // keep the current mode (shaded/wireframe) after a recolour
       highlightBoard(rt.current.group, selectedId); // recolor clears nothing but re-assert selection
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorFn]);
 
-  // ── «Ichini ko'rish» — fade/restore the fronts when the toggle changes (no rebuild) ──
+  // ── «Ichini ko'rish» + Visual Style — re-apply the mode + fade when either changes (no rebuild) ──
   useEffect(() => {
-    if (rt.current?.group) { fadeFacades(rt.current.group, insideView); rt.current.renderer.render(rt.current.scene, rt.current.camera); }
-  }, [insideView]);
+    if (rt.current?.group) {
+      applyVisuals(rt.current.group);
+      highlightBoard(rt.current.group, selectedId);
+      rt.current.renderer.render(rt.current.scene, rt.current.camera);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insideView, renderMode]);
 
   const dims = sceneDimsMm(scene);
   return (
@@ -361,7 +377,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowDivide((v) => !v)} type="button">⊟ Bo'lish…</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
-        <button style={{ ...act, marginLeft: "auto", ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
+        {/* #7 — imos Visual Styles: pick how the block is drawn */}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
+          {([["realistic", "◆ Realistik"], ["wireframe", "◇ Simli"], ["shaded", "◈ Soya"]] as const).map(([m, label]) => (
+            <button key={m} style={{ ...act, ...(renderMode === m ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : { borderColor: "#9aa4ad", background: "#f2f4f6", color: "#4a5560" }) }} onClick={() => setRenderMode(m)} type="button" title="Ko'rinish rejimi">{label}</button>
+          ))}
+        </div>
+        <button style={{ ...act, ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
         <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
         <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spec</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC</button>
