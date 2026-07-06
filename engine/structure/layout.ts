@@ -18,6 +18,7 @@ import type {
   StructuralModel,
 } from "../contracts/structure.js";
 import { leafSections } from "../contracts/structure.js";
+import { shelfMaxAngleDeg } from "./operations.js";
 import type { mm10 } from "../contracts/types.js";
 import {
   BOARD_MM10,
@@ -38,6 +39,12 @@ export interface PanelPlacement {
   readonly w_mm10: mm10;
   readonly h_mm10: mm10;
   readonly d_mm10: mm10;
+  /**
+   * Tilt about the width (X) axis, in degrees — an inclined shelf (imos AS_O_Angle · "qiya polka").
+   * The box keeps its rectangular size; the renderer rotates the mesh in place about its centre.
+   * Optional/additive — absent or `0` = an axis-aligned board (every existing placement is unchanged).
+   */
+  readonly rotX_deg?: number;
 }
 
 const B = BOARD_MM10;
@@ -151,7 +158,7 @@ function shelfPlacement(block: Block, inst: Instance): PanelPlacement | null {
   const component = componentById(block, inst.componentId);
   if (!section || !component || component.role !== "internal_shelf") return null;
   const s = section.box;
-  return place(
+  const p = place(
     `${block.id}__inst_${inst.id}`,
     component.name,
     block.box.x + s.x + B,
@@ -160,6 +167,40 @@ function shelfPlacement(block: Block, inst: Instance): PanelPlacement | null {
     s.w - 2 * B,
     B,
     s.d,
+  );
+  // Inclined shelf (imos AS_O_Angle): carry the tilt so the renderer leans the board (clamped to the
+  // bay). Only added when nonzero, so a flat shelf's placement stays byte-identical to before.
+  const angle = effectiveShelfAngleDeg(block, inst, component);
+  return angle ? { ...p, rotX_deg: angle } : p;
+}
+
+/** The tilt a shelf actually renders at: the requested angle, clamped to what fits its bay
+ *  (shelfMaxAngleDeg) so the raised back edge never pokes through the carcass / the shelf above. */
+function effectiveShelfAngleDeg(block: Block, inst: Instance, component: Component): number {
+  const requested = component.angle_deg ?? 0;
+  return requested > 0 ? Math.min(requested, shelfMaxAngleDeg(block, inst)) : 0;
+}
+
+/** Display-shelf front lip (imos CP_O_1_Angle_Shelf): a retention upstand standing at the shelf's
+ *  FRONT edge to stop goods sliding off. It stands WORLD-VERTICAL (NOT tilted with the board) — a
+ *  lip leaning with the tilt would swing forward out of the carcass and wouldn't catch anything; a
+ *  vertical fiddle-rail sits inside the opening and actually stops items (matches imos's front hook).
+ *  Its base sits on the shelf's front-bottom edge (the tilt pivot, which never moves), so it stays
+ *  attached whatever the angle. Null unless the shelf has a lip. */
+function shelfLipPlacement(block: Block, inst: Instance): PanelPlacement | null {
+  const section = sectionById(block, inst.sectionId);
+  const component = componentById(block, inst.componentId);
+  if (!section || !component || component.role !== "internal_shelf" || !component.lip_mm10) return null;
+  const s = section.box;
+  return place(
+    `${block.id}__inst_${inst.id}__lip`,
+    `${component.name} · борт`,
+    block.box.x + s.x + B, // same X span as the shelf
+    block.box.y + inst.anchor.y, // stands up from the shelf's front-bottom edge (the tilt pivot)
+    block.box.z + s.z, // FRONT face
+    s.w - 2 * B,
+    component.lip_mm10, // upstand height (Y) — world-vertical, no rotX
+    B, // thin strip in depth (Z)
   );
 }
 
@@ -304,7 +345,9 @@ export function solveLayout(model: StructuralModel): PanelPlacement[] {
       const grid = glazedGridPlacement(block, inst); // E2: multi-panel glazed-grid door
       const placements = drawer ?? grid ?? [motionPlacement(block, inst) ?? shelfPlacement(block, inst) ?? facadePlacement(block, inst)]
         .filter((p): p is PanelPlacement => p !== null);
-      for (const p of placements) out.push(inst.junction ? applyJunction(p, inst.junction) : p);
+      // Display-shelf front lip (null unless the shelf has one) — an extra board at the front edge.
+      const lip = shelfLipPlacement(block, inst);
+      for (const p of lip ? [...placements, lip] : placements) out.push(inst.junction ? applyJunction(p, inst.junction) : p);
     }
   }
   return out;

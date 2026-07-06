@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -134,6 +134,14 @@ interface KarkasState extends Derived {
   toggleLoadBearing: () => void;
   /** Set the selected component's per-part board thickness in mm (C4). */
   setThickness: (mm: number) => void;
+  /** Set the selected shelf's incline angle in degrees (imos AS_O_Angle · qiya polka). 0 = flat.
+   *  Auto-clamped to what fits the bay so the tilted shelf never pokes through the carcass. */
+  setAngle: (deg: number) => void;
+  /** Max incline (deg) the selected shelf can take and still stay inside its bay, or null if the
+   *  selection isn't an internal shelf. Drives the "(max N°)" hint next to the angle field. */
+  selectedShelfMaxAngle: () => number | null;
+  /** Set the selected shelf's front lip height in mm (imos display shelf · 0 = flat, no border). */
+  setLip: (mm: number) => void;
   /** Set (or clear with null) the selected component's per-part material decor key (F2). */
   setMaterial: (id: string | null) => void;
   /** Set the hinge side of the selected door (facade instance). No-op if the selection isn't a door. */
@@ -262,6 +270,29 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const f = forkSelected();
       if (f) apply(setComponentThickness(f.model, f.compId, Math.max(1, Math.round(mm)) * 10), true);
     },
+    // qiya polka — fork first so tilting ONE shelf doesn't tilt its siblings (imos-individual edit),
+    // then clamp to the angle that still fits this shelf's bay (so it never pokes out of the carcass).
+    setAngle: (deg) => {
+      const f = forkSelected();
+      const sel = get().selectedId;
+      if (!f || !sel) return;
+      const r = resolveInstance(f.model, sel);
+      const max = r ? shelfMaxAngleDeg(r.block, r.inst) : 45;
+      apply(setComponentAngle(f.model, f.compId, Math.max(0, Math.min(Math.round(deg), max))), true);
+    },
+    selectedShelfMaxAngle: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r) return null;
+      const comp = r.block.components.find((c) => c.id === r.inst.componentId);
+      if (!comp || comp.role !== "internal_shelf") return null;
+      return shelfMaxAngleDeg(r.block, r.inst);
+    },
+    // display-shelf front lip — fork first so lipping ONE shelf doesn't lip its siblings
+    setLip: (mm) => {
+      const f = forkSelected();
+      if (f) apply(setComponentLip(f.model, f.compId, Math.max(0, Math.round(mm)) * 10), true);
+    },
     setMaterial: (id) => {
       const f = forkSelected();
       if (!f) return;
@@ -302,3 +333,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
   };
 });
+
+// dev-only: lets local tooling (e.g. puppeteer) drive the karkas store directly (stripped from prod
+// builds), mirroring the kitchen store's `__store`. Uses globalThis + casts so the engine's
+// node-only tsc (which type-checks this file via the app-touching tests) still compiles without DOM
+// / Vite types; in the browser globalThis IS window, so `window.__karkas` resolves the same.
+if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+  (globalThis as unknown as { __karkas: typeof useKarkas }).__karkas = useKarkas;
+}

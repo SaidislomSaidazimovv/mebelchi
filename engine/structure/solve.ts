@@ -332,8 +332,15 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
     // Banded on the FRONT edge by default (Face 1 = edges[0]); a user #39 kromka override wins.
     const edges = component.edgeBands ? [...component.edgeBands] as Part["edges"] : frontBand();
     const base = panel(`${block.id}__inst_${inst.id}`, component.name, length, width, edges, component.thickness_mm10 ?? t.shelf, "internal_shelf");
-    if (component.partialDouble) return stampMat(partialDoublePanels(base, component.partialDouble.front_mm10));
-    return stampMat(component.doubled ? doublePanel(base) : [base]);
+    const shelfParts = component.partialDouble
+      ? partialDoublePanels(base, component.partialDouble.front_mm10)
+      : component.doubled ? doublePanel(base) : [base];
+    // Display-shelf front lip (imos CP_O_1_Angle_Shelf): a real cut strip — length × lip height —
+    // banded on its top (visible) edge. Emitted as its own part so it shows in the cut list / Detallar.
+    const lip = component.lip_mm10
+      ? [panel(`${block.id}__inst_${inst.id}__lip`, `${component.name} · борт`, length, component.lip_mm10, frontBand(), t.shelf, "internal_shelf")]
+      : [];
+    return stampMat([...shelfParts, ...lip]);
   }
   // A facade/door covers a section's front opening: height (X, hinge axis) × width (Y), banded
   // on all four visible edges. Hinge drilling is added by the drilling pass (engine/structure).

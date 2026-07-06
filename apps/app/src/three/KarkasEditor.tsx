@@ -11,7 +11,7 @@ import { useStore } from "../store";
 import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008 } from "../../../../engine/cnc.js";
-import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades } from "./karkasLayer";
 import { sceneDimsMm } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
@@ -65,6 +65,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const remove = useKarkas((s) => s.remove);
   const setThickness = useKarkas((s) => s.setThickness);
+  const setAngle = useKarkas((s) => s.setAngle);
+  const shelfMaxAngle = useKarkas((s) => s.selectedShelfMaxAngle());
+  const setLip = useKarkas((s) => s.setLip);
   const setMaterial = useKarkas((s) => s.setMaterial);
   const setPlanMaterialTop = useKarkas((s) => s.setPlanMaterial);
   const setHinge = useKarkas((s) => s.setHinge);
@@ -89,6 +92,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [insideView, setInsideView] = useState(true);
   const insideRef = useRef(insideView);
   insideRef.current = insideView;
+  // #7 — imos Visual Styles: realistic / wireframe / shaded. Ref so the group-rebuild effect reads
+  // the live mode without re-subscribing.
+  const [renderMode, setRenderMode] = useState<RenderMode>("realistic");
+  const modeRef = useRef(renderMode);
+  modeRef.current = renderMode;
+  // apply the current Visual Style + fade state to a group (fade is moot in wireframe — faces vanish)
+  const applyVisuals = (group: THREE.Group): void => {
+    applyRenderMode(group, modeRef.current);
+    if (modeRef.current !== "wireframe") fadeFacades(group, insideRef.current);
+  };
   // compact toolbar: which dropdown (add-variants / overflow) is open
   const [menu, setMenu] = useState<null | "polka" | "eshik" | "more">(null);
   useEffect(() => {
@@ -255,8 +268,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     if (!r) return;
     if (r.group) { r.scene.remove(r.group); disposeStructureGroup(r.group); }
     const group = buildStructureGroup(scene, colorRef.current);
-    tagFacades(group, parts); // «Ichini ko'rish» — mark fronts, then apply the current fade state
-    fadeFacades(group, insideRef.current);
+    tagFacades(group, parts); // «Ichini ko'rish» — mark fronts, then apply the current mode + fade
+    applyVisuals(group);
     r.scene.add(group);
     r.group = group;
     highlightBoard(group, selectedId);
@@ -293,15 +306,21 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   useEffect(() => {
     if (rt.current?.group) {
       recolorBoards(rt.current.group, colorFn);
+      applyVisuals(rt.current.group); // keep the current mode (shaded/wireframe) after a recolour
       highlightBoard(rt.current.group, selectedId); // recolor clears nothing but re-assert selection
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorFn]);
 
-  // ── «Ichini ko'rish» — fade/restore the fronts when the toggle changes (no rebuild) ──
+  // ── «Ichini ko'rish» + Visual Style — re-apply the mode + fade when either changes (no rebuild) ──
   useEffect(() => {
-    if (rt.current?.group) { fadeFacades(rt.current.group, insideView); rt.current.renderer.render(rt.current.scene, rt.current.camera); }
-  }, [insideView]);
+    if (rt.current?.group) {
+      applyVisuals(rt.current.group);
+      highlightBoard(rt.current.group, selectedId);
+      rt.current.renderer.render(rt.current.scene, rt.current.camera);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insideView, renderMode]);
 
   const dims = sceneDimsMm(scene);
   return (
@@ -358,7 +377,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowDivide((v) => !v)} type="button">⊟ Bo'lish…</button>
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
-        <button style={{ ...act, marginLeft: "auto", ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
+        {/* #7 — imos Visual Styles: pick how the block is drawn */}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
+          {([["realistic", "◆ Realistik"], ["wireframe", "◇ Simli"], ["shaded", "◈ Soya"]] as const).map(([m, label]) => (
+            <button key={m} style={{ ...act, ...(renderMode === m ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : { borderColor: "#9aa4ad", background: "#f2f4f6", color: "#4a5560" }) }} onClick={() => setRenderMode(m)} type="button" title="Ko'rinish rejimi">{label}</button>
+          ))}
+        </div>
+        <button style={{ ...act, ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
         <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
         <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spec</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC</button>
@@ -393,9 +418,23 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           {selComp.glazedGrid && <span style={badge}>Витрина ×{selComp.glazedGrid.lights}</span>}
           {selComp.glazed && !selComp.glazedGrid && <span style={badge}>Стекло</span>}
           {selComp.loadBearing && <span style={{ ...badge, background: "#e7d6f5", color: "#5b2a86" }}>⚖ Yuk</span>}
+          {selComp.role === "internal_shelf" && selComp.angle_deg ? <span style={{ ...badge, background: "#d8ecf7", color: "#1f5f86" }}>⤢ {selComp.angle_deg}°</span> : null}
+          {selComp.role === "internal_shelf" && selComp.lip_mm10 ? <span style={{ ...badge, background: "#e7f0d8", color: "#4d6b1f" }}>▟ Bort {Math.round(selComp.lip_mm10 / 10)}</span> : null}
           {/* C4 — per-part thickness (imos Part Thickness) */}
           <span style={{ ...mono, marginLeft: 6 }}>Qalinlik:</span>
           <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
+          {/* qiya polka (imos AS_O_Angle) — inclined display shelf; only for internal shelves */}
+          {selComp.role === "internal_shelf" && (
+            <>
+              <span style={mono}>Burchak:</span>
+              <DimField label="°" value={selComp.angle_deg ?? 0} onCommit={setAngle} min={0} />
+              {shelfMaxAngle != null && <span style={{ ...mono, opacity: 0.55, fontSize: 11 }} title="Bu bo'yga sig'adigan eng katta burchak">max {shelfMaxAngle}°</span>}
+              {/* Display shelf (imos CP_O_1_Angle_Shelf): front lip/border height in mm — 0 = tekis */}
+              <span style={mono}>Bort:</span>
+              <DimField label="mm" value={Math.round((selComp.lip_mm10 ?? 0) / 10)} onCommit={setLip} min={0} />
+              <span style={{ ...mono, opacity: 0.55, fontSize: 11 }} title="Eng katta bort balandligi">max 80mm</span>
+            </>
+          )}
           {/* F2 — per-part material override (imos Material_O per part) */}
           <span style={mono}>Material:</span>
           <select value={selComp.material ?? ""} onChange={(e) => setMaterial(e.target.value || null)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 160 }}>
@@ -458,13 +497,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
 
 /** One live dimension input (C2). Holds a local string, resyncs when the model changes, and commits
  *  the resize on blur / Enter only (so a single edit is one undo step, not one per keystroke). */
-function DimField({ label, value, onCommit }: { label: string; value: number; onCommit: (mm: number) => void }) {
+function DimField({ label, value, onCommit, min = 1 }: { label: string; value: number; onCommit: (mm: number) => void; min?: number }) {
   const [v, setV] = useState(String(value));
   useEffect(() => { setV(String(value)); }, [value]);
   const commit = () => {
     const n = parseInt(v, 10);
-    if (n > 0 && n !== value) onCommit(n);
-    else setV(String(value)); // reject empty / unchanged
+    // `min` lets the angle field accept 0 (flatten a tilted shelf); dimensions keep min = 1.
+    if (Number.isFinite(n) && n >= min && n !== value) onCommit(n);
+    else setV(String(value)); // reject empty / below-min / unchanged
   };
   return (
     <label style={dimField}>
