@@ -1241,6 +1241,38 @@ export function shelfMaxAngleDeg(block: Block, inst: Instance): number {
   return Math.max(0, Math.min(45, Math.floor((Math.asin(Math.min(1, headroom / box.d)) * 180) / Math.PI)));
 }
 
+/**
+ * Set (or clear with `null`/`0`) an internal shelf's front lip height in mm10 (imos display shelf ·
+ * `CP_O_1_Angle_Shelf`). Turns a plain shelf into a display shelf with an upstand at the front.
+ * Clamped to a sane 0..80mm; drops the field at 0. Mirrors the other per-part setters — pure, no-op
+ * when unchanged, never touches sibling components.
+ */
+export function setComponentLip(
+  model: StructuralModel,
+  componentId: ComponentId,
+  lip_mm10: mm10 | null,
+): StructuralModel {
+  const next = lip_mm10 == null ? null : Math.max(0, Math.min(800, Math.round(lip_mm10)));
+  const cleared = next === null || next === 0 ? null : next;
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.lip_mm10 ?? null) === (cleared ?? null)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (cleared === null) {
+        const { lip_mm10: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, lip_mm10: cleared };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
 export function setComponentMaterial(
   model: StructuralModel,
   componentId: ComponentId,

@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -140,6 +140,8 @@ interface KarkasState extends Derived {
   /** Max incline (deg) the selected shelf can take and still stay inside its bay, or null if the
    *  selection isn't an internal shelf. Drives the "(max N°)" hint next to the angle field. */
   selectedShelfMaxAngle: () => number | null;
+  /** Set the selected shelf's front lip height in mm (imos display shelf · 0 = flat, no border). */
+  setLip: (mm: number) => void;
   /** Set (or clear with null) the selected component's per-part material decor key (F2). */
   setMaterial: (id: string | null) => void;
   /** Set the hinge side of the selected door (facade instance). No-op if the selection isn't a door. */
@@ -285,6 +287,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const comp = r.block.components.find((c) => c.id === r.inst.componentId);
       if (!comp || comp.role !== "internal_shelf") return null;
       return shelfMaxAngleDeg(r.block, r.inst);
+    },
+    // display-shelf front lip — fork first so lipping ONE shelf doesn't lip its siblings
+    setLip: (mm) => {
+      const f = forkSelected();
+      if (f) apply(setComponentLip(f.model, f.compId, Math.max(0, Math.round(mm)) * 10), true);
     },
     setMaterial: (id) => {
       const f = forkSelected();

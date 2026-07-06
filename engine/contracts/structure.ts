@@ -280,6 +280,14 @@ export interface Component {
    * Optional/additive — absent or `0` = a flat shelf (nothing regresses).
    */
   readonly angle_deg?: number;
+  /**
+   * Display-shelf front lip / border (imos AS_O_Shelf_type · `CP_O_1_Angle_Shelf`): an upstand of
+   * `lip_mm10` height standing at the shelf's FRONT edge so goods on an inclined ("qiya") shelf don't
+   * slide off. The solver emits it as its OWN cut part (a strip, id `…__lip`) and the layout stands
+   * it at the front, tilted WITH the shelf. Applies to `internal_shelf` only. Optional/additive —
+   * absent or `0` = a plain flat shelf with no border (nothing regresses).
+   */
+  readonly lip_mm10?: mm10;
 }
 
 /** How two edge bands meet at a panel corner (#39). "mitre" 45° geometry is V2-deferred. */

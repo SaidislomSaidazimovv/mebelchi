@@ -67,6 +67,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setThickness = useKarkas((s) => s.setThickness);
   const setAngle = useKarkas((s) => s.setAngle);
   const shelfMaxAngle = useKarkas((s) => s.selectedShelfMaxAngle());
+  const setLip = useKarkas((s) => s.setLip);
   const setMaterial = useKarkas((s) => s.setMaterial);
   const setPlanMaterialTop = useKarkas((s) => s.setPlanMaterial);
   const setHinge = useKarkas((s) => s.setHinge);
@@ -396,6 +397,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           {selComp.glazed && !selComp.glazedGrid && <span style={badge}>Стекло</span>}
           {selComp.loadBearing && <span style={{ ...badge, background: "#e7d6f5", color: "#5b2a86" }}>⚖ Yuk</span>}
           {selComp.role === "internal_shelf" && selComp.angle_deg ? <span style={{ ...badge, background: "#d8ecf7", color: "#1f5f86" }}>⤢ {selComp.angle_deg}°</span> : null}
+          {selComp.role === "internal_shelf" && selComp.lip_mm10 ? <span style={{ ...badge, background: "#e7f0d8", color: "#4d6b1f" }}>▟ Bort {Math.round(selComp.lip_mm10 / 10)}</span> : null}
           {/* C4 — per-part thickness (imos Part Thickness) */}
           <span style={{ ...mono, marginLeft: 6 }}>Qalinlik:</span>
           <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
@@ -405,6 +407,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               <span style={mono}>Burchak:</span>
               <DimField label="°" value={selComp.angle_deg ?? 0} onCommit={setAngle} min={0} />
               {shelfMaxAngle != null && <span style={{ ...mono, opacity: 0.55, fontSize: 11 }} title="Bu bo'yga sig'adigan eng katta burchak">max {shelfMaxAngle}°</span>}
+              {/* Display shelf (imos CP_O_1_Angle_Shelf): front lip/border height in mm — 0 = tekis */}
+              <span style={mono}>Bort:</span>
+              <DimField label="mm" value={Math.round((selComp.lip_mm10 ?? 0) / 10)} onCommit={setLip} min={0} />
+              <span style={{ ...mono, opacity: 0.55, fontSize: 11 }} title="Eng katta bort balandligi">max 80mm</span>
             </>
           )}
           {/* F2 — per-part material override (imos Material_O per part) */}
