@@ -15,6 +15,7 @@ import { divideSection, addInstance, removeInstance, setLoadBearing, setComponen
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
+import { checkConstraints } from "../../../../engine/structure/constraints.js";
 import { layoutToScene, type Scene } from "./structureScene";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, type MaterialPlan } from "./materials";
 
@@ -31,6 +32,7 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
     ...checkStability(model),
     ...checkMotionClearance(model),
     ...checkHingeFit(model),
+    ...checkConstraints(model),
   ].map((f) => f.message_ru);
   const sections: { id: string; label: string }[] = [];
   for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) sections.push({ id: s.id, label: `${sections.length + 1}` });
@@ -131,6 +133,8 @@ interface KarkasState extends Derived {
   remove: () => void;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
   selectedComponent: () => Component | null;
+  /** The solved parts belonging to the selected instance (for the info card's material colour bar). */
+  selectedParts: () => Part[];
   /** Toggle the selected component's load-bearing declaration (drives the stability ⚠). */
   toggleLoadBearing: () => void;
   /** Set the selected component's per-part board thickness in mm (C4). */
@@ -261,6 +265,13 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const s = get();
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
       return r ? r.block.components.find((c) => c.id === r.inst.componentId) ?? null : null;
+    },
+    selectedParts: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r) return [];
+      const base = `${r.block.id}__inst_${r.inst.id}`;
+      return s.parts.filter((p) => p.id === base || p.id.startsWith(`${base}__`));
     },
     toggleLoadBearing: () => {
       const comp = get().selectedComponent();

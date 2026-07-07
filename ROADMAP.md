@@ -179,8 +179,8 @@ Legend: ✅ done · 🆕 new build · ⚠️ large (split into pieces) · 📷 n
 
 ## Progress tracker
 - [x] 0 · One repo, tests green on a fresh clone
-- [ ] 1 · Terms + variables + division rules in the model
-- [ ] 2 · Table-law constraint solver
+- [x] 1 · Terms + variables + division rules in the model — **GATE 1 green** (variable system §3, per-line DivisionRule §4, terminology aliases §1, save/load round-trip, thickness-travels-with-material reflow)
+- [x] 2 · Table-law constraint solver — **GATE 2 green** (per-zone rules §4, `resolveChain` star-sizing, rule-aware `resizeBlockAxis`, amber `checkConstraints` warning wired into the app)
 - [ ] 3 · Two selection modes + info card
 - [ ] 4 · Add-by-selection + ratios (pill-row editor)
 - [ ] 4b · Corner rounding + cutouts + units toggle

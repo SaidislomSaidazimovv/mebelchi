@@ -124,6 +124,24 @@ export function partColor(plan: MaterialPlan, role: string | undefined, material
   return b ? hexToInt(b.hex) : 0xe7ddc9;
 }
 
+/** Glass tint as a hex string (for the info-card colour bar). */
+const GLASS_HEX_STR = "#bfe4f0";
+
+/**
+ * The distinct material colours (hex) of a set of parts, in first-seen order — the info card's
+ * multi-segment material bar (CONSTRUCTION_FRAME_v4 §5: one segment per material in the selection).
+ * A single-material selection yields one colour; a drawer/glazed component yields several.
+ */
+export function selectionColors(parts: readonly { role?: string; materialId?: string }[], plan: MaterialPlan): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of parts) {
+    const hex = p.role === "glass" ? GLASS_HEX_STR : (partBoard(plan, p.role, p.materialId)?.hex ?? "#e7ddc9");
+    if (!seen.has(hex)) { seen.add(hex); out.push(hex); }
+  }
+  return out.length > 0 ? out : ["#e7ddc9"];
+}
+
 /** Strip a doubled / partial-double LAYER suffix so a split manufacturing part maps back to the
  *  SINGLE render board `solveLayout` draws for it. `solveStructure` emits two boards for a 32mm build
  *  (`X__a` outer + `X__b` inner) and a front strip for a partial double (`X__front`), while the

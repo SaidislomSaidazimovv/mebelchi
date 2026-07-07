@@ -29,6 +29,7 @@ import {
   type Section,
   type StructuralModel,
 } from "../contracts/structure.js";
+import type { MaterialVar } from "../contracts/variables.js";
 
 /** 16 mm stock — the only board thickness (law L1). */
 export const BOARD_MM10: mm10 = 160;
@@ -64,6 +65,26 @@ export function resolveThickness(spec: ThicknessSpec = {}): ResolvedT {
     shelf: spec.shelf ?? BOARD_MM10,
     divider: spec.divider ?? BOARD_MM10,
     facade: spec.facade ?? BOARD_MM10,
+  };
+}
+
+/**
+ * CONSTRUCTION_FRAME_v4 §3.1 — "thickness travels with the material". Derive a per-role `ThicknessSpec`
+ * from the project's global material slots, so a Part gets its board thickness from the slot it
+ * references, not a hardcoded number: the **korpus** slot drives the carcass family (carcass + shelf +
+ * divider), **fasad** drives the facade, **orqa** drives the back. Feed the result to `solveStructure`
+ * / `solveLayout` and changing MaterialVar B (korpus) 16→18 re-solves every carcass part in one edit.
+ * A role with no slot is left absent (falls back to the 16mm default via `resolveThickness`).
+ */
+export function thicknessSpecFromVars(vars: readonly MaterialVar[]): ThicknessSpec {
+  const th = (role: string): mm10 | undefined => vars.find((v) => v.role === role)?.thickness_mm10;
+  const korpus = th("korpus");
+  const fasad = th("fasad");
+  const orqa = th("orqa");
+  return {
+    ...(korpus !== undefined ? { carcass: korpus, shelf: korpus, divider: korpus } : {}),
+    ...(fasad !== undefined ? { facade: fasad } : {}),
+    ...(orqa !== undefined ? { back: orqa } : {}),
   };
 }
 
