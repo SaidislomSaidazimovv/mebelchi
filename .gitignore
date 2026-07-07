@@ -37,7 +37,6 @@ CORE 2/
 CORE 3/
 bench/
 mined/
-tools/
 
 # Archived: the standalone karkas prototype (Expo / react-native-web). Superseded by apps/app +
 # root engine/ (the port is complete; no live code crosses into it). Kept locally for its puppeteer
