@@ -14,6 +14,7 @@ import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
 import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
+import { planDecors, foreignDecors, bindBlockMaterials } from "./slotBinding";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -147,6 +148,14 @@ interface KarkasState extends Derived {
   /** Which decor each panel role is cut from (drives the spec price). Persists across model edits. */
   plan: MaterialPlan;
   setPlanMaterial: (slot: keyof MaterialPlan, id: string) => void;
+  /** Step 5.2 — the project's material pool (distinct board decors it uses = its material variables). */
+  materialPool: string[];
+  /** Set when a just-opened block introduced decors not in the pool (§3.2); drives the map-or-create modal. */
+  pendingBinding: { foreign: string[] } | null;
+  /** Resolve the pending binding: map (foreign decor → pool decor id) or keep (null = create a new var). */
+  resolveBinding: (mapping: Record<string, string | null>) => void;
+  /** Dismiss the binding prompt keeping every foreign decor as a new variable (fold them into the pool). */
+  cancelBinding: () => void;
   /** Open a fresh block; an optional plan (e.g. from a converted Cell module) sets the materials too. */
   openWith: (model: StructuralModel, plan?: MaterialPlan, meta?: { fromCabinet?: boolean }) => void;
   setModel: (model: StructuralModel) => void;
@@ -260,13 +269,16 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setTarget: (id) => set({ targetId: id }),
     past: [],
     plan: DEFAULT_PLAN,
+    materialPool: planDecors(DEFAULT_PLAN),
+    pendingBinding: null,
     editingBlockId: null,
     fromCabinet: false,
-    // 7b — a plan decor change also changes that role's thickness → re-derive the parts
-    setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, ...derive(s.model, plan) }; }),
+    // 7b — a plan decor change also changes that role's thickness → re-derive the parts. A manual decor
+    // pick is an explicit choice, so it joins the material pool (only LIBRARY imports are gated, §3.2).
+    setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, materialPool: [...new Set([...s.materialPool, id])], ...derive(s.model, plan) }; }),
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
     // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
-    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, open: true, selectedId: null, past: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
+    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, materialPool: planDecors(p), pendingBinding: null, open: true, selectedId: null, past: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
     setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], editingBlockId: null, fromCabinet: false })),
     close: () => set({ open: false }),
     tapPart: (id) => {
@@ -364,6 +376,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       let next = setComponentMaterial(f.model, f.compId, id);
       if (id) next = setComponentThickness(next, f.compId, boardThicknessMm10(id));
       apply(next, true);
+      if (id) set((s) => ({ materialPool: [...new Set([...s.materialPool, id])] })); // explicit pick joins the pool
     },
     resize: (dim, mm) => {
       const m = get().model;
@@ -484,8 +497,19 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!data || !data.model || !Array.isArray(data.model.blocks)) {
         throw new Error("BAD_PROJECT: not a karkas project file");
       }
-      set({ ...derive(data.model, data.plan ?? DEFAULT_PLAN), plan: data.plan ?? DEFAULT_PLAN, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null, fromCabinet: false });
+      const plan = data.plan ?? DEFAULT_PLAN;
+      // §3.2 — a library block may carry decors the project pool lacks; flag them for the map-or-create
+      // prompt (the block still loads so it's visible; resolveBinding/cancelBinding reconciles the pool).
+      const foreign = foreignDecors(get().materialPool, data.model, plan);
+      set({ ...derive(data.model, plan), plan, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null });
     },
+    resolveBinding: (mapping) => {
+      const s = get();
+      const bound = bindBlockMaterials(s.model, s.plan, mapping);
+      const kept = Object.entries(mapping).filter(([, t]) => t === null).map(([f]) => f); // "create new var"
+      set({ ...derive(bound.model, bound.plan), plan: bound.plan, materialPool: [...new Set([...s.materialPool, ...kept])], pendingBinding: null });
+    },
+    cancelBinding: () => set((s) => ({ materialPool: [...new Set([...s.materialPool, ...(s.pendingBinding?.foreign ?? [])])], pendingBinding: null })),
   };
 });
 
