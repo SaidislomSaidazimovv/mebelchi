@@ -19,7 +19,7 @@ import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGro
 import { tagFacades, fadeFacades } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, partColorLookup, planThickness, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, boardForRole, partColorLookup, planThickness, selectionColors, type MaterialPlan } from "./materials";
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
@@ -63,6 +63,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const colorRef = useRef(colorFn);
   colorRef.current = colorFn;
   const selComp = useKarkas((s) => s.selectedComponent());
+  const selParts = useKarkas((s) => s.selectedParts());
   const sections = useKarkas((s) => s.sections);
   const targetId = useKarkas((s) => s.targetId);
   const setTarget = useKarkas((s) => s.setTarget);
@@ -127,7 +128,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     }
   };
   // compact toolbar: which dropdown (add-variants / overflow) is open
-  const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode">(null);
+  const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel">(null);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -403,7 +404,37 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <DimField label="Г" value={dims.d} onCommit={(mm) => resize("d", mm)} />
           <span style={{ ...mono, fontSize: 10 }}>mm</span>
         </div>
-        <span style={{ ...mono, color: "#006b3f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>{selectedId ? `▸ ${selectedId}` : "panelni bosing"}</span>
+        {/* Step 3.1 — the selection INFO CARD (v4 §5, fixture 03-info-card): a multi-segment material
+            colour bar + the component-accent name + a «⋯» menu. */}
+        {selectedId ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, background: "#fff", border: "1px solid #e6e1d4", borderRadius: 10, padding: "3px 7px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}>
+            <div style={{ display: "flex", flexDirection: "column", width: 5, height: 20, borderRadius: 3, overflow: "hidden", flexShrink: 0 }}>
+              {selectionColors(selParts, plan).map((c, i) => <div key={i} style={{ flex: 1, background: c }} />)}
+            </div>
+            <span style={{ fontWeight: 700, color: "#1f5570", fontSize: 13, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selComp?.name ?? selectedId}</span>
+            <div style={popWrap}>
+              <button onClick={(e) => { e.stopPropagation(); setMenu(menu === "sel" ? null : "sel"); }} style={{ ...pill, padding: "2px 7px", lineHeight: 1 }} type="button" aria-label="Amallar">⋮</button>
+              {menu === "sel" && (
+                <div style={popover}>
+                  {[
+                    { label: "🗑 O'chirish", fn: () => { remove(); setMenu(null); }, on: true },
+                    { label: "⧉ Nusxa", on: false },
+                    { label: "🔒 Blok", on: false },
+                    { label: "✎ Nomini o'zgartirish", on: false },
+                    { label: "🌲 Ierarxiya", on: false },
+                    { label: "💾 Kutubxonaga saqlash", on: false },
+                    { label: "✂ Ajratish (ungroup)", on: false },
+                    { label: "↻ Aylantirish", on: false },
+                  ].map((it) => (
+                    <button key={it.label} style={{ ...popItem, opacity: it.on ? 1 : 0.4, minWidth: 168, textAlign: "left" }} onClick={it.fn} disabled={!it.on} type="button">{it.label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <span style={{ ...mono, color: "#999", fontSize: 11 }}>panelni bosing</span>
+        )}
         <button onClick={addToProject} style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }} type="button">{editingBlockId ? "💾 Yangilash" : fromCabinet ? "＋ Nusxa" : "＋ Loyihaga"}</button>
         <div style={popWrap}>
           <button onClick={(e) => { e.stopPropagation(); setMenu(menu === "more" ? null : "more"); }} style={pill} type="button" aria-label="Ko'proq amallar">⋯</button>
