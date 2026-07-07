@@ -3,10 +3,12 @@
 // the 3D group when the model changes and re-tints on selection change; taps write back to the
 // store. Opened as a focused overlay from the Biblioteka (Phase 3.3) or the /#karkas dev route —
 // entirely parallel to the kitchen constructor, which it never touches.
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { useKarkas } from "./karkasStore";
+import { useKarkas, type ZoneRow } from "./karkasStore";
+import type { DivisionRule } from "../../../../engine/contracts/variables";
+import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
@@ -114,6 +116,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   }, []);
   const sections = useKarkas((s) => s.sections);
   const targetId = useKarkas((s) => s.targetId);
+  // (Step 4) ratio pill-row — zoneRow() returns a FRESH object each call, so (like selParts) subscribe to
+  // the stable fn ref and memoise on the inputs that actually change it (selection, target, reflow=parts).
+  const zoneRowFn = useKarkas((s) => s.zoneRow);
+  const zoneRow = useMemo(() => zoneRowFn(), [zoneRowFn, selectedId, targetId, parts]);
+  const setZoneRuleAt = useKarkas((s) => s.setZoneRuleAt);
+  const addZone = useKarkas((s) => s.addZone);
+  // (Step 4b) corner rounding — features() returns a fresh value, so subscribe to the fn ref + memoise.
+  const selectedFeaturesFn = useKarkas((s) => s.selectedFeatures);
+  const selFeatures = useMemo(() => selectedFeaturesFn(), [selectedFeaturesFn, selectedId, parts]);
+  const setCornerRadius = useKarkas((s) => s.setCornerRadius);
+  const addOrUpdateCutout = useKarkas((s) => s.addOrUpdateCutout);
+  const removeCutout = useKarkas((s) => s.removeCutout);
   const setTarget = useKarkas((s) => s.setTarget);
   const activeTarget = targetId && sections.some((x) => x.id === targetId) ? targetId : sections[0]?.id;
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
@@ -131,6 +145,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const divideBy = useKarkas((s) => s.divideBy);
   const addShelves = useKarkas((s) => s.addShelves);
   const [showDivide, setShowDivide] = useState(false);
+  const [showCorners, setShowCorners] = useState(false);
+  const [chainCorners, setChainCorners] = useState(true);
+  const [showCutout, setShowCutout] = useState(false);
+  const [units, setUnits] = useState<"mm" | "cm">("mm"); // Step 4b — length-field display unit (mm ⇄ cm)
+  const [chips, setChips] = useState<{ i: number; x: number; y: number; r: number; vis: boolean }[]>([]); // 3D corner chips
   const [divAxis, setDivAxis] = useState<"x" | "y">("y");
   const [divN, setDivN] = useState("3");
   const [shelfN, setShelfN] = useState("2");
@@ -489,6 +508,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     if (rt.current?.group) highlightBoard(rt.current.group, selectedId);
   }, [selectedId]);
 
+  // ── Step 4b: 3D corner chips — project the selected panel's face corners to canvas px, and reproject on
+  //    every camera move (OrbitControls "change"). Only while the corner tool is open on a real panel. ──
+  useEffect(() => {
+    const r = rt.current;
+    const board = scene.boards.find((b) => b.id === selectedId);
+    if (!r || !showCorners || !selectedId || selectedId.includes("__div_") || !board) { setChips([]); return; }
+    const compute = () => setChips(cornerChipPositions(board, r.camera, r.renderer, selFeatures?.corners));
+    compute();
+    r.controls.addEventListener("change", compute);
+    return () => r.controls.removeEventListener("change", compute);
+  }, [showCorners, selectedId, scene, selFeatures, units]);
+
   // ── F1: re-colour boards when the material plan changes (no geometry rebuild) ──
   useEffect(() => {
     if (rt.current?.group) {
@@ -516,10 +547,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <b style={{ fontSize: 15 }}>Karkas blok</b>
         {/* C2 — live W×H×D: type the client's dimensions; the block reflows (content scales) */}
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <DimField label="Ш" value={dims.w} onCommit={(mm) => resize("w", mm)} />
-          <DimField label="В" value={dims.h} onCommit={(mm) => resize("h", mm)} />
-          <DimField label="Г" value={dims.d} onCommit={(mm) => resize("d", mm)} />
-          <span style={{ ...mono, fontSize: 10 }}>mm</span>
+          <DimField label="Ш" value={dims.w} onCommit={(mm) => resize("w", mm)} units={units} />
+          <DimField label="В" value={dims.h} onCommit={(mm) => resize("h", mm)} units={units} />
+          <DimField label="Г" value={dims.d} onCommit={(mm) => resize("d", mm)} units={units} />
+          <button type="button" onClick={() => setUnits((u) => (u === "mm" ? "cm" : "mm"))} title="mm ⇄ cm birlik" style={{ ...mono, fontSize: 10, cursor: "pointer", border: "1px solid #d8d2c4", borderRadius: 6, padding: "2px 7px", background: "#fff", fontWeight: 700 }}>{units} ⇄</button>
         </div>
         {/* Step 3.1 — the selection INFO CARD (v4 §5, fixture 03-info-card): a multi-segment material
             colour bar + the component-accent name + a «⋯» menu. */}
@@ -602,6 +633,26 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           )}
         </div>
       )}
+      {/* Step 4 (v4 §4, fixture 04-shelf-ratios) — the ratio pill-row editor for the active divided
+          section: one pill per zone (Ratio weight / Fixed mm / Flex ↔), edit a value → all zones reflow
+          together; the chip cycles the rule; «＋» splits the last zone. Appears when a divider/zone is active. */}
+      {zoneRow && (
+        <div style={{ position: "fixed", bottom: 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(238,240,243,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
+          {zoneRow.zones.map((z, i) => (
+            <Fragment key={z.id}>
+              {i > 0 && <div style={{ width: 3, height: 34, borderRadius: 2, background: "#9aa6b2" }} />}
+              <ZonePill
+                zone={z}
+                onValue={(v) => setZoneRuleAt(i, z.rule.kind === "fixed" ? { kind: "fixed", mm10: Math.round(v * 10) } : { kind: "ratio", weight: v })}
+                onCycle={() => setZoneRuleAt(i, nextZoneRule(z))}
+              />
+            </Fragment>
+          ))}
+          <div style={{ width: 12 }} />
+          <button onClick={addZone} title="Yangi bo'shliq qo'shish" style={{ width: 46, height: 40, borderRadius: 9, border: "none", background: "#fff", color: "#1f5570", fontSize: 22, fontWeight: 800, cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.12)" }}>+</button>
+          <div style={{ width: 46, height: 40, borderRadius: 9, border: "2px dashed #9aa6b2", opacity: 0.7 }} />
+        </div>
+      )}
       {/* Phase 4 — edit toolbar: engine operations on the target section (selected panel's, else first leaf) */}
       <div style={editbar}>
         {/* Step 3.2 (v4 §5) — the two permanent selection modes; Space-select reveals the add toolset. */}
@@ -633,6 +684,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={act} onClick={() => add("drawer")} type="button">＋ Yashik</button>
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowDivide((v) => !v)} type="button">⊟ Bo'lish…</button>
+        {/* Step 4b — corner rounding on the selected panel (not a divider) */}
+        {selectedId && !selectedId.includes("__div_") && (
+          <button style={{ ...act, ...(showCorners ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowCorners((v) => !v)} type="button">⌜ Burchak…</button>
+        )}
+        {selectedId && !selectedId.includes("__div_") && (
+          <button style={{ ...act, ...(showCutout ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowCutout((v) => !v)} type="button">▢ O'yiq…</button>
+        )}
         </>)}
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
         {/* #7 — imos Visual Styles: a proper dropdown (matches the ＋Polka / ＋Eshik menus) */}
@@ -680,6 +738,57 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button style={act} onClick={() => addShelves(parseInt(shelfN, 10) || 1)} type="button">＋ Qo'shish</button>
         </div>
       )}
+      {/* Step 4b (fixtures 04b-round) — corner rounding: chain ×4 (one radius) or per-corner TL/TR/BR/BL */}
+      {showCorners && selectedId && !selectedId.includes("__div_") && (
+        <div style={selBar}>
+          <span style={mono}>Yumaloqlash (mm):</span>
+          <button style={{ ...pill, ...(chainCorners ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f" } : {}) }} onClick={() => setChainCorners((v) => !v)} type="button" title="4 burchakni birga o'zgartirish">♾ ×4</button>
+          {chainCorners ? (
+            <DimField label="R" value={Math.round((selFeatures?.corners?.[0] ?? 0) / 10)} onCommit={(mm) => setCornerRadius("all", mm * 10)} min={0} units={units} />
+          ) : (
+            (["◜ TL", "◝ TR", "◞ BR", "◟ BL"] as const).map((lbl, i) => (
+              <DimField key={lbl} label={lbl} value={Math.round((selFeatures?.corners?.[i] ?? 0) / 10)} onCommit={(mm) => setCornerRadius(i as 0 | 1 | 2 | 3, mm * 10)} min={0} units={units} />
+            ))
+          )}
+          {selFeatures?.corners?.some((r) => r > 0) && (
+            <button style={act} onClick={() => setCornerRadius("all", 0)} type="button">✕ Tozalash</button>
+          )}
+        </div>
+      )}
+      {/* Step 4b (fixture 04b-cutout) — a rectangular aperture (sink / hob / boiler): size + per-edge
+          offset pills with 🔒 locks (a locked offset survives a panel resize) + center-snap. One per panel. */}
+      {showCutout && selectedId && !selectedId.includes("__div_") && (() => {
+        const cut = selFeatures?.cutouts?.[0] ?? null;
+        const panelL = selPart?.length_mm10 ?? 0;
+        const panelW = selPart?.width_mm10 ?? 0;
+        const upd = (patch: Partial<PanelCutoutT>) => cut && addOrUpdateCutout({ ...cut, ...patch });
+        return (
+          <div style={selBar}>
+            {!cut ? (
+              <button style={act} type="button" onClick={() => {
+                const w = Math.max(200, Math.round(panelL * 0.4)), h = Math.max(200, Math.round(panelW * 0.4));
+                const l = Math.round((panelL - w) / 2), t = Math.round((panelW - h) / 2);
+                addOrUpdateCutout({ id: "cut1", w_mm10: w, h_mm10: h, offset: [l, t, l, t], locked: [false, false, false, false] });
+              }}>＋ O'yiq qo'shish</button>
+            ) : (
+              <>
+                <span style={mono}>O'lcham:</span>
+                <DimField label="Ш" value={Math.round(cut.w_mm10 / 10)} onCommit={(v) => upd({ w_mm10: v * 10 })} units={units} />
+                <DimField label="В" value={Math.round(cut.h_mm10 / 10)} onCommit={(v) => upd({ h_mm10: v * 10 })} units={units} />
+                <span style={{ ...mono, marginLeft: 6 }}>Otstup:</span>
+                {(["Л", "В", "П", "Н"] as const).map((lbl, i) => (
+                  <span key={lbl} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <DimField label={lbl} value={Math.round(cut.offset[i] / 10)} min={0} units={units} onCommit={(v) => { const o = [...cut.offset] as [number, number, number, number]; o[i] = v * 10; upd({ offset: o }); }} />
+                    <button type="button" title="Qulflash — resize'da bu otstup saqlanadi" style={{ ...pill, padding: "2px 5px", ...(cut.locked[i] ? { borderColor: "#d98a00", background: "#ffe7b3" } : {}) }} onClick={() => { const l = [...cut.locked] as [boolean, boolean, boolean, boolean]; l[i] = !l[i]; upd({ locked: l }); }}>{cut.locked[i] ? "🔒" : "🔓"}</button>
+                  </span>
+                ))}
+                <button style={act} type="button" title="Markazga tortish" onClick={() => { const l = Math.round((panelL - cut.w_mm10) / 2), t = Math.round((panelW - cut.h_mm10) / 2); upd({ offset: [l, t, l, t] }); }}>⊹ Markaz</button>
+                <button style={act} type="button" onClick={() => removeCutout(cut.id)}>✕ O'chirish</button>
+              </>
+            )}
+          </div>
+        );
+      })()}
       {/* Phase 6 — selected-component actions: doubling / glazing status + load-bearing declaration */}
       {selComp && (
         <div style={selBar}>
@@ -758,6 +867,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       )}
       <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
         <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
+        {/* Step 4b (fixture 04b-round-00) — 3D corner chips: a «＋» at each of the selected panel's 4 face
+            corners; tap to round it (30mm), tap a rounded one (green, shows its radius) to square it again.
+            Chain ×4 → one tap rounds all four. Projected to canvas px + reprojected on every camera move. */}
+        {showCorners && chips.map((c) => (c.vis ? (
+          <button
+            key={c.i}
+            type="button"
+            title={c.r > 0 ? "Bosib to'g'rilash (kvadrat)" : "Burchakni yumaloqlash"}
+            onClick={() => {
+              const cur = selFeatures?.corners?.[c.i] ?? 0;
+              const nextR = cur > 0 ? 0 : 300; // toggle square ⇄ 30mm
+              if (chainCorners) setCornerRadius("all", nextR); else setCornerRadius(c.i as 0 | 1 | 2 | 3, nextR);
+            }}
+            style={{ position: "absolute", left: c.x, top: c.y, transform: "translate(-50%,-50%)", zIndex: 42, width: 30, height: 30, borderRadius: 15, border: "2px solid #fff", cursor: "pointer", background: c.r > 0 ? "#00a961" : "#2a6df0", color: "#fff", fontWeight: 800, fontSize: c.r > 0 ? 11 : 18, lineHeight: 1, boxShadow: "0 2px 6px rgba(0,0,0,0.3)", fontFamily: "ui-monospace, monospace" }}
+          >
+            {c.r > 0 ? (units === "cm" ? +(c.r / 100).toFixed(1) : Math.round(c.r / 10)) : "+"}
+          </button>
+        ) : null))}
         {showTree && <TreePanel onClose={() => setShowTree(false)} />}
         {showSpec && <SpecPanel onClose={() => setShowSpec(false)} />}
       </div>
@@ -767,14 +894,44 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
 
 /** One live dimension input (C2). Holds a local string, resyncs when the model changes, and commits
  *  the resize on blur / Enter only (so a single edit is one undo step, not one per keystroke). */
-function DimField({ label, value, onCommit, min = 1 }: { label: string; value: number; onCommit: (mm: number) => void; min?: number }) {
-  const [v, setV] = useState(String(value));
-  useEffect(() => { setV(String(value)); }, [value]);
+/** Step 4b — screen positions (canvas px) of a board's 4 face corners [TL,TR,BR,BL] for the 3D corner
+ *  chips. The face = the two largest axes; the corner is taken at mid-thickness. `vis` is false when the
+ *  point is behind the camera. `corners` (mm10) supplies each chip's current radius. */
+function cornerChipPositions(
+  board: { pos: [number, number, number]; size: [number, number, number] },
+  camera: THREE.PerspectiveCamera,
+  renderer: THREE.WebGLRenderer,
+  corners?: readonly number[],
+): { i: number; x: number; y: number; r: number; vis: boolean }[] {
+  const [sx, sy, sz] = board.size;
+  let tAxis: 0 | 1 | 2 = 0;
+  if (sy <= sx && sy <= sz) tAxis = 1;
+  else if (sz <= sx && sz <= sy) tAxis = 2;
+  const faceAxes = [0, 1, 2].filter((a) => a !== tAxis) as [number, number];
+  const w = renderer.domElement.clientWidth || 1, h = renderer.domElement.clientHeight || 1;
+  const combos: [number, number][] = [[-1, 1], [1, 1], [1, -1], [-1, -1]]; // TL, TR, BR, BL
+  const v = new THREE.Vector3();
+  return combos.map(([su, sv], i) => {
+    const p: [number, number, number] = [board.pos[0], board.pos[1], board.pos[2]];
+    p[faceAxes[0]] += (su * board.size[faceAxes[0]]) / 2;
+    p[faceAxes[1]] += (sv * board.size[faceAxes[1]]) / 2;
+    v.set(p[0], p[1], p[2]).project(camera);
+    return { i, x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, r: corners?.[i] ?? 0, vis: v.z < 1 };
+  });
+}
+
+function DimField({ label, value, onCommit, min = 1, units = "mm" }: { label: string; value: number; onCommit: (mm: number) => void; min?: number; units?: "mm" | "cm" }) {
+  // `value`/`onCommit` are always in mm; `units="cm"` only changes the display + parse (÷/×10). Fields
+  // that aren't lengths (angle °, count) never pass `units`, so they keep their integer-mm behaviour.
+  const toDisp = (mm: number) => (units === "cm" ? String(+(mm / 10).toFixed(1)) : String(mm));
+  const [v, setV] = useState(toDisp(value));
+  useEffect(() => { setV(toDisp(value)); }, [value, units]); // eslint-disable-line react-hooks/exhaustive-deps
   const commit = () => {
-    const n = parseInt(v, 10);
+    const raw = parseFloat(v.replace(",", "."));
+    const mm = units === "cm" ? Math.round(raw * 10) : Math.round(raw);
     // `min` lets the angle field accept 0 (flatten a tilted shelf); dimensions keep min = 1.
-    if (Number.isFinite(n) && n >= min && n !== value) onCommit(n);
-    else setV(String(value)); // reject empty / below-min / unchanged
+    if (Number.isFinite(mm) && mm >= min && mm !== value) onCommit(mm);
+    else setV(toDisp(value)); // reject empty / below-min / unchanged
   };
   return (
     <label style={dimField}>
@@ -782,12 +939,55 @@ function DimField({ label, value, onCommit, min = 1 }: { label: string; value: n
       <input
         style={dimInput}
         value={v}
-        inputMode="numeric"
-        onChange={(e) => setV(e.target.value.replace(/[^\d]/g, ""))}
+        inputMode="decimal"
+        onChange={(e) => setV(e.target.value.replace(/[^\d.,]/g, ""))}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
       />
     </label>
+  );
+}
+
+/** Step 4 — the next rule when a pill's chip is tapped: Ratio → Fixed (frozen at the current mm) → Flex →
+ *  Ratio. Locked needs a bound component, so cycling a locked pill just returns to Ratio(1). */
+function nextZoneRule(z: ZoneRow["zones"][number]): DivisionRule {
+  switch (z.rule.kind) {
+    case "ratio": return { kind: "fixed", mm10: z.size_mm10 };
+    case "fixed": return { kind: "flex" };
+    default: return { kind: "ratio", weight: 1 };
+  }
+}
+
+/** Step 4 — one zone of the ratio pill-row (fixture 04-shelf-ratios): a value (Ratio weight, or Fixed mm)
+ *  plus a chip that cycles the rule. Flex/Locked show their current mm read-only. Enter/blur commits and
+ *  the whole row reflows via the constraint solver. */
+function ZonePill({ zone, onValue, onCycle }: { zone: ZoneRow["zones"][number]; onValue: (v: number) => void; onCycle: () => void }) {
+  const editable = zone.rule.kind === "ratio" || zone.rule.kind === "fixed";
+  const shown = zone.rule.kind === "ratio" ? String(zone.rule.weight)
+    : zone.rule.kind === "fixed" ? String(Math.round(zone.rule.mm10 / 10))
+    : String(Math.round(zone.size_mm10 / 10));
+  const chip = zone.rule.kind === "ratio" ? "нисбат" : zone.rule.kind === "fixed" ? "фикс мм" : zone.rule.kind === "locked" ? "🔒 lock" : "↔ флекс";
+  const [v, setV] = useState(shown);
+  useEffect(() => { setV(shown); }, [shown]);
+  const commit = () => {
+    const n = parseFloat(v.replace(",", "."));
+    if (Number.isFinite(n) && n > 0) onValue(n);
+    else setV(shown);
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+      <input
+        style={{ width: 54, height: 30, border: "none", borderRadius: 8, background: editable ? "#fff" : "#e4e7eb", color: "#18241d", font: "700 15px ui-monospace, monospace", textAlign: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.12)", opacity: editable ? 1 : 0.75 }}
+        value={v}
+        disabled={!editable}
+        inputMode="decimal"
+        onChange={(e) => setV(e.target.value.replace(/[^\d.,]/g, ""))}
+        onBlur={commit}
+        onFocus={(e) => e.target.select()}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      />
+      <button onClick={onCycle} title="Qoidani almashtirish: нисбат / фикс / флекс" style={{ border: "none", background: "transparent", color: "#5b6b78", fontSize: 10, fontWeight: 700, cursor: "pointer", padding: 0 }}>{chip}</button>
+    </div>
   );
 }
 

@@ -4,7 +4,7 @@
 // userData for raycast selection, mirroring kitchen3d.ts's `userData.cabId` convention.
 
 import * as THREE from "three";
-import type { Scene } from "./structureScene";
+import type { Scene, Board } from "./structureScene";
 
 const WOOD = 0xe7ddc9; // carcass face (matches the kitchen runStyle default)
 const EDGE = 0xc9bd9e; // panel edge outline
@@ -16,12 +16,81 @@ const SHADED = 0xcfcabd; // uniform clay grey for the "shaded" mode (form withou
  *  = edges only / see-through, `shaded` = solid but a single uniform matte colour (no decor). */
 export type RenderMode = "realistic" | "wireframe" | "shaded";
 
+const axisUnit = (a: 0 | 1 | 2): THREE.Vector3 =>
+  new THREE.Vector3(a === 0 ? 1 : 0, a === 1 ? 1 : 0, a === 2 ? 1 : 0);
+
+/** A centred rounded rectangle (metres) with per-corner radii [tl,tr,br,bl] in mm10. A 0 radius stays a
+ *  sharp corner; each rounded corner is a quadratic fillet through the sharp vertex. */
+function roundedRectShape(u: number, v: number, corners: readonly [number, number, number, number]): THREE.Shape {
+  const hu = u / 2, hv = v / 2;
+  const cap = Math.min(hu, hv);
+  const [tl, tr, br, bl] = corners.map((r) => Math.min(Math.max(r, 0) / 10000, cap)) as [number, number, number, number];
+  const s = new THREE.Shape();
+  s.moveTo(-hu + bl, -hv);
+  s.lineTo(hu - br, -hv);
+  if (br > 0) s.quadraticCurveTo(hu, -hv, hu, -hv + br); // bottom-right
+  s.lineTo(hu, hv - tr);
+  if (tr > 0) s.quadraticCurveTo(hu, hv, hu - tr, hv); // top-right
+  s.lineTo(-hu + tl, hv);
+  if (tl > 0) s.quadraticCurveTo(-hu, hv, -hu, hv - tl); // top-left
+  s.lineTo(-hu, -hv + bl);
+  if (bl > 0) s.quadraticCurveTo(-hu, -hv, -hu + bl, -hv); // bottom-left → closes
+  return s;
+}
+
+/** Punch a rectangular aperture into `shape` (face coords, metres), positioned from its LOCKED edge so a
+ *  locked clearance matches the engine's cut (features.ts). `u`/`v` are the face dims in metres. */
+function addCutoutHole(shape: THREE.Shape, cut: NonNullable<Board["cutouts"]>[number], u: number, v: number): void {
+  const cw = cut.w_mm10 / 10000, ch = cut.h_mm10 / 10000;
+  const [left, top, right, bottom] = cut.offset.map((o) => o / 10000);
+  const [lLeft, lTop, lRight, lBottom] = cut.locked;
+  const x0 = lRight && !lLeft ? u - right - cw : left;
+  const y0 = lTop && !lBottom ? v - top - ch : bottom;
+  const x = -u / 2 + x0, y = -v / 2 + y0;
+  const hole = new THREE.Path();
+  hole.moveTo(x, y);
+  hole.lineTo(x + cw, y);
+  hole.lineTo(x + cw, y + ch);
+  hole.lineTo(x, y + ch);
+  hole.lineTo(x, y);
+  shape.holes.push(hole);
+}
+
+/** Geometry for one board: a plain box, or — when it carries corner rounding / cutouts (Step 4b) — a
+ *  rounded-rect (with holes) extruded through the panel's thickness. The thickness axis is the smallest
+ *  of the three dims; the other two form the face. `makeBasis` re-orients the XY-extruded shape onto the
+ *  board's real axes (kept right-handed so face normals point outward). */
+function boardGeometry(b: Board): THREE.BufferGeometry {
+  const hasCorners = !!b.corners && b.corners.some((r) => r > 0);
+  const hasCutouts = !!b.cutouts && b.cutouts.length > 0;
+  if (!hasCorners && !hasCutouts) return new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
+
+  const [sx, sy, sz] = b.size;
+  let tAxis: 0 | 1 | 2 = 0;
+  if (sy <= sx && sy <= sz) tAxis = 1;
+  else if (sz <= sx && sz <= sy) tAxis = 2;
+  const thick = b.size[tAxis];
+  const faceAxes = ([0, 1, 2].filter((a) => a !== tAxis)) as [0 | 1 | 2, 0 | 1 | 2];
+  const u = b.size[faceAxes[0]], v = b.size[faceAxes[1]];
+
+  const shape = roundedRectShape(u, v, b.corners ?? [0, 0, 0, 0]);
+  for (const c of b.cutouts ?? []) addCutoutHole(shape, c, u, v);
+
+  const geom = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false, curveSegments: 12 });
+  geom.translate(0, 0, -thick / 2); // Extrude runs 0..depth → centre it on the thickness axis
+  const ex = axisUnit(faceAxes[0]), ey = axisUnit(faceAxes[1]), ez = axisUnit(tAxis);
+  const basis = new THREE.Matrix4().makeBasis(ex, ey, ez);
+  if (basis.determinant() < 0) basis.makeBasis(ex, ey, ez.negate()); // keep right-handed (normals outward)
+  geom.applyMatrix4(basis);
+  return geom;
+}
+
 /** Build the assembled cabinet as a THREE.Group of box meshes — one per render board. `colorOf`
  *  (Phase F1) maps a part id → its decor colour (int); absent / undefined falls back to WOOD. */
 export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined): THREE.Group {
   const group = new THREE.Group();
   for (const b of scene.boards) {
-    const geom = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
+    const geom = boardGeometry(b);
     const mesh = new THREE.Mesh(
       geom,
       new THREE.MeshStandardMaterial({ color: colorOf?.(b.id) ?? WOOD, roughness: 0.82, metalness: 0 }),

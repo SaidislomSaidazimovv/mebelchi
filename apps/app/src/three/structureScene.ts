@@ -7,6 +7,7 @@
 // entirely parallel to the kitchen Cell 3D (kitchen3d.ts) — nothing here touches that path.
 
 import type { PanelPlacement } from "../../../../engine/structure/layout.js";
+import type { PanelFeatures } from "../../../../engine/contracts/structure.js";
 
 /** A render-ready box: centre + full size, in metres (three.js units). */
 export interface Board {
@@ -18,6 +19,10 @@ export interface Board {
   size: [number, number, number];
   /** tilt about the X (width) axis in RADIANS — an inclined shelf. Absent = axis-aligned. */
   rotX?: number;
+  /** Step 4b — corner radii mm10 [tl,tr,br,bl] on this panel's largest face (rendered as a rounded rect). */
+  corners?: readonly [number, number, number, number];
+  /** Step 4b — rectangular apertures (mm10, part-local) punched through the panel's largest face. */
+  cutouts?: PanelFeatures["cutouts"];
 }
 
 export interface Scene {
@@ -49,7 +54,7 @@ interface RawBox {
  * Centre + metre-scale a set of min-corner mm10 boxes. three.js boxes are centred, so we add
  * half-size; the cabinet is recentred on X/Z and stood on the floor (minY → 0).
  */
-export function boxesToScene(boxes: RawBox[]): Scene {
+export function boxesToScene(boxes: RawBox[], features?: Readonly<Record<string, PanelFeatures>>): Scene {
   if (boxes.length === 0) return { boards: [], center: [0, 0, 0], radius: 1 };
 
   let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -60,19 +65,25 @@ export function boxesToScene(boxes: RawBox[]): Scene {
     minZ = Math.min(minZ, b.z); maxZ = Math.max(maxZ, b.z + b.d);
   }
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
-  const boards: Board[] = boxes.map((b) => ({
-    id: b.id,
-    name: b.name,
-    pos: [M(b.x + b.w / 2 - cx), M(b.y + b.h / 2 - minY), M(b.z + b.d / 2 - cz)],
-    size: [M(b.w), M(b.h), M(b.d)],
-    ...(b.rot ? { rotX: (b.rot * Math.PI) / 180 } : {}),
-  }));
+  const boards: Board[] = boxes.map((b) => {
+    const f = features?.[b.id];
+    return {
+      id: b.id,
+      name: b.name,
+      pos: [M(b.x + b.w / 2 - cx), M(b.y + b.h / 2 - minY), M(b.z + b.d / 2 - cz)],
+      size: [M(b.w), M(b.h), M(b.d)],
+      ...(b.rot ? { rotX: (b.rot * Math.PI) / 180 } : {}),
+      ...(f?.corners && f.corners.some((r) => r > 0) ? { corners: f.corners } : {}),
+      ...(f?.cutouts && f.cutouts.length > 0 ? { cutouts: f.cutouts } : {}),
+    };
+  });
   const w = M(maxX - minX), h = M(maxY - minY), d = M(maxZ - minZ);
   return { boards, center: [0, h / 2, 0], radius: Math.max(w, h, d) };
 }
 
-/** Live path: the assembled cabinet from solveLayout → positioned panels. */
-export function layoutToScene(panels: readonly PanelPlacement[]): Scene {
+/** Live path: the assembled cabinet from solveLayout → positioned panels. `features` (Step 4b) attaches
+ *  corner-rounding / cutout data to the matching boards so the renderer can draw them. */
+export function layoutToScene(panels: readonly PanelPlacement[], features?: Readonly<Record<string, PanelFeatures>>): Scene {
   return boxesToScene(
     panels.map((p) => ({
       id: p.id,
@@ -81,6 +92,7 @@ export function layoutToScene(panels: readonly PanelPlacement[]): Scene {
       w: p.w_mm10, h: p.h_mm10, d: p.d_mm10,
       rot: p.rotX_deg,
     })),
+    features,
   );
 }
 
