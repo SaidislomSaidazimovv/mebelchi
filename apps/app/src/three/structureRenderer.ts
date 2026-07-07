@@ -42,7 +42,7 @@ function roundedRectShape(u: number, v: number, corners: readonly [number, numbe
  *  locked clearance matches the engine's cut (features.ts). `u`/`v` are the face dims in metres. */
 function addCutoutHole(shape: THREE.Shape, cut: NonNullable<Board["cutouts"]>[number], u: number, v: number): void {
   const cw = cut.w_mm10 / 10000, ch = cut.h_mm10 / 10000;
-  const [left, top, right, bottom] = cut.offset.map((o) => o / 10000);
+  const left = cut.offset[0] / 10000, top = cut.offset[1] / 10000, right = cut.offset[2] / 10000, bottom = cut.offset[3] / 10000;
   const [lLeft, lTop, lRight, lBottom] = cut.locked;
   const x0 = lRight && !lLeft ? u - right - cw : left;
   const y0 = lTop && !lBottom ? v - top - ch : bottom;
