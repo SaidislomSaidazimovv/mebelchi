@@ -45,6 +45,8 @@ import type {
   Zone,
 } from "../contracts/structure.js";
 import type { mm10, PartId } from "../contracts/types.js";
+import type { DivisionRule } from "../contracts/variables.js";
+import { resolveChain, type ChainZone } from "./constraintSolver.js";
 import { shelfSpanY } from "./solve.js";
 
 // ---------------------------------------------------------------------------
@@ -119,6 +121,23 @@ export function divideSection(
   return { ...model, blocks };
 }
 
+/** The division rule (CONSTRUCTION_FRAME_v4 §4) zone `i` of an `n`-zone split carries, derived from the
+ *  split mode — PER ZONE, so every child of an N-way split has its own share (the constraint solver
+ *  reads it, Step 2):
+ *    • `equal`  → every zone Ratio(1)              (all equal)
+ *    • `ratio`  → zone i is Ratio(weight[i])        (each of the N weights captured)
+ *    • `fixed`  → zones 0..n-2 Fixed(step), last Flex (the last zone absorbs the remainder)
+ *    • `direct` → both zones Flex                   (a manual cut stays proportional on resize)
+ */
+function ruleForZone(mode: DivideMode, i: number, n: number): DivisionRule {
+  switch (mode.kind) {
+    case "equal": return { kind: "ratio", weight: 1 };
+    case "ratio": return { kind: "ratio", weight: mode.ratio[i] ?? 1 };
+    case "fixed": return i < n - 1 ? { kind: "fixed", mm10: mode.step_mm10 } : { kind: "flex" };
+    case "direct": return { kind: "flex" };
+  }
+}
+
 /** Section-level split (private): a leaf → parent-with-children + the new lines.
  *  Section stores only line *ids*, so the `Line` objects travel back separately
  *  for `divideSection` to splice into `Block.lines`. */
@@ -153,6 +172,7 @@ function splitLeaf(
     groupId: null,
   }));
 
+  const zoneCount = boundaries.length - 1;
   const children: Section[] = boundaries.slice(0, -1).map((lo, i) => {
     const hi = boundaries[i + 1]!;
     return {
@@ -164,6 +184,8 @@ function splitLeaf(
       // non-leaf parent keeps `instanceIds` empty (the S1-A contract invariant).
       instanceIds: i === 0 ? section.instanceIds : [],
       purpose: null,
+      // v4 §4: each child zone carries its own division rule (the constraint solver reads it, Step 2).
+      rule: ruleForZone(mode, i, zoneCount),
     };
   });
 
@@ -958,8 +980,69 @@ function scaleBlockAxis(block: Block, axis: Axis, factor: number): Block {
   return base;
 }
 
-/** Set `blockId`'s extent along `axis` to `newExtent_mm10`, scaling its whole subtree to match.
- *  No-op (same model ref) when the extent is unchanged. Throws on unknown block or invalid extent. */
+/**
+ * Rule-aware resize (Step 2.3, CONSTRUCTION_FRAME_v4 §4): set a plain block's extent along `axis` and
+ * RE-SOLVE each division level with the constraint solver instead of scaling everything by one factor.
+ * A section split ALONG `axis` runs `resolveChain` over its child zones (Fixed keeps its mm, Locked
+ * keeps its size, Ratio shares by weight, Flex absorbs); a section split along ANOTHER axis has every
+ * child span the new extent. Dividing lines re-anchor to the new boundaries; instance anchors
+ * reposition proportionally within their (resized) leaf. Block-local (0-based) coords, matching the
+ * model builders. An equal split (all Ratio-1) reproduces the old proportional result exactly.
+ */
+function resolveBlockAxis(block: Block, axis: Axis, newExtent: mm10): Block {
+  const lineAxisOf = new Map(block.lines.map((l) => [l.id, l.axis] as const));
+  const linePos = new Map<LineId, mm10>();
+  const leafSpan = new Map<SectionId, { o0: mm10; e0: mm10; o1: mm10; e1: mm10 }>();
+
+  const relayout = (section: Section, o1: mm10, e1: mm10): Section => {
+    const o0 = originOf(section.box, axis);
+    const e0 = extentOf(section.box, axis);
+    const box = withAxis(section.box, axis, o1, e1);
+    if (section.children.length === 0) {
+      leafSpan.set(section.id, { o0, e0, o1, e1 });
+      return { ...section, box };
+    }
+    const divAxis = section.dividers.length > 0 ? lineAxisOf.get(section.dividers[0]!) : undefined;
+    if (divAxis === axis) {
+      // children tile ALONG the resize axis → re-solve the chain by their per-zone rules
+      const zones: ChainZone[] = section.children.map((c) => ({
+        rule: c.rule ?? { kind: "flex" },
+        currentSize: extentOf(c.box, axis),
+      }));
+      const { sizes } = resolveChain(e1, zones);
+      let cursor = o1;
+      const children = section.children.map((c, i) => {
+        const child = relayout(c, cursor, sizes[i]!);
+        cursor += sizes[i]!;
+        if (i < section.dividers.length) linePos.set(section.dividers[i]!, cursor); // boundary after child i
+        return child;
+      });
+      return { ...section, box, children };
+    }
+    // children split along ANOTHER axis → each spans the full new extent along `axis`
+    return { ...section, box, children: section.children.map((c) => relayout(c, o1, e1)) };
+  };
+
+  const o = originOf(block.box, axis);
+  const zones = block.zones.map((z) => ({ ...z, root: relayout(z.root, o, newExtent) }));
+
+  const instances = block.instances.map((inst) => {
+    const s = leafSpan.get(inst.sectionId);
+    if (!s || s.e0 <= 0) return inst;
+    const a = inst.anchor;
+    const cur = axis === "x" ? a.x : axis === "y" ? a.y : a.z;
+    const v = Math.round(s.o1 + ((cur - s.o0) / s.e0) * s.e1); // same fraction within the resized leaf
+    const anchor = axis === "x" ? { ...a, x: v } : axis === "y" ? { ...a, y: v } : { ...a, z: v };
+    return { ...inst, anchor };
+  });
+
+  const lines = block.lines.map((l) => (linePos.has(l.id) ? { ...l, position_mm10: linePos.get(l.id)! } : l));
+  return { ...block, box: withAxis(block.box, axis, o, newExtent), zones, instances, lines };
+}
+
+/** Set `blockId`'s extent along `axis` to `newExtent_mm10`, re-solving its subtree to match. Plain
+ *  blocks use the rule-aware constraint solver (§4); L-corner (footprint) blocks stay on the
+ *  proportional `scaleBlockAxis` path. No-op (same ref) when unchanged. Throws on unknown/invalid. */
 function resizeBlockAxis(
   model: StructuralModel,
   blockId: BlockId,
@@ -975,8 +1058,10 @@ function resizeBlockAxis(
   if (old <= 0) throw new Error("RESIZE_DEGENERATE_BLOCK");
   if (old === newExtent_mm10) return model; // semantic no-op
 
-  const scaled = scaleBlockAxis(block, axis, newExtent_mm10 / old);
-  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? scaled : b)) };
+  const resized = block.footprint
+    ? scaleBlockAxis(block, axis, newExtent_mm10 / old) // L-corner → proportional (rules are box-only)
+    : resolveBlockAxis(block, axis, newExtent_mm10); // plain block → rule-aware constraint solve
+  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? resized : b)) };
 }
 
 /** Structure-level DEPTH edit (blocker #3, v3 Piece 1): set a block's depth; panels reflow. */

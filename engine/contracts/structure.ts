@@ -24,6 +24,7 @@
 // ever mutated in place ("transform, not rebuild").
 
 import type { mm10, Part, PartId } from "./types.js";
+import type { DivisionRule, MaterialVar, KromkaVar, JointProfile } from "./variables.js";
 
 // ---------------------------------------------------------------------------
 // Identifiers (plain strings, like the rest of the contract; aliased for reading)
@@ -144,6 +145,14 @@ export interface Section {
   readonly instanceIds: readonly InstanceId[];
   /** Purpose → load class input. `null` until tagged. */
   readonly purpose: SectionPurpose | null;
+  /**
+   * The division rule (CONSTRUCTION_FRAME_v4 §4) for how THIS section (zone) sizes when its PARENT is
+   * resized: Fixed keeps its mm, Locked keeps a component's size, Ratio shares by weight, Flex absorbs
+   * the leftover. Lives per-zone (not per-line) so every child of an N-way split carries its own share
+   * — the constraint solver (Step 2) reads it. Optional/additive: absent = Flex (leftover-absorbing),
+   * so a pre-v4 section never over-constrains. The root section has no parent, so its rule is unused.
+   */
+  readonly rule?: DivisionRule;
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +422,29 @@ export interface StructuralModel {
   readonly blocks: readonly Block[];
   /** The flat manufacturing leaves (Деталь), shared with the Project. */
   readonly parts: readonly Part[];
+  /**
+   * The project's GLOBAL variable slots (CONSTRUCTION_FRAME_v4 §3). Optional/additive: absent =
+   * the pre-v4 model where materials/thickness came from the app's MaterialPlan + per-role
+   * ThicknessSpec. When present, a Part resolves its material (and thickness) from a `MaterialVar`
+   * by id, so one edit reflows every part on that slot. `jointProfile` drives hole placement (§8.2).
+   */
+  readonly materialVars?: readonly MaterialVar[];
+  readonly kromkaVars?: readonly KromkaVar[];
+  readonly jointProfile?: JointProfile;
 }
+
+// ---------------------------------------------------------------------------
+// v4 §1 terminology aliases — the standard ladder Part / Component / Block / Furniture / Space / Line.
+// The engine's historical names (Section, StructuralModel) keep working; these aliases give new code
+// the founder's standard vocabulary without a risky mass-rename. A `Space` IS a `Section`; the whole
+// project (`Furniture` / Мебель) IS the `StructuralModel`.
+// ---------------------------------------------------------------------------
+
+/** v4 §1: an empty cell/volume you add things into. Alias of `Section`. */
+export type Space = Section;
+export type SpaceId = SectionId;
+/** v4 §1: everything in the project — behaves as one body in Building mode. Alias of `StructuralModel`. */
+export type Furniture = StructuralModel;
 
 // ---------------------------------------------------------------------------
 // Pure read-only helpers (contract conveniences — no mutation, no operations).
