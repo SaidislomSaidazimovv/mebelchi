@@ -11,7 +11,9 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import type { DivisionRule } from "../../../../engine/contracts/variables.js";
+import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -38,7 +40,7 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) sections.push({ id: s.id, label: `${sections.length + 1}` });
   // 7b — each role's board thickness comes from its plan decor (ЛДСП 16 / МДФ 18 / ХДФ 3)
   const tk = planThickness(plan); // one per-role thickness spec for BOTH cut list + render (parity)
-  return { model, parts: solveStructure(model, tk), scene: layoutToScene(solveLayout(model, tk)), warnings, sections };
+  return { model, parts: solveStructure(model, tk), scene: layoutToScene(solveLayout(model, tk), model.features), warnings, sections };
 }
 
 /** First leaf section of the model (the default edit target when nothing is selected). */
@@ -68,6 +70,35 @@ function findSection(model: StructuralModel, id: string): Section | null {
       if (r) return r;
     }
   }
+  return null;
+}
+
+/** A divided section's zones, as the ratio pill-row editor (Step 4) needs them: display order, each
+ *  zone's current size along the divider axis, and its rule. `sectionId` + index feed setZoneRule. */
+export type ZoneRow = {
+  sectionId: string;
+  axis: "x" | "y" | "z";
+  zones: { id: string; size_mm10: number; rule: DivisionRule }[];
+};
+
+/** Immutably patch one part's PanelFeatures overlay (Step 4b); an emptied entry is dropped so the map
+ *  stays clean and a fully-square/cut-free model serialises exactly as before. */
+function patchFeatures(model: StructuralModel, pid: string, patch: Partial<PanelFeatures>): StructuralModel {
+  const next: PanelFeatures = { ...(model.features?.[pid] ?? {}), ...patch };
+  const empty = (!next.corners || next.corners.every((r) => r <= 0)) && (!next.cutouts || next.cutouts.length === 0);
+  const features: Record<string, PanelFeatures> = { ...(model.features ?? {}) };
+  if (empty) delete features[pid]; else features[pid] = next;
+  return { ...model, features: Object.keys(features).length ? features : undefined };
+}
+
+/** The nearest divided section matching `pred`, searched over every block's zone-tree. */
+function findDivParent(model: StructuralModel, pred: (s: Section) => boolean): Section | null {
+  const walk = (s: Section): Section | null => {
+    if (s.children.length > 0 && pred(s)) return s;
+    for (const c of s.children) { const r = walk(c); if (r) return r; }
+    return null;
+  };
+  for (const b of model.blocks) for (const z of b.zones) { const r = walk(z.root); if (r) return r; }
   return null;
 }
 
@@ -159,6 +190,21 @@ interface KarkasState extends Derived {
   /** Resize the block to an ABSOLUTE extent (mm10) along a dim by dragging a side handle (Step 3.3c).
    *  Rule-aware (Step 2). `pushHistory` true on the FIRST drag frame; clamped to a minimum; safe on throw. */
   resizeDrag: (dim: "w" | "h" | "d", extentMm10: number, pushHistory: boolean) => void;
+  /** The active divided section's zones for the ratio pill-row editor (Step 4), or null. Follows the
+   *  selected divider, else the active target section's divided parent. */
+  zoneRow: () => ZoneRow | null;
+  /** Retype zone `zoneIndex` of the current `zoneRow()` section (Fixed/Ratio/Locked/Flex) → reflow. */
+  setZoneRuleAt: (zoneIndex: number, rule: DivisionRule) => void;
+  /** «＋» on the pill row — split the current row's LAST zone in two (adds one more equal zone). */
+  addZone: () => void;
+  /** The finishing features (corner rounding + cutouts) on the selected part, or null (Step 4b). */
+  selectedFeatures: () => PanelFeatures | null;
+  /** Set the selected panel's corner radius (mm10): one corner ([tl,tr,br,bl] = 0..3), or "all" (chain ×4). */
+  setCornerRadius: (target: "all" | 0 | 1 | 2 | 3, r_mm10: number) => void;
+  /** Add or update a cutout aperture on the selected panel (matched by id). */
+  addOrUpdateCutout: (cut: PanelCutout) => void;
+  /** Remove a cutout by id from the selected panel. */
+  removeCutout: (id: string) => void;
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
@@ -350,6 +396,76 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (next === s.model) return;
       if (pushHistory) apply(next, true);
       else set((st) => ({ ...derive(next, st.plan), selectedId: st.selectedId }));
+    },
+    zoneRow: () => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block) return null;
+      let parent: Section | null = null;
+      const sel = s.selectedId;
+      if (sel && sel.includes("__div_")) {
+        const lineId = sel.slice(sel.indexOf("__div_") + "__div_".length);
+        parent = findDivParent(s.model, (sec) => sec.dividers.includes(lineId));
+      }
+      if (!parent && s.targetId) {
+        const tid = s.targetId;
+        parent = findDivParent(s.model, (sec) => sec.children.some((c) => c.id === tid));
+      }
+      if (!parent || parent.children.length < 2) return null;
+      const axis = block.lines.find((l) => l.id === parent!.dividers[0])?.axis ?? "y";
+      const sizeOf = (b: { w: number; h: number; d: number }) => (axis === "x" ? b.w : axis === "y" ? b.h : b.d);
+      const zones = parent.children.map((c) => ({ id: c.id, size_mm10: sizeOf(c.box), rule: c.rule ?? ({ kind: "flex" } as DivisionRule) }));
+      return { sectionId: parent.id, axis, zones };
+    },
+    setZoneRuleAt: (zoneIndex, rule) => {
+      const s = get();
+      const row = s.zoneRow();
+      if (!row) return;
+      const next = setZoneRuleOp(s.model, row.sectionId, zoneIndex, rule);
+      if (next !== s.model) apply(next, true);
+    },
+    addZone: () => {
+      const s = get();
+      const row = s.zoneRow();
+      if (!row) return;
+      const parent = findSection(s.model, row.sectionId);
+      const last = parent?.children[parent.children.length - 1];
+      if (!last) return;
+      const leaf = firstLeafUnder(last);
+      let next: StructuralModel;
+      try { next = divideSection(s.model, leaf.id, { kind: "equal", axis: row.axis, count: 2 }); } catch { return; }
+      if (next !== s.model) apply(next, true);
+    },
+    selectedFeatures: () => {
+      const s = get();
+      return s.selectedId ? s.model.features?.[s.selectedId] ?? null : null;
+    },
+    setCornerRadius: (target, r) => {
+      const s = get();
+      const pid = s.selectedId;
+      if (!pid) return;
+      const cur = s.model.features?.[pid]?.corners ?? [0, 0, 0, 0];
+      const clamped = Math.max(0, Math.round(r));
+      const corners: [number, number, number, number] = [cur[0], cur[1], cur[2], cur[3]];
+      if (target === "all") corners.fill(clamped);
+      else corners[target] = clamped;
+      apply(patchFeatures(s.model, pid, { corners }), true);
+    },
+    addOrUpdateCutout: (cut) => {
+      const s = get();
+      const pid = s.selectedId;
+      if (!pid) return;
+      const cuts = (s.model.features?.[pid]?.cutouts ?? []).slice();
+      const i = cuts.findIndex((c) => c.id === cut.id);
+      if (i >= 0) cuts[i] = cut; else cuts.push(cut);
+      apply(patchFeatures(s.model, pid, { cutouts: cuts }), true);
+    },
+    removeCutout: (id) => {
+      const s = get();
+      const pid = s.selectedId;
+      if (!pid) return;
+      const cuts = (s.model.features?.[pid]?.cutouts ?? []).filter((c) => c.id !== id);
+      apply(patchFeatures(s.model, pid, { cutouts: cuts }), true);
     },
     undo: () =>
       set((s) => {
