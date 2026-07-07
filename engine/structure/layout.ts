@@ -26,9 +26,12 @@ import {
   GLASS_MM10,
   GLAZED_FRAME_W,
   GLAZED_MUNTIN_W,
+  resolveThickness,
   sectionOfLine,
   shelfSpanX,
+  shelfSpanY,
 } from "./solve.js";
+import type { ResolvedT, ThicknessSpec } from "./solve.js";
 
 /** A panel placed in the cabinet: position + size in mm10 (block-local; X=width, Y=height, Z=depth). */
 export interface PanelPlacement {
@@ -74,49 +77,53 @@ interface Box6 {
 
 /** Carcass positioned for a run along X: 2 sides + top + bottom (inner width) + back. `omitSideR`
  *  drops the right side (the L corner-join). */
-function carcassPlace(idBase: string, label: string, box: Box6, omitSideR = false): PanelPlacement[] {
+function carcassPlace(idBase: string, label: string, box: Box6, t: ResolvedT, omitSideR = false): PanelPlacement[] {
   const { x, y, z, w, h, d } = box;
+  const c = t.carcass; // sides / top / bottom stock
+  const bk = t.back; // back panel (thin ХДФ) — its own thickness + flush-to-rear offset
   const ps = [
-    place(`${idBase}__side_l`, `${label}Бок левый`, x, y, z, B, h, d),
-    place(`${idBase}__side_r`, `${label}Бок правый`, x + w - B, y, z, B, h, d),
-    place(`${idBase}__top`, `${label}Верх`, x + B, y + h - B, z, w - 2 * B, B, d),
-    place(`${idBase}__bottom`, `${label}Низ`, x + B, y, z, w - 2 * B, B, d),
-    place(`${idBase}__back`, `${label}Задняя стенка`, x, y, z + d - B, w, h, B),
+    place(`${idBase}__side_l`, `${label}Бок левый`, x, y, z, c, h, d),
+    place(`${idBase}__side_r`, `${label}Бок правый`, x + w - c, y, z, c, h, d),
+    place(`${idBase}__top`, `${label}Верх`, x + c, y + h - c, z, w - 2 * c, c, d),
+    place(`${idBase}__bottom`, `${label}Низ`, x + c, y, z, w - 2 * c, c, d),
+    place(`${idBase}__back`, `${label}Задняя стенка`, x, y, z + d - bk, w, h, bk),
   ];
   return omitSideR ? ps.filter((p) => !p.id.endsWith("__side_r")) : ps;
 }
 
-function carcass(block: Block): PanelPlacement[] {
-  return carcassPlace(block.id, "", block.box);
+function carcass(block: Block, t: ResolvedT): PanelPlacement[] {
+  return carcassPlace(block.id, "", block.box, t);
 }
 
 /** Carcass positioned for a return run along Z (the L's second leg, rotated 90°). The corner-end
  *  side is omitted (it opens into leg-A); the far-end side is kept as `side_l`. Matches the 4 parts
  *  solveStructure emits for leg-B (side_r omitted). */
-function carcassPlaceZ(idBase: string, label: string, box: Box6): PanelPlacement[] {
+function carcassPlaceZ(idBase: string, label: string, box: Box6, t: ResolvedT): PanelPlacement[] {
   const { x, y, z, w, h, d } = box;
+  const c = t.carcass; // this leg's side/top/bottom are carcass stock…
+  const bk = t.back; // …its back is the thin panel (thin in X here, at the far-wall side)
   return [
-    place(`${idBase}__side_l`, `${label}Бок левый`, x, y, z + d - B, w, h, B), // far end of the run
-    place(`${idBase}__top`, `${label}Верх`, x, y + h - B, z + B, w, B, d - 2 * B),
-    place(`${idBase}__bottom`, `${label}Низ`, x, y, z + B, w, B, d - 2 * B),
-    place(`${idBase}__back`, `${label}Задняя стенка`, x + w - B, y, z, B, h, d), // wall side (far X)
+    place(`${idBase}__side_l`, `${label}Бок левый`, x, y, z + d - c, w, h, c), // far end of the run
+    place(`${idBase}__top`, `${label}Верх`, x, y + h - c, z + c, w, c, d - 2 * c),
+    place(`${idBase}__bottom`, `${label}Низ`, x, y, z + c, w, c, d - 2 * c),
+    place(`${idBase}__back`, `${label}Задняя стенка`, x + w - bk, y, z, bk, h, d), // wall side (far X)
   ];
 }
 
 /** Position an L-corner block: leg-A along X, leg-B as a Z-return behind it, + the corner filler. */
-function lCornerLayout(block: Block): PanelPlacement[] {
+function lCornerLayout(block: Block, t: ResolvedT): PanelPlacement[] {
   const fp = block.footprint!;
   const { x, y, z, h } = block.box;
   const aDepth = fp.legA.depth_mm10;
   const aBox: Box6 = { x, y, z, w: fp.legA.length_mm10, h, d: aDepth };
   const bBox: Box6 = { x, y, z: z + aDepth, w: fp.legB.depth_mm10, h, d: fp.legB.length_mm10 };
   return [
-    ...carcassPlace(`${block.id}__legA`, "Плечо A · ", aBox),
+    ...carcassPlace(`${block.id}__legA`, "Плечо A · ", aBox, t),
     // leg-B sits fully BEHIND leg-A (z + legA.depth): its back is perpendicular to leg-A's and
     // adjacent to it, not overlapping — the blind-corner Pattern A (see lCornerParts / -r4:1241-1250).
-    ...carcassPlaceZ(`${block.id}__legB`, "Плечо B · ", bBox),
+    ...carcassPlaceZ(`${block.id}__legB`, "Плечо B · ", bBox, t),
     // The 50mm blind-corner door-clearance filler at the inner corner (blocker #6; -r3:327, GEO-3).
-    place(`${block.id}__corner_filler`, "Угловая планка", x + fp.legB.depth_mm10, y, z + aDepth - CORNER_FILLER_W, B, h, CORNER_FILLER_W),
+    place(`${block.id}__corner_filler`, "Угловая планка", x + fp.legB.depth_mm10, y, z + aDepth - CORNER_FILLER_W, t.carcass, h, CORNER_FILLER_W),
   ];
 }
 
@@ -124,20 +131,28 @@ function lCornerLayout(block: Block): PanelPlacement[] {
  *  follow that section, not the block's bounding box. An x-line makes a VERTICAL divider (thin in X,
  *  full section height); a y-line makes a HORIZONTAL divider (thin in Y at the split height, spanning
  *  the section width between the sides — like a shelf). */
-function dividerPlacement(block: Block, line: Line): PanelPlacement {
-  const box = sectionOfLine(block, line.id)?.box;
+function dividerPlacement(block: Block, line: Line, t: ResolvedT): PanelPlacement {
+  const section = sectionOfLine(block, line.id);
+  const box = section?.box;
   const sx = box ? box.x : 0;
   const sy = box ? box.y : 0;
   const sz = box ? box.z : 0;
   const sw = box ? box.w : block.box.w;
   const sh = box ? box.h : block.box.h;
   const sd = box ? box.d : block.box.d;
+  const c = t.carcass; // spans inset by the carcass board (matches shelfSpanX in solve's dividerPart)
+  const dv = t.divider; // the divider's own thickness, centred on the cut line
   if (line.axis === "y") {
+    // horizontal divider: X-span reaches the bounding side/divider faces (boundary-aware), not a fixed
+    // 2·board — so a NESTED horizontal divider no longer leaves an 8mm gap. Matches dividerPart (solve).
+    const span = section ? shelfSpanX(block, section, c) : { x0: c, width: sw - 2 * c };
     const py = block.box.y + line.position_mm10;
-    return place(`${block.id}__div_${line.id}`, "Перегородка", block.box.x + sx + B, py - B / 2, block.box.z + sz, sw - 2 * B, B, sd);
+    return place(`${block.id}__div_${line.id}`, "Перегородка", block.box.x + sx + span.x0, py - dv / 2, block.box.z + sz, span.width, dv, sd);
   }
+  // vertical divider: Y-span boundary-aware (full board at carcass top/bottom, half at a horizontal divider).
+  const span = section ? shelfSpanY(block, section, c) : { y0: c, height: sh - 2 * c };
   const px = block.box.x + line.position_mm10;
-  return place(`${block.id}__div_${line.id}`, "Перегородка", px - B / 2, block.box.y + sy + B, block.box.z + sz, B, sh - 2 * B, sd);
+  return place(`${block.id}__div_${line.id}`, "Перегородка", px - dv / 2, block.box.y + sy + span.y0, block.box.z + sz, dv, span.height, sd);
 }
 
 function sectionById(block: Block, sectionId: string): Section | null {
@@ -154,14 +169,24 @@ function componentById(block: Block, componentId: string): Component | null {
 }
 
 /** A shelf placement: spans its section's width (between sides/dividers) at the anchor height. */
-function shelfPlacement(block: Block, inst: Instance): PanelPlacement | null {
+/** The physical render thickness of a single board component: a doubled build is 2 glued boards
+ *  (32mm) drawn as ONE box; an explicit per-part `thickness_mm10` wins; otherwise the role default.
+ *  Mirrors solve.ts (`component.thickness_mm10 ?? role` + `doublePanel`) so the box the viewport draws
+ *  matches the cut list's glued result. (`partialDouble`'s step is not modelled in the render — the
+ *  single box uses the base thickness, as before.) */
+function boardThickness(component: Component, roleDefault: mm10): mm10 {
+  const base = component.thickness_mm10 ?? roleDefault;
+  return component.doubled ? 2 * base : base;
+}
+
+function shelfPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement | null {
   const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
   if (!section || !component || component.role !== "internal_shelf") return null;
   const s = section.box;
   // Clear span between the bounding panels: a carcass side insets a full board, a divider (centred on
   // the cut) only half — so the shelf reaches the divider face instead of leaving a half-board gap.
-  const span = shelfSpanX(block, section, B);
+  const span = shelfSpanX(block, section, t.carcass);
   const p = place(
     `${block.id}__inst_${inst.id}`,
     component.name,
@@ -169,7 +194,7 @@ function shelfPlacement(block: Block, inst: Instance): PanelPlacement | null {
     block.box.y + inst.anchor.y,
     block.box.z + s.z,
     span.width,
-    B,
+    boardThickness(component, t.shelf), // 32mm doubled / per-part override / t.shelf — matches the cut list
     s.d,
   );
   // Inclined shelf (imos AS_O_Angle): carry the tilt so the renderer leans the board (clamped to the
@@ -191,12 +216,12 @@ function effectiveShelfAngleDeg(block: Block, inst: Instance, component: Compone
  *  vertical fiddle-rail sits inside the opening and actually stops items (matches imos's front hook).
  *  Its base sits on the shelf's front-bottom edge (the tilt pivot, which never moves), so it stays
  *  attached whatever the angle. Null unless the shelf has a lip. */
-function shelfLipPlacement(block: Block, inst: Instance): PanelPlacement | null {
+function shelfLipPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement | null {
   const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
   if (!section || !component || component.role !== "internal_shelf" || !component.lip_mm10) return null;
   const s = section.box;
-  const span = shelfSpanX(block, section, B); // same clear span as the shelf it sits on
+  const span = shelfSpanX(block, section, t.carcass); // same clear span as the shelf it sits on
   return place(
     `${block.id}__inst_${inst.id}__lip`,
     `${component.name} · борт`,
@@ -205,13 +230,13 @@ function shelfLipPlacement(block: Block, inst: Instance): PanelPlacement | null 
     block.box.z + s.z, // FRONT face
     span.width,
     component.lip_mm10, // upstand height (Y) — world-vertical, no rotX
-    B, // thin strip in depth (Z)
+    t.shelf, // thin strip in depth (Z) — same stock as the shelf (matches solve's lip part)
   );
 }
 
 /** A facade/door placement: covers its section's front opening (single door only; the glazed-grid
  *  assembly layout is a follow-up). */
-function facadePlacement(block: Block, inst: Instance): PanelPlacement | null {
+function facadePlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement | null {
   const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
   if (!section || !component || component.role !== "facade" || component.glazedGrid) return null;
@@ -224,7 +249,7 @@ function facadePlacement(block: Block, inst: Instance): PanelPlacement | null {
     block.box.z + s.z, // the front face (near side of the section)
     s.w,
     s.h,
-    B,
+    boardThickness(component, t.facade), // 18mm МДФ / 32mm doubled door — matches the cut list
   );
 }
 
@@ -235,30 +260,31 @@ const DRAWER_SLIDE_CLEAR_MM10 = 130;
 /** A drawer placement → the 5-panel box (facade front + 2 sides + back + bottom) laid into its
  *  section, matching the ids + geometry `drawerBoxParts` emits in solve.ts so the 3D shows the drawer
  *  and its parts colour correctly. Was MISSING — drawers were counted in the cut list but invisible. */
-function drawerBoxPlacement(block: Block, inst: Instance): PanelPlacement[] | null {
+function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement[] | null {
   const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
   if (!section || !component || !component.drawer) return null;
   const s = section.box;
   const x0 = block.box.x + s.x, y0 = block.box.y + s.y, z0 = block.box.z + s.z;
   const idBase = `${block.id}__inst_${inst.id}`;
+  const c = t.carcass, bk = t.back, fa = t.facade; // box walls = carcass, bottom = thin back, facade = МДФ
   // Body sits inside the CLEAR interior (past the carcass side / divider face) less a runner clearance
   // each side — matching solve.ts's drawerBoxParts. Old code measured from the section-box edge, so it
   // ignored the bounding board and overhung the carcass by 2 boards.
-  const span = shelfSpanX(block, section, B);
+  const span = shelfSpanX(block, section, c);
   const bodyX = x0 + span.x0 + DRAWER_SLIDE_CLEAR_MM10; // carcass inner face + left runner clearance
   const bodyW = span.width - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width between the runners
-  const innerW = bodyW - 2 * B; // between the two box sides
-  const bodyY = y0 + B; // above the bottom clearance
-  const sideH = s.h - 2 * B; // box side height within the opening
-  const boxZ = z0 + B; // behind the front facade
-  const boxD = s.d - 2 * B; // body depth (leave a little back clearance)
+  const innerW = bodyW - 2 * c; // between the two box sides
+  const bodyY = y0 + c; // above the bottom clearance
+  const sideH = s.h - 2 * c; // box side height within the opening
+  const boxZ = z0 + fa; // behind the front facade (its own thickness)
+  const boxD = s.d - fa - c; // body depth (behind the facade, small back clearance)
   return [
-    place(`${idBase}__front`, "Ящик · фасад", x0, y0, z0, s.w, s.h, B), // full front opening
-    place(`${idBase}__side_l`, "Ящик · бок Л", bodyX, bodyY, boxZ, B, sideH, boxD),
-    place(`${idBase}__side_r`, "Ящик · бок П", bodyX + bodyW - B, bodyY, boxZ, B, sideH, boxD),
-    place(`${idBase}__back`, "Ящик · задняя", bodyX + B, bodyY, boxZ + boxD - B, innerW, sideH, B),
-    place(`${idBase}__bottom`, "Ящик · дно", bodyX + B, bodyY, boxZ, innerW, B, boxD),
+    place(`${idBase}__front`, "Ящик · фасад", x0, y0, z0, s.w, s.h, fa), // full front opening
+    place(`${idBase}__side_l`, "Ящик · бок Л", bodyX, bodyY, boxZ, c, sideH, boxD),
+    place(`${idBase}__side_r`, "Ящик · бок П", bodyX + bodyW - c, bodyY, boxZ, c, sideH, boxD),
+    place(`${idBase}__back`, "Ящик · задняя", bodyX + c, bodyY, boxZ + boxD - c, innerW, sideH, c),
+    place(`${idBase}__bottom`, "Ящик · дно", bodyX + c, bodyY, boxZ, innerW, bk, boxD),
   ];
 }
 
@@ -314,7 +340,7 @@ function glazedGridPlacement(block: Block, inst: Instance): PanelPlacement[] | n
 
 /** A sliding accessory placement (E9): render the motion component as a thin rack in its section at
  *  the anchor height (its home/retracted position). The swept envelope is computed in motion.ts. */
-function motionPlacement(block: Block, inst: Instance): PanelPlacement | null {
+function motionPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement | null {
   const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
   if (!section || !component || !component.motion) return null;
@@ -322,11 +348,11 @@ function motionPlacement(block: Block, inst: Instance): PanelPlacement | null {
   return place(
     `${block.id}__inst_${inst.id}`,
     component.name,
-    block.box.x + s.x + B,
+    block.box.x + s.x + t.carcass,
     block.box.y + inst.anchor.y,
     block.box.z + s.z,
-    s.w - 2 * B,
-    B,
+    s.w - 2 * t.carcass, // spans between the carcass sides (matches the solve board)
+    t.shelf, // shelf-stock board thickness (parity with instanceParts' motion part)
     s.d,
   );
 }
@@ -344,18 +370,20 @@ function applyJunction(p: PanelPlacement, j: Junction3D): PanelPlacement {
  * Positioned panels for the 3D viewport. Same panels (and ids) as `solveStructure`, but
  * each carries its place in the cabinet so the editor can render the assembled box.
  */
-export function solveLayout(model: StructuralModel): PanelPlacement[] {
+export function solveLayout(model: StructuralModel, thickness: ThicknessSpec = {}): PanelPlacement[] {
+  const t = resolveThickness(thickness); // per-role board thickness — mirrors solveStructure so the
+  // rendered box matches the cut list (thin ХДФ back, 18mm МДФ facade, 32mm doubled shelf/door…).
   const out: PanelPlacement[] = [];
   for (const block of model.blocks) {
-    out.push(...(block.footprint ? lCornerLayout(block) : carcass(block)));
-    for (const line of block.lines) out.push(dividerPlacement(block, line));
+    out.push(...(block.footprint ? lCornerLayout(block, t) : carcass(block, t)));
+    for (const line of block.lines) out.push(dividerPlacement(block, line, t));
     for (const inst of block.instances) {
-      const drawer = drawerBoxPlacement(block, inst); // E: drawer box (5 panels) — was missing → drawers were invisible
+      const drawer = drawerBoxPlacement(block, inst, t); // E: drawer box (5 panels) — was missing → drawers were invisible
       const grid = glazedGridPlacement(block, inst); // E2: multi-panel glazed-grid door
-      const placements = drawer ?? grid ?? [motionPlacement(block, inst) ?? shelfPlacement(block, inst) ?? facadePlacement(block, inst)]
+      const placements = drawer ?? grid ?? [motionPlacement(block, inst, t) ?? shelfPlacement(block, inst, t) ?? facadePlacement(block, inst, t)]
         .filter((p): p is PanelPlacement => p !== null);
       // Display-shelf front lip (null unless the shelf has one) — an extra board at the front edge.
-      const lip = shelfLipPlacement(block, inst);
+      const lip = shelfLipPlacement(block, inst, t);
       for (const p of lip ? [...placements, lip] : placements) out.push(inst.junction ? applyJunction(p, inst.junction) : p);
     }
   }

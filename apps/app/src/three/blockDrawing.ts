@@ -61,9 +61,12 @@ const MM = (mm10: number): number => mm10 / 10; // mm10 (tenths) → mm
 function kindOf(p: PanelPlacement): DrawRect["kind"] {
   const id = p.id;
   if (id.endsWith("__lip")) return "lip";
-  if (/__(side_l|side_r|top|bottom|back)$/.test(id)) return "carcass";
   if (id.includes("__div") || id.includes("divider")) return "divider";
-  if (id.includes("__front") || id.includes("__side_l") || id.includes("__side_r") || id.includes("__back") || id.includes("__bottom")) return "drawer";
+  // A drawer's OWN box panels carry an instance segment (`…__inst_N__side_l/__back/__bottom/__front`);
+  // check that BEFORE the carcass suffix test, else they'd match `/__side_l$/` etc. and get drawn with
+  // the heavy carcass line weight instead of the drawer style.
+  if (id.includes("__inst_") && /__(front|side_l|side_r|back|bottom)$/.test(id)) return "drawer";
+  if (/__(side_l|side_r|top|bottom|back)$/.test(id)) return "carcass";
   if (id.includes("__inst_")) return "shelf"; // a plain shelf instance
   return "other";
 }
@@ -127,11 +130,21 @@ export function buildBlockDrawing(placements: readonly PanelPlacement[], parts: 
     else if (h.normal === "y") planHoles.push({ x: h.x - minX, y: h.z - minZ, r: h.r });
     else sideHoles.push({ x: h.z - minZ, y: h.y - minY, r: h.r });
   }
+  // An orthographic view collapses one axis, so holes on DIFFERENT panels that share the projected
+  // position (e.g. the left + right side panels' cam holes, or a shelf's pins on both its side and its
+  // divider) land on the exact same spot — drawn twice they read as a smudge. Collapse coincident marks.
+  const dedupe = (hs: DrawHole[]): DrawHole[] => {
+    const seen = new Set<string>();
+    return hs.filter((h) => {
+      const k = `${Math.round(h.x)}:${Math.round(h.y)}:${Math.round(h.r)}`;
+      return seen.has(k) ? false : (seen.add(k), true);
+    });
+  };
 
   return {
-    front: { title: "OLDINDAN", rects: front, holes: frontHoles, w: W, h: H },
-    plan: { title: "USTDAN", rects: plan, holes: planHoles, w: W, h: D },
-    side: { title: "KESIM A-A", rects: side, holes: sideHoles, w: D, h: H },
+    front: { title: "OLDINDAN", rects: front, holes: dedupe(frontHoles), w: W, h: H },
+    plan: { title: "USTDAN", rects: plan, holes: dedupe(planHoles), w: W, h: D },
+    side: { title: "KESIM A-A", rects: side, holes: dedupe(sideHoles), w: D, h: H },
     overall: { w: Math.round(W), h: Math.round(H), d: Math.round(D) },
     heights: uniqSorted([0, ...shelfYs, H]),
     widths: uniqSorted([0, ...dividerXs, W]),

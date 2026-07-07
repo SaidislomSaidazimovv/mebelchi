@@ -72,24 +72,40 @@ function viewSvg(v: DrawView, scale: number, ox: number, oy: number): string {
   return polys + holeEls + label;
 }
 
-/** A linear dimension: a line with ticks + a centred value (mm). `horiz` runs along X, else Y. */
-function dim(x1: number, y1: number, x2: number, y2: number, value: number, horiz: boolean): string {
-  const mid = horiz ? [(x1 + x2) / 2, y1 - 1.5] : [x1 - 1.5, (y1 + y2) / 2];
+/** A linear dimension: a line with ticks + a value (mm). `horiz` runs along X, else Y. `off` is the
+ *  SIGNED perpendicular offset of the value from the line (−1.5 = the usual left/above side; flipping
+ *  the sign puts it on the other side, so a dense chain can alternate lanes). `fs` = font size. */
+function dim(x1: number, y1: number, x2: number, y2: number, value: number, horiz: boolean, off = -1.5, fs = 3.4): string {
+  const mid = horiz ? [(x1 + x2) / 2, y1 + off] : [x1 + off, (y1 + y2) / 2];
   const t = 1.4; // tick half-length
   const ticks = horiz
     ? `<line x1="${x1}" y1="${y1 - t}" x2="${x1}" y2="${y1 + t}" stroke="#c00" stroke-width="0.3"/><line x1="${x2}" y1="${y2 - t}" x2="${x2}" y2="${y2 + t}" stroke="#c00" stroke-width="0.3"/>`
     : `<line x1="${x1 - t}" y1="${y1}" x2="${x1 + t}" y2="${y1}" stroke="#c00" stroke-width="0.3"/><line x1="${x2 - t}" y1="${y2}" x2="${x2 + t}" y2="${y2}" stroke="#c00" stroke-width="0.3"/>`;
-  const txt = `<text x="${mid[0]!.toFixed(1)}" y="${mid[1]!.toFixed(1)}" font-size="3.4" text-anchor="middle" fill="#c00" font-family="sans-serif"${horiz ? "" : ` transform="rotate(-90 ${mid[0]!.toFixed(1)} ${mid[1]!.toFixed(1)})"`}>${value}</text>`;
+  const anchor = horiz ? "middle" : off < 0 ? "end" : "start"; // vertical label hugs the correct side
+  const txt = `<text x="${mid[0]!.toFixed(1)}" y="${mid[1]!.toFixed(1)}" font-size="${fs.toFixed(1)}" text-anchor="${anchor}" fill="#c00" font-family="sans-serif"${horiz ? "" : ` transform="rotate(-90 ${mid[0]!.toFixed(1)} ${mid[1]!.toFixed(1)})"`}>${value}</text>`;
   return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c00" stroke-width="0.3"/>${ticks}${txt}`;
 }
 
+/** How dense a chain is → the font size that fits its tightest gap, and whether to STAGGER (put
+ *  alternating labels on opposite sides of the line so tight numbers can't collide). `minPx` = the
+ *  smallest scaled segment (paper-mm). */
+function chainStyle(minPx: number): { fs: number; stagger: boolean } {
+  const fs = Math.max(2.2, Math.min(3.4, minPx * 0.6)); // shrink to fit the tightest gap, floor legible
+  return { fs, stagger: minPx < 8 }; // gaps tighter than ~8mm paper → two-sided stagger
+}
+
 /** A vertical dimension CHAIN: one segment per gap between consecutive grid lines (mm, Y-up). Drawn
- *  at paper-x `xLine`, next to a view whose bottom is at (oy + viewH*scale). Gives per-shelf heights. */
+ *  at paper-x `xLine`, next to a view whose bottom is at (oy + viewH*scale). Gives per-shelf heights.
+ *  Dense chains shrink the font + alternate labels left/right of the line so many shelves stay legible. */
 function chainV(vals: readonly number[], xLine: number, oy: number, viewH: number, scale: number): string {
   let out = "";
+  let minPx = Infinity;
+  for (let i = 0; i < vals.length - 1; i++) minPx = Math.min(minPx, (vals[i + 1]! - vals[i]!) * scale);
+  const { fs, stagger } = chainStyle(minPx);
   for (let i = 0; i < vals.length - 1; i++) {
     const y1 = oy + (viewH - vals[i]!) * scale, y2 = oy + (viewH - vals[i + 1]!) * scale;
-    out += dim(xLine, y1, xLine, y2, Math.round(vals[i + 1]! - vals[i]!), false);
+    const off = stagger && i % 2 === 1 ? 1.5 : -1.5; // odd gaps hop to the RIGHT of the line
+    out += dim(xLine, y1, xLine, y2, Math.round(vals[i + 1]! - vals[i]!), false, off, fs);
   }
   return out;
 }
@@ -97,9 +113,13 @@ function chainV(vals: readonly number[], xLine: number, oy: number, viewH: numbe
 /** A horizontal dimension CHAIN: one segment per gap between consecutive grid lines. Gives column widths. */
 function chainH(vals: readonly number[], yLine: number, ox: number, scale: number): string {
   let out = "";
+  let minPx = Infinity;
+  for (let i = 0; i < vals.length - 1; i++) minPx = Math.min(minPx, (vals[i + 1]! - vals[i]!) * scale);
+  const { fs, stagger } = chainStyle(minPx);
   for (let i = 0; i < vals.length - 1; i++) {
     const x1 = ox + vals[i]! * scale, x2 = ox + vals[i + 1]! * scale;
-    out += dim(x1, yLine, x2, yLine, Math.round(vals[i + 1]! - vals[i]!), true);
+    const off = stagger && i % 2 === 1 ? 1.5 : -1.5; // odd gaps hop BELOW the line
+    out += dim(x1, yLine, x2, yLine, Math.round(vals[i + 1]! - vals[i]!), true, off, fs);
   }
   return out;
 }

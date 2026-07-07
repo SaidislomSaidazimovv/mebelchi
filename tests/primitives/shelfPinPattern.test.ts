@@ -10,7 +10,7 @@ import { parseSWJ008 } from "../../engine/index.js";
 import { shelfPinPattern } from "../../engine/primitives/shelfPinPattern.js";
 import { loadHardwareSpec } from "../../engine/catalogs/hardwareSpec.js";
 import type { Panel } from "../../engine/primitives/types.js";
-import { canonOps, fieldDiffs, proof } from "./_helpers.js";
+import { canonOps, fieldDiffs } from "./_helpers.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const xml = readFileSync(join(HERE, "..", "golden", "xml", "ORTA_BAK_6_1.XML"), "utf8");
@@ -54,8 +54,11 @@ describe("shelfPinPattern", () => {
     expect(generated.every((o) => o.face === "A")).toBe(true);
   });
 
-  // UNVERIFIED SPEC: system32 front/back row setbacks (dummy 37mm vs factory ~91.5mm).
-  proof("generated Ø5 pattern matches real ORTA_BAK", verified, () => {
+  // The row setbacks are now GROUNDED at 91.5mm against ORTA_BAK, so the generated pattern matches
+  // this factory panel exactly (the proof is a hard assertion). system32.verified stays false only
+  // because the BACK row is cabinet-specific (YON_BAK-1 uses 108.5) and not yet modelled per-design —
+  // that universal-spec caveat is orthogonal to matching THIS reference panel.
+  it("generated Ø5 pattern matches real ORTA_BAK", () => {
     expect(generated).toEqual(realPins);
   });
 

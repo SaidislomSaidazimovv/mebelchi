@@ -56,8 +56,8 @@ export interface ThicknessSpec {
   readonly divider?: mm10;
   readonly facade?: mm10;
 }
-interface ResolvedT { carcass: mm10; back: mm10; shelf: mm10; divider: mm10; facade: mm10 }
-function resolveThickness(spec: ThicknessSpec = {}): ResolvedT {
+export interface ResolvedT { carcass: mm10; back: mm10; shelf: mm10; divider: mm10; facade: mm10 }
+export function resolveThickness(spec: ThicknessSpec = {}): ResolvedT {
   return {
     carcass: spec.carcass ?? BOARD_MM10,
     back: spec.back ?? BOARD_MM10,
@@ -267,8 +267,14 @@ export function sectionOfLine(block: Block, lineId: string): Section | null {
  *  (leg-aware for L-blocks) — not the block's bounding box. An x-split is a VERTICAL divider
  *  (height × depth); a y-split is a HORIZONTAL divider/shelf (width × depth). */
 function dividerPart(block: Block, line: Line, t: ResolvedT): Part {
-  const box = sectionOfLine(block, line.id)?.box ?? block.box;
-  const spanLen = (line.axis === "y" ? box.w : box.h) - 2 * t.carcass;
+  const section = sectionOfLine(block, line.id);
+  const box = section?.box ?? block.box;
+  // Boundary-aware span (matches shelfPlacement): a full board at a carcass edge, half at a divider —
+  // so a NESTED divider reaches its bounding panel's face instead of leaving an 8mm gap. A y-line
+  // (horizontal divider) spans X (shelfSpanX); an x-line (vertical divider) spans Y (shelfSpanY).
+  const spanLen = section
+    ? line.axis === "y" ? shelfSpanX(block, section, t.carcass).width : shelfSpanY(block, section, t.carcass).height
+    : (line.axis === "y" ? box.w : box.h) - 2 * t.carcass;
   return panel(`${block.id}__div_${line.id}`, "Перегородка", spanLen, box.d, frontBand(), t.divider, "carcass_side");
 }
 
@@ -302,6 +308,18 @@ export function shelfSpanX(block: Block, section: Section, board: mm10): { x0: m
   return { x0: li, width: section.box.w - li - ri };
 }
 
+/** The VERTICAL twin of shelfSpanX: the clear span (mm10) between a section's bottom and top bounding
+ *  panels. A block-EDGE boundary is a full carcass board; an INTERIOR boundary is a horizontal divider
+ *  CENTRED on the cut → half a board in. Used by the shelf vertical distribution (equal openings even
+ *  when a section is bounded by a divider) and by a vertical divider's own span. */
+export function shelfSpanY(block: Block, section: Section, board: mm10): { y0: mm10; height: mm10 } {
+  const atBottomEdge = section.box.y === block.box.y;
+  const atTopEdge = section.box.y + section.box.h === block.box.y + block.box.h;
+  const bi = atBottomEdge ? board : Math.round(board / 2);
+  const ti = atTopEdge ? board : Math.round(board / 2);
+  return { y0: bi, height: section.box.h - bi - ti };
+}
+
 /** Runner clearance per drawer side (mm10) — the gap the slide occupies between box and carcass. */
 const DRAWER_SLIDE_CLEAR_MM10 = 130;
 
@@ -318,12 +336,17 @@ function drawerBoxParts(block: Block, inst: Instance, section: Section, t: Resol
   const outerW = shelfSpanX(block, section, t.carcass).width - 2 * DRAWER_SLIDE_CLEAR_MM10;
   const innerW = outerW - 2 * t.carcass; // between the two box sides
   const sideH = box.h - 2 * t.carcass; // box side height within the opening
+  // The box body sits BEHIND the facade with a small back clearance, so its depth is the section
+  // depth minus the facade board minus one carcass board — NOT the full section depth. Cutting the
+  // sides/bottom at box.d over-cuts them by ~32mm so a real drawer side would foul the facade / hang
+  // past the back. Must match layout.ts's drawerBoxPlacement `boxD = s.d − facade − carcass`.
+  const bodyD = box.d - t.facade - t.carcass;
   return [
     panel(`${idBase}__front`, "Ящик · фасад", box.h, box.w, allBand(), t.facade, "facade"),
-    panel(`${idBase}__side_l`, "Ящик · бок Л", box.d, sideH, frontBand(), t.carcass, "carcass_side"),
-    panel(`${idBase}__side_r`, "Ящик · бок П", box.d, sideH, frontBand(), t.carcass, "carcass_side"),
+    panel(`${idBase}__side_l`, "Ящик · бок Л", bodyD, sideH, frontBand(), t.carcass, "carcass_side"),
+    panel(`${idBase}__side_r`, "Ящик · бок П", bodyD, sideH, frontBand(), t.carcass, "carcass_side"),
     panel(`${idBase}__back`, "Ящик · задняя", innerW, sideH, frontBand(), t.carcass, "carcass_side"),
-    panel(`${idBase}__bottom`, "Ящик · дно", innerW, box.d, [0, 0, 0, 0], t.back, "carcass_back"),
+    panel(`${idBase}__bottom`, "Ящик · дно", innerW, bodyD, [0, 0, 0, 0], t.back, "carcass_back"),
   ];
 }
 
@@ -340,6 +363,13 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   const stampMat = (ps: Part[]): Part[] => (mat ? ps.map((p) => (p.role === "glass" ? p : { ...p, materialId: mat })) : ps);
   // A drawer is a whole box (its own multi-panel build), independent of a single-panel role.
   if (component.drawer) return stampMat(drawerBoxParts(block, inst, section, t));
+  // A sliding accessory (motion, e.g. a pull-out rack — role null) is a single shelf-like board spanning
+  // the opening; it was RENDERED (motionPlacement) but never emitted here, so it was missing from the cut
+  // list. Emit the matching board (untagged → the pin-drilling pass skips it, since it rides runners not
+  // pins). Geometry mirrors layout.ts's motionPlacement (s.w − 2·carcass × s.d × shelf board).
+  if (component.motion) {
+    return stampMat([panel(`${block.id}__inst_${inst.id}`, component.name, section.box.w - 2 * t.carcass, section.box.d, frontBand(), t.shelf)]);
+  }
   // Step-aware mount (#7): a vertical support whose height resolves to the real underside plane of
   // the partially-doubled top above it — shorter under the 32mm front strip, taller behind the step.
   if (component.mount) {

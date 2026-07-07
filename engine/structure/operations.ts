@@ -45,6 +45,7 @@ import type {
   Zone,
 } from "../contracts/structure.js";
 import type { mm10, PartId } from "../contracts/types.js";
+import { shelfSpanY } from "./solve.js";
 
 // ---------------------------------------------------------------------------
 // Geometry helpers (axis-addressed Box3D math, all mm10)
@@ -739,7 +740,7 @@ function addDrawerInstance(model: StructuralModel, block: Block, section: Sectio
     drawer = { id, name: "Ящик", partIds: [], role: null, drawer: true };
     components = [...block.components, drawer];
   }
-  const newId = `drawer_${block.instances.length + 1}`;
+  const newId = nextInstanceId(block, "drawer");
   const instances: Instance[] = [
     ...block.instances,
     { id: newId, componentId: drawer.id, sectionId: section.id, anchor: { x: section.box.x, y: section.box.y, z: section.box.z }, link: "linked" },
@@ -764,6 +765,21 @@ function ensureComponent(
   return { component, components: [...block.components, component] };
 }
 
+/** Mint the next instance id for a family (`shelf` / `door` / `drawer`). Uses `max(existing suffix)+1`
+ *  PER PREFIX rather than `block.instances.length+1`: the old length-based counter reused ids after a
+ *  remove (delete shelf_2 of {1,2,3} → next add minted shelf_3 again, colliding) and even let a door
+ *  removal shift the shelf numbering, since length counts every family at once. Scanning the live ids
+ *  of just this family guarantees the new id is strictly greater than every live one — no collision. */
+function nextInstanceId(block: Block, prefix: string): InstanceId {
+  const re = new RegExp(`^${prefix}_(\\d+)$`);
+  let max = 0;
+  for (const inst of block.instances) {
+    const m = re.exec(inst.id);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `${prefix}_${max + 1}`;
+}
+
 /** Splice a section's updated instanceIds back into its zone tree. */
 function withSectionInstances(block: Block, section: Section, instanceIds: readonly InstanceId[]): Zone[] {
   const next: Section = { ...section, instanceIds };
@@ -783,7 +799,7 @@ function addShelfInstance(model: StructuralModel, block: Block, section: Section
     doubled,
   );
 
-  const newId = `shelf_${block.instances.length + 1}`;
+  const newId = nextInstanceId(block, "shelf");
   // every shelf now living in this section, in order, gets an evenly-spaced height
   const order = [
     ...block.instances.filter((i) => i.sectionId === section.id && roleOf(i) === "internal_shelf").map((i) => i.id),
@@ -795,10 +811,14 @@ function addShelfInstance(model: StructuralModel, block: Block, section: Section
   // the top gap came out smaller than the rest. Here we inset by the bounding panel (T) at both ends,
   // subtract every shelf's thickness, and split the remaining CLEAR height into n+1 equal openings.
   // `anchor.y` is the shelf's BOTTOM, so shelf i bottom = floor + (i+1)·opening + i·T.
-  const T = 160; // 16mm — BOARD_MM10 (carcass/divider at the ends + each shelf's thickness)
-  const usable = section.box.h - 2 * T; // interior clear height between the two bounding panels
-  const opening = Math.max(0, usable - n * T) / (n + 1); // one equal clear gap
-  const yAt = (idx: number) => Math.round(section.box.y + T + (idx + 1) * opening + idx * T);
+  // Boundary-aware clear span: a carcass board (full T) at a block edge, a horizontal divider (T/2)
+  // at an interior cut — so the openings stay EQUAL even when this section is a row bounded by a
+  // divider (the earlier fix insetting a full T at both ends was only right for a carcass-bounded
+  // section). shelfSpanY returns the inset from the section's bottom + the clear height between panels.
+  const T = 160; // 16mm — BOARD_MM10 (each shelf's own thickness)
+  const spanY = shelfSpanY(block, section, T);
+  const opening = Math.max(0, spanY.height - n * T) / (n + 1); // one equal clear gap
+  const yAt = (idx: number) => Math.round(section.box.y + spanY.y0 + (idx + 1) * opening + idx * T);
 
   const instances: Instance[] = block.instances.map((i) => {
     const idx = order.indexOf(i.id);
@@ -841,7 +861,7 @@ function addDoorInstance(
     components = [...block.components, door];
   }
 
-  const newId = `door_${block.instances.length + 1}`;
+  const newId = nextInstanceId(block, "door");
   const instances: Instance[] = [
     ...block.instances,
     { id: newId, componentId: door.id, sectionId: section.id, anchor: { x: section.box.x, y: section.box.y, z: section.box.z }, link: "linked" },
@@ -894,8 +914,17 @@ function mapInstance(
  */
 function scaleBlockAxis(block: Block, axis: Axis, factor: number): Block {
   const scale = (v: mm10): mm10 => Math.round(v * factor);
-  const scaleBox = (b: Box3D): Box3D =>
-    withAxis(b, axis, scale(originOf(b, axis)), scale(extentOf(b, axis)));
+  // Round EDGES (absolute coordinates), never the extent (a width) on its own (B4). Independently
+  // rounding origin + extent let a child box's far edge (round(o) + round(w)) drift up to 1 mm10 from
+  // its sibling's origin (round(o+w)) — a 0.1mm gap/overlap that breaks the tile-the-parent invariant.
+  // Rounding both edges as round(coord·factor) makes every SHARED coordinate round identically, so
+  // adjacent boxes (and dividers/anchors, which use the same `scale`) stay flush.
+  const scaleBox = (b: Box3D): Box3D => {
+    const o = originOf(b, axis);
+    const near = scale(o);
+    const far = scale(o + extentOf(b, axis));
+    return withAxis(b, axis, near, far - near);
+  };
   const scaleSection = (s: Section): Section => ({
     ...s,
     box: scaleBox(s.box),

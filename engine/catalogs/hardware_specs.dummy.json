@@ -65,12 +65,12 @@
   "system32": {
     "verified": false,
     "grade": "manufacturing",
-    "source": "verticalPitch 32 is the locked System-32 industry standard (confirmed); row setbacks use the 37mm generic standard and are NOT factory-confirmed (YON BAK-1 used 91.5/108.5 front/back) — verified stays false until per-design rows land. mayDriveDrilling => false.",
+    "source": "verticalPitch 32 is the locked System-32 industry standard (confirmed); row setbacks now 91.5mm, grounded against factory file ORTA_BAK_6_1.XML (the shelfPinPattern proof matches ORTA_BAK exactly, replacing the old generic 37mm). Front 91.5 agrees across ORTA_BAK + YON_BAK, but the BACK row is cabinet-specific (ORTA_BAK 91.5 vs YON_BAK-1 108.5) and is NOT yet modelled per-design — so system32 stays verified:false (mayDriveDrilling => false) until per-design back rows land. firstHoleOffset (37) is unused.",
     "verticalPitch": 32,
     "firstHoleOffset": 37,
     "comment_firstOffset": "System-32 standard: 37mm from the reference edge. Factory cabinets place custom rows; the solver uses the standard until per-design rows are confirmed.",
-    "frontRowSetback": 37,
-    "backRowSetback": 37,
-    "comment_rowSetbacks": "Setback of the front/back shelf-pin rows from the panel's Y edges. Standard 37mm; YON BAK-1 used 91.5 (front) / 108.5 (back) — cabinet-specific, confirm per design."
+    "frontRowSetback": 91.5,
+    "backRowSetback": 91.5,
+    "comment_rowSetbacks": "GROUNDED from factory file tests/golden/xml/ORTA_BAK_6_1.XML: Ø5 shelf-pin rows sit 91.5mm from each Y edge (Face5 Y=91.5/411.5 on a 503-wide panel). Was a 37mm generic placeholder (which the engine actually loaded — the .ts copy had been corrected to 91.5 but this JSON, the one loadHardwareSpec reads, had drifted). Front 91.5 agrees across ORTA_BAK + YON_BAK; the BACK is cabinet-specific (ORTA_BAK 91.5 vs YON_BAK-1 108.5) so verified stays false until per-design rows are confirmed."
   }
 }

@@ -285,7 +285,8 @@ export function ConfigScreen() {
   // karkas editor to edit / show / re-quote; a plain cabinet block adds into the room as before.
   const openLibraryItem = (item: LibraryItem) => {
     if (item.karkasJson) {
-      useKarkas.getState().importProject(item.karkasJson); // sets the model + opens the editor
+      // guard a corrupt/invalid stored block so a bad JSON can't throw out of the click handler
+      try { useKarkas.getState().importProject(item.karkasJson); } catch { /* malformed block — ignore */ }
       closeSheet();
       return;
     }
@@ -814,7 +815,7 @@ export function ConfigScreen() {
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             {projectBlocks.map((b) => (
                               <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px", borderBottom: "1px solid var(--line, #eee)" }}>
-                                <button onClick={() => { useKarkas.getState().importProject(b.karkasJson, b.id); closeSheet(); }} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", font: "inherit", cursor: "pointer", textAlign: "left", padding: 0 }} type="button">
+                                <button onClick={() => { try { useKarkas.getState().importProject(b.karkasJson, b.id); } catch { /* malformed block — ignore */ } closeSheet(); }} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", font: "inherit", cursor: "pointer", textAlign: "left", padding: 0 }} type="button">
                                   <span aria-hidden="true">🔧</span>
                                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</span>
                                 </button>
@@ -887,7 +888,7 @@ export function ConfigScreen() {
                 insideView={insideView}
                 onToggleInside={() => setInsideView((v) => !v)}
                 onClose={closeSheet}
-                onOpenKarkas={() => { useKarkas.getState().importProject(selBlk.karkasJson, selBlk.id); setSelectedBlockId(null); closeSheet(); }}
+                onOpenKarkas={() => { try { useKarkas.getState().importProject(selBlk.karkasJson, selBlk.id); } catch { /* malformed block — ignore */ } setSelectedBlockId(null); closeSheet(); }}
                 onDuplicate={() => { addProjectBlock(`${selBlk.name} (nusxa)`, selBlk.karkasJson); flash("Nusxa qo'shildi ✓"); }}
                 onSaveToLibrary={() => { saveKarkasToLibrary(selBlk.name, selBlk.karkasJson); flash(`${t.fe.saveToLibrary} ✓`); }}
                 onResize={(dim, mm) => {
