@@ -58,6 +58,20 @@ describe("drawer body fits inside the carcass", () => {
     const renderInnerW = dR.l - dL.r; // between the two box sides
     expect(back.length_mm10).toBe(renderInnerW); // cut list == render
   });
+
+  it("cut list agrees with the render on the body DEPTH — sides not over-cut to full section depth", () => {
+    let m = buildCarcassModel(600, 720, 560);
+    const leaf = leafSections(m.blocks[0]!.zones[0]!.root)[0]!.id;
+    m = addInstance(m, leaf, "drawer");
+    const sideCut = solveStructure(m).find((p) => p.id.endsWith("__inst_drawer_1__side_l"))!; // depth = its LENGTH
+    const bottomCut = solveStructure(m).find((p) => p.id.endsWith("__inst_drawer_1__bottom"))!; // depth = its WIDTH
+    const sideRender = solveLayout(m).find((p) => p.id.endsWith("__inst_drawer_1__side_l"))!; // depth = d_mm10
+    // the cut side/bottom depth equals the rendered box depth (it sits behind the facade, not full depth)
+    expect(sideCut.length_mm10).toBe(sideRender.d_mm10);
+    expect(bottomCut.width_mm10).toBe(sideRender.d_mm10);
+    // and it is strictly SHORTER than the full section depth (5600) — the old bug cut it at box.d
+    expect(sideCut.length_mm10).toBeLessThan(5600);
+  });
 });
 
 describe("drawer box gets back-corner joinery (C3 — no longer emitted empty)", () => {

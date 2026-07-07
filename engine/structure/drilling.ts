@@ -32,6 +32,7 @@ import type { StructuralModel } from "../contracts/structure.js";
 import { mmToMm10 } from "../core/units.js";
 import { shelfPinPattern } from "../primitives/shelfPinPattern.js";
 import { hingeCupPattern } from "../primitives/hingeCupPattern.js";
+import { BOARD_MM10, sectionOfLine, shelfSpanY } from "./solve.js";
 
 /** The shelf-pin SKU drilled for adjustable internal shelves (dummy until factory sign-off). */
 const SHELF_PIN_SKU = "DUMMY_PIN_5";
@@ -140,9 +141,18 @@ function shelfPinPlan(model: StructuralModel): Map<string, { face: PanelFace; x:
     const interiorL = block.box.x;
     const interiorR = block.box.x + block.box.w;
     const xLines = block.lines.filter((l) => l.axis === "x");
-    const dividerIdAt = (X: mm10): string | null => {
+    // A vertical divider part starts at its section's floor PLUS the boundary inset (a full carcass
+    // board at the block's bottom, half a board at an interior horizontal divider) — its face-local
+    // "height" axis begins there, NOT at the block floor. So a shelf-pin height must be measured from
+    // that origin, or the pin lands one carcass board (16mm) too high and the shelf tilts (the pin on
+    // the outer side, whose part DOES start at the floor, stays at the true height). Mirrors dividerPart
+    // / dividerPlacement, which position the divider at `section.box.y + shelfSpanY(...).y0`.
+    const dividerAt = (X: mm10): { id: string; yOrigin: mm10 } | null => {
       const ln = xLines.find((l) => l.position_mm10 === X);
-      return ln ? `${block.id}__div_${ln.id}` : null;
+      if (!ln) return null;
+      const section = sectionOfLine(block, ln.id);
+      const yOrigin = section ? section.box.y + shelfSpanY(block, section, BOARD_MM10).y0 : 0;
+      return { id: `${block.id}__div_${ln.id}`, yOrigin };
     };
     for (const inst of block.instances) {
       if (roleOf.get(inst.componentId) !== "internal_shelf") continue;
@@ -151,10 +161,10 @@ function shelfPinPlan(model: StructuralModel): Map<string, { face: PanelFace; x:
       const leftX = box.x, rightX = box.x + box.w, x = inst.anchor.y;
       // left boundary → carcass side_l (inner face A) OR the divider at leftX (shelf is to its RIGHT)
       if (leftX === interiorL) add(`${block.id}__side_l`, "A", x);
-      else { const d = dividerIdAt(leftX); if (d) add(d, DIV_FACE_FOR_RIGHT_SHELF, x); }
+      else { const d = dividerAt(leftX); if (d) add(d.id, DIV_FACE_FOR_RIGHT_SHELF, x - d.yOrigin); }
       // right boundary → carcass side_r (inner face A) OR the divider at rightX (shelf is to its LEFT)
       if (rightX === interiorR) add(`${block.id}__side_r`, "A", x);
-      else { const d = dividerIdAt(rightX); if (d) add(d, DIV_FACE_FOR_LEFT_SHELF, x); }
+      else { const d = dividerAt(rightX); if (d) add(d.id, DIV_FACE_FOR_LEFT_SHELF, x - d.yOrigin); }
     }
   }
   return plan;
