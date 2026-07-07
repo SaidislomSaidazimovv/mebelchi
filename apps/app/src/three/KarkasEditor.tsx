@@ -129,6 +129,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   };
   // compact toolbar: which dropdown (add-variants / overflow) is open
   const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel">(null);
+  // Step 3.2 (v4 §5) — the two permanent selection modes: ◇ Part-select (edit) / ▢ Space-select (add).
+  const [selMode, setSelMode] = useState<"part" | "space">("part");
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -454,6 +456,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       </div>
       {/* Phase 4 — edit toolbar: engine operations on the target section (selected panel's, else first leaf) */}
       <div style={editbar}>
+        {/* Step 3.2 (v4 §5) — the two permanent selection modes; Space-select reveals the add toolset. */}
+        <div style={{ display: "flex", gap: 2, background: "#eef0f3", borderRadius: 8, padding: 2, marginRight: 4 }}>
+          {([["part", "◇ Bo'lak", "Bo'lakni tanlash / tahrirlash"], ["space", "▢ Bo'shliq", "Bo'shliqqa qo'shish"]] as const).map(([m, label, title]) => (
+            <button key={m} onClick={() => setSelMode(m)} title={title} type="button" style={{ border: "none", borderRadius: 6, padding: "4px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer", ...(selMode === m ? { background: "#fff", color: "#1f5570", boxShadow: "0 1px 2px rgba(0,0,0,0.12)" } : { background: "transparent", color: "#6b7280" }) }}>{label}</button>
+          ))}
+        </div>
+        {selMode === "space" && (<>
         <div style={popWrap}>
           <button style={{ ...act, ...(menu === "polka" ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "polka" ? null : "polka"); }} type="button">＋ Polka ▾</button>
           {menu === "polka" && (
@@ -476,6 +485,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={act} onClick={() => add("drawer")} type="button">＋ Yashik</button>
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
         <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowDivide((v) => !v)} type="button">⊟ Bo'lish…</button>
+        </>)}
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
         {/* #7 — imos Visual Styles: a proper dropdown (matches the ＋Polka / ＋Eshik menus) */}
         <div style={{ ...popWrap, marginLeft: "auto" }}>
