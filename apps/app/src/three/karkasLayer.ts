@@ -129,6 +129,34 @@ export function fadeFacades(group: THREE.Object3D, on: boolean): void {
   });
 }
 
+/**
+ * Step 5 — the Materials view (CONSTRUCTION_FRAME_v4 §143): every board goes semi-transparent, still
+ * tinted by its material colour, so the whole piece reads "by material" at a glance. When `matId` is set
+ * (the "only material X" filter) the matching boards snap to solid and the rest drop to a faint ghost.
+ * `materialOf` maps a render board id → its material id (materials.materialIdLookup). The board's edge
+ * outline (a LineSegments child) is dimmed to match so ghosts don't show hard wireframe lines.
+ */
+export function applyMaterialsView(group: THREE.Object3D, matId: string | null, materialOf: (partId: string) => string | undefined): void {
+  group.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || mesh.userData.partId === undefined) return;
+    const mine = matId === null || materialOf(String(mesh.userData.partId)) === matId;
+    const op = matId === null ? 0.5 : mine ? 1 : 0.06; // base: all translucent; isolate: match solid, rest ghost
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mm of mats) {
+      const m = mm as THREE.MeshStandardMaterial;
+      m.transparent = op < 1;
+      m.opacity = op;
+      m.depthWrite = op >= 1;
+      m.needsUpdate = true;
+    }
+    for (const child of mesh.children) {
+      const lm = (child as THREE.LineSegments).material as THREE.LineBasicMaterial | undefined;
+      if (lm && "opacity" in lm) { lm.transparent = true; lm.opacity = mine ? 0.85 : 0.05; lm.needsUpdate = true; }
+    }
+  });
+}
+
 /** Fade one placed block's fronts by id (room layer of pivots). `blockId === null` restores all. */
 export function setBlockInsideView(root: THREE.Object3D, blockId: string | null, on: boolean): void {
   for (const child of root.children) {

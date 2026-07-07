@@ -170,6 +170,46 @@ export function partColorLookup(
   return (id) => m.get(id);
 }
 
+/**
+ * Step 5 — the distinct board materials actually used in a solved part list, with a panel count each
+ * (glass panes excluded — they aren't a board decor). Drives the materials-view legend: "see everything
+ * by material" without inventing anything the project doesn't already contain.
+ */
+export function projectMaterials(
+  parts: readonly { id: string; role?: string; materialId?: string }[],
+  plan: MaterialPlan,
+): { id: string; name: string; hex: string; count: number }[] {
+  const map = new Map<string, { id: string; name: string; hex: string; count: number }>();
+  for (const p of parts) {
+    const b = partBoard(plan, p.role, p.materialId);
+    if (!b) continue;
+    const e = map.get(b.id);
+    if (e) e.count++;
+    else map.set(b.id, { id: b.id, name: b.name, hex: b.hex, count: 1 });
+  }
+  return [...map.values()];
+}
+
+/**
+ * Step 5 — a `renderBoardId → materialId` lookup for the materials-view isolate filter. Mirrors
+ * `partColorLookup`: registers each part's exact id AND its layout base id, so a doubled/partial-double
+ * board still resolves to its decor. Returns undefined for glass / untagged parts.
+ */
+export function materialIdLookup(
+  parts: readonly { id: string; role?: string; materialId?: string }[],
+  plan: MaterialPlan,
+): (id: string) => string | undefined {
+  const m = new Map<string, string>();
+  for (const p of parts) {
+    const b = partBoard(plan, p.role, p.materialId);
+    if (!b) continue;
+    m.set(p.id, b.id);
+    const base = layoutBaseId(p.id);
+    if (base !== p.id && !m.has(base)) m.set(base, b.id);
+  }
+  return (id) => m.get(id);
+}
+
 /** A decor's board thickness in mm10 (defaults to 16mm) — F2/7b: material carries thickness. */
 export const boardThicknessMm10 = (id: string): number => (boardById(id)?.thickness_mm ?? 16) * 10;
 

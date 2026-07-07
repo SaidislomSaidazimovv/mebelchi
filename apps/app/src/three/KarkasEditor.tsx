@@ -18,10 +18,10 @@ import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, type RenderMode } from "./structureRenderer";
-import { tagFacades, fadeFacades } from "./karkasLayer";
+import { tagFacades, fadeFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, partColorLookup, planThickness, selectionColors, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, boardForRole, boardById, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
@@ -150,6 +150,22 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [showCutout, setShowCutout] = useState(false);
   const [units, setUnits] = useState<"mm" | "cm">("mm"); // Step 4b — length-field display unit (mm ⇄ cm)
   const [chips, setChips] = useState<{ i: number; x: number; y: number; r: number; vis: boolean }[]>([]); // 3D corner chips
+  const [showMaterials, setShowMaterials] = useState(false); // Step 5 — materials view panel
+  const [matFilter, setMatFilter] = useState<string | null>(null); // isolated material id, or null
+  const projMaterials = useMemo(() => projectMaterials(parts, plan), [parts, plan]);
+  const matLookup = useMemo(() => materialIdLookup(parts, plan), [parts, plan]);
+  // Step 5.2 — slot-binding prompt when an opened block introduced decors outside the material pool
+  const pendingBinding = useKarkas((s) => s.pendingBinding);
+  const materialPool = useKarkas((s) => s.materialPool);
+  const resolveBinding = useKarkas((s) => s.resolveBinding);
+  const cancelBinding = useKarkas((s) => s.cancelBinding);
+  const [bindChoices, setBindChoices] = useState<Record<string, string | null>>({});
+  useEffect(() => {
+    if (!pendingBinding) return;
+    const init: Record<string, string | null> = {};
+    for (const d of pendingBinding.foreign) init[d] = materialPool[0] ?? null; // default: map to the first pool decor
+    setBindChoices(init);
+  }, [pendingBinding, materialPool]);
   const [divAxis, setDivAxis] = useState<"x" | "y">("y");
   const [divN, setDivN] = useState("3");
   const [shelfN, setShelfN] = useState("2");
@@ -520,6 +536,26 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     return () => r.controls.removeEventListener("change", compute);
   }, [showCorners, selectedId, scene, selFeatures, units]);
 
+  // ── Step 5: Materials view (v4 §143) — ON makes every board translucent + tinted by material, and the
+  //    chosen filter isolates one; OFF restores the edge outlines (the view dims them) + normal visuals. ──
+  useEffect(() => {
+    const r = rt.current;
+    if (!r?.group) return;
+    if (showMaterials) {
+      applyMaterialsView(r.group, matFilter, matLookup);
+    } else {
+      r.group.traverse((o) => {
+        for (const c of (o as THREE.Object3D).children) {
+          const lm = (c as THREE.LineSegments).material as THREE.LineBasicMaterial | undefined;
+          if (lm && "opacity" in lm) { lm.transparent = false; lm.opacity = 1; lm.needsUpdate = true; }
+        }
+      });
+      applyVisuals(r.group);
+    }
+    r.renderer.render(r.scene, r.camera);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMaterials, matFilter, scene, matLookup]);
+
   // ── F1: re-colour boards when the material plan changes (no geometry rebuild) ──
   useEffect(() => {
     if (rt.current?.group) {
@@ -633,6 +669,31 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           )}
         </div>
       )}
+      {/* Step 5.2 (v4 §3.2, Gate 5) — map-or-create prompt: an opened block used decors the project pool
+          lacks; bind each to an existing material or keep it as a new variable. Never a silent 5th material. */}
+      {pendingBinding && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 18, width: 400, maxWidth: "92vw", boxShadow: "0 8px 40px rgba(0,0,0,0.35)" }}>
+            <b style={{ fontSize: 15 }}>Yangi material aniqlandi</b>
+            <p style={{ fontSize: 12.5, color: "#555", margin: "6px 0 12px" }}>Bu blok loyihada yo'q dekor ishlatadi. Har birini mavjud materialga bog'lang, yoki yangi material sifatida saqlang.</p>
+            {pendingBinding.foreign.map((d) => (
+              <div key={d} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ width: 18, height: 18, borderRadius: 4, background: boardById(d)?.hex ?? "#ccc", border: "1px solid rgba(0,0,0,0.15)", flex: "0 0 auto" }} />
+                <span style={{ flex: 1, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardById(d)?.name ?? d}</span>
+                <span style={{ opacity: 0.5, fontSize: 16 }}>→</span>
+                <select value={bindChoices[d] ?? "__new"} onChange={(e) => setBindChoices((c) => ({ ...c, [d]: e.target.value === "__new" ? null : e.target.value }))} style={{ flex: "0 0 auto", maxWidth: 180, padding: "4px 6px", borderRadius: 7, border: "1px solid #d8d2c4", background: "#fff", cursor: "pointer" }}>
+                  {materialPool.map((p) => <option key={p} value={p}>{boardById(p)?.name ?? p}</option>)}
+                  <option value="__new">＋ Yangi material</option>
+                </select>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+              <button onClick={() => cancelBinding()} type="button" style={{ ...act, borderColor: "#bbb" }}>Bekor</button>
+              <button onClick={() => resolveBinding(bindChoices)} type="button" style={{ ...act, borderColor: "#00a961", background: "#cdeedd", color: "#00532f", fontWeight: 700 }}>Tasdiqlash</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Step 4 (v4 §4, fixture 04-shelf-ratios) — the ratio pill-row editor for the active divided
           section: one pill per zone (Ratio weight / Fixed mm / Flex ↔), edit a value → all zones reflow
           together; the chip cycles the rule; «＋» splits the last zone. Appears when a divider/zone is active. */}
@@ -709,6 +770,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             </div>
           )}
         </div>
+        {/* Step 5 — materials view: list the decors in use; click one to isolate it in 3D */}
+        <button style={{ ...act, ...(showMaterials ? { borderColor: "#8a6d1f", background: "#f7efd8", color: "#8a6d1f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowMaterials((v) => !v)} type="button">▦ {matFilter ? "Material ✓" : "Materiallar"}</button>
         <button style={{ ...act, ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
         <button style={{ ...act, ...(showHoles ? { borderColor: "#1f6f86", background: "#dcecf2", color: "#13485a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowHoles((v) => !v)} type="button" title="Teshiklarni ko'rsatish (shtok, petlya)">🕳 {showHoles ? "Teshik ✓" : "Teshiklar"}</button>
         <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
@@ -885,6 +948,28 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             {c.r > 0 ? (units === "cm" ? +(c.r / 100).toFixed(1) : Math.round(c.r / 10)) : "+"}
           </button>
         ) : null))}
+        {/* Step 5 — materials legend + isolate filter (v4 §3, "see everything by material") */}
+        {showMaterials && (
+          <div style={{ position: "absolute", left: 10, top: 10, zIndex: 44, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 10, minWidth: 210, maxHeight: "70%", overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <b style={{ fontSize: 13 }}>Materiallar</b>
+              <button onClick={() => setShowMaterials(false)} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "#888", lineHeight: 1 }} type="button">✕</button>
+            </div>
+            <button onClick={() => setMatFilter(null)} type="button" style={{ ...matLegendRow, ...(matFilter === null ? matLegendActive : {}) }}>
+              <span style={{ ...matLegendSwatch, background: "linear-gradient(90deg,#f4f2ec,#c9a877,#4b3a2f)" }} />
+              <span style={{ flex: 1, textAlign: "left" }}>Hammasi</span>
+            </button>
+            {projMaterials.map((m) => (
+              <button key={m.id} onClick={() => setMatFilter(matFilter === m.id ? null : m.id)} type="button" style={{ ...matLegendRow, ...(matFilter === m.id ? matLegendActive : {}) }}>
+                <span style={{ ...matLegendSwatch, background: m.hex }} />
+                <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                <span style={{ opacity: 0.5, fontSize: 11 }}>×{m.count}</span>
+              </button>
+            ))}
+            {projMaterials.length === 0 && <div style={{ fontSize: 12, color: "#999", padding: "4px 2px" }}>Hali material yo'q</div>}
+            {matFilter && <div style={{ fontSize: 11, color: "#8a6d1f", marginTop: 6, paddingLeft: 2 }}>Faqat «{projMaterials.find((m) => m.id === matFilter)?.name}» ajratildi</div>}
+          </div>
+        )}
         {showTree && <TreePanel onClose={() => setShowTree(false)} />}
         {showSpec && <SpecPanel onClose={() => setShowSpec(false)} />}
       </div>
@@ -1117,6 +1202,9 @@ const dimLabel: CSSProperties = { fontFamily: "system-ui", fontSize: 11, fontWei
 const dimInput: CSSProperties = { width: 44, border: "none", outline: "none", background: "transparent", font: "600 13px ui-monospace, monospace", color: "#18241d", textAlign: "right", padding: "3px 2px" };
 const pill: CSSProperties = { padding: "6px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer" };
 const editbar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, flexWrap: "wrap" };
+const matLegendRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "6px 7px", marginBottom: 2, border: "1px solid transparent", borderRadius: 8, background: "transparent", cursor: "pointer", font: "600 12px system-ui", color: "#222" };
+const matLegendActive: CSSProperties = { borderColor: "#c9a24b", background: "#f7efd8" };
+const matLegendSwatch: CSSProperties = { width: 20, height: 20, borderRadius: 5, flex: "0 0 auto", border: "1px solid rgba(0,0,0,0.15)" };
 const popWrap: CSSProperties = { position: "relative", display: "inline-flex", zIndex: 56 };
 const popover: CSSProperties = { position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 176, background: "#fff", border: "1px solid #e0dccf", borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.17)", padding: 6, display: "flex", flexDirection: "column", gap: 2, zIndex: 60 };
 const popRight: CSSProperties = { ...popover, left: "auto", right: 0 };
