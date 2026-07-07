@@ -86,7 +86,7 @@ export type ZoneRow = {
  *  stays clean and a fully-square/cut-free model serialises exactly as before. */
 function patchFeatures(model: StructuralModel, pid: string, patch: Partial<PanelFeatures>): StructuralModel {
   const next: PanelFeatures = { ...(model.features?.[pid] ?? {}), ...patch };
-  const empty = (!next.corners || next.corners.every((r) => r <= 0)) && (!next.cutouts || next.cutouts.length === 0);
+  const empty = (!next.corners || next.corners.every((r) => r <= 0)) && (!next.cutouts || next.cutouts.length === 0) && (!next.kromka || next.kromka.every((k) => !k));
   const features: Record<string, PanelFeatures> = { ...(model.features ?? {}) };
   if (empty) delete features[pid]; else features[pid] = next;
   return { ...model, features: Object.keys(features).length ? features : undefined };
@@ -214,6 +214,9 @@ interface KarkasState extends Derived {
   addOrUpdateCutout: (cut: PanelCutout) => void;
   /** Remove a cutout by id from the selected panel. */
   removeCutout: (id: string) => void;
+  /** Step 6 — paint the selected panel's edge (0..3 = front/back/side/side) with kromka K-variable
+   *  `kId`; null strips the band. */
+  setEdgeKromka: (edgeIndex: number, kId: string | null) => void;
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
@@ -479,6 +482,15 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!pid) return;
       const cuts = (s.model.features?.[pid]?.cutouts ?? []).filter((c) => c.id !== id);
       apply(patchFeatures(s.model, pid, { cutouts: cuts }), true);
+    },
+    setEdgeKromka: (edgeIndex, kId) => {
+      const s = get();
+      const pid = s.selectedId;
+      if (!pid || edgeIndex < 0 || edgeIndex > 3) return;
+      const cur = s.model.features?.[pid]?.kromka ?? [null, null, null, null];
+      const kromka: [string | null, string | null, string | null, string | null] = [cur[0] ?? null, cur[1] ?? null, cur[2] ?? null, cur[3] ?? null];
+      kromka[edgeIndex] = kId;
+      apply(patchFeatures(s.model, pid, { kromka }), true);
     },
     undo: () =>
       set((s) => {

@@ -15,11 +15,13 @@ export interface BoardMaterial {
   thickness_mm: number;
 }
 
-/** An edge-banding material: priced per running metre. */
+/** An edge-banding material (kromka / jiyak K-variable): priced per running metre, with a view colour
+ *  for the Kromka-mode pills + edge balls (Step 6). */
 export interface EdgeMaterial {
   id: string;
   name: string;
   pricePerM: number;
+  hex: string;
 }
 
 export const BOARDS: readonly BoardMaterial[] = [
@@ -33,11 +35,14 @@ export const BOARDS: readonly BoardMaterial[] = [
 ];
 
 export const EDGES: readonly EdgeMaterial[] = [
-  { id: "pvc_white_2", name: "ПВХ 2мм Белый", pricePerM: 8000 },
-  { id: "pvc_sonoma_2", name: "ПВХ 2мм Сонома", pricePerM: 10000 },
-  { id: "pvc_graphite_2", name: "ПВХ 2мм Графит", pricePerM: 10000 },
-  { id: "abs_05", name: "ABS 0.5мм в цвет", pricePerM: 4500 },
+  { id: "pvc_white_2", name: "ПВХ 2мм Белый", pricePerM: 8000, hex: "#f4f2ec" },
+  { id: "pvc_sonoma_2", name: "ПВХ 2мм Сонома", pricePerM: 10000, hex: "#c9a877" },
+  { id: "pvc_graphite_2", name: "ПВХ 2мм Графит", pricePerM: 10000, hex: "#4a4d52" },
+  { id: "abs_05", name: "ABS 0.5мм в цвет", pricePerM: 4500, hex: "#d8cdb6" },
 ];
+
+/** A kromka (jiyak) K-variable for the Step-6 paint UI: an edge material + its swatch colour. */
+export const edgeVarById = (id: string | null | undefined): EdgeMaterial | undefined => (id ? EDGES.find((e) => e.id === id) : undefined);
 
 /**
  * Which board decor each panel ROLE is cut from, plus the single edge band. This is how real

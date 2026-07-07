@@ -14,6 +14,7 @@ import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008, solveModelToParts } from "../../../../engine/cnc.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
+import { kromkaMetersByVariable } from "../../../../engine/structure/features.js";
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg } from "./drawingSvg";
@@ -21,7 +22,7 @@ import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGro
 import { tagFacades, fadeFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, boardById, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, boardForRole, boardById, edgeVarById, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
@@ -128,6 +129,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setCornerRadius = useKarkas((s) => s.setCornerRadius);
   const addOrUpdateCutout = useKarkas((s) => s.addOrUpdateCutout);
   const removeCutout = useKarkas((s) => s.removeCutout);
+  const setEdgeKromka = useKarkas((s) => s.setEdgeKromka);
   const setTarget = useKarkas((s) => s.setTarget);
   const activeTarget = targetId && sections.some((x) => x.id === targetId) ? targetId : sections[0]?.id;
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
@@ -148,6 +150,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [showCorners, setShowCorners] = useState(false);
   const [chainCorners, setChainCorners] = useState(true);
   const [showCutout, setShowCutout] = useState(false);
+  const [showKromka, setShowKromka] = useState(false); // Step 6 — kromka paint mode
+  const [activeKromka, setActiveKromka] = useState<string | null>(EDGES[0]?.id ?? null); // the K-pill in hand
+  const [edgeBalls, setEdgeBalls] = useState<{ i: number; x: number; y: number; k: string | null; vis: boolean }[]>([]);
   const [units, setUnits] = useState<"mm" | "cm">("mm"); // Step 4b — length-field display unit (mm ⇄ cm)
   const [chips, setChips] = useState<{ i: number; x: number; y: number; r: number; vis: boolean }[]>([]); // 3D corner chips
   const [showMaterials, setShowMaterials] = useState(false); // Step 5 — materials view panel
@@ -536,6 +541,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     return () => r.controls.removeEventListener("change", compute);
   }, [showCorners, selectedId, scene, selFeatures, units]);
 
+  // ── Step 6: kromka edge balls — project the selected panel's 4 edge midpoints; tap one to paint it
+  //    with the active K-variable. Reprojected on every camera move, like the corner chips. ──
+  useEffect(() => {
+    const r = rt.current;
+    const board = scene.boards.find((b) => b.id === selectedId);
+    if (!r || !showKromka || !selectedId || selectedId.includes("__div_") || !board) { setEdgeBalls([]); return; }
+    const compute = () => setEdgeBalls(edgeBallPositions(board, r.camera, r.renderer, selFeatures?.kromka));
+    compute();
+    r.controls.addEventListener("change", compute);
+    return () => r.controls.removeEventListener("change", compute);
+  }, [showKromka, selectedId, scene, selFeatures]);
+
   // ── Step 5: Materials view (v4 §143) — ON makes every board translucent + tinted by material, and the
   //    chosen filter isolates one; OFF restores the edge outlines (the view dims them) + normal visuals. ──
   useEffect(() => {
@@ -714,6 +731,22 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <div style={{ width: 46, height: 40, borderRadius: 9, border: "2px dashed #9aa6b2", opacity: 0.7 }} />
         </div>
       )}
+      {/* Step 6 (fixture 06-kromka-mode) — the K-variable pill row (paint metaphor): pick a jiyak, then
+          tap the edge balls. «✕ Yo'q» strips the band. */}
+      {showKromka && (
+        <div style={{ position: "fixed", bottom: 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(255,255,255,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", maxWidth: "92vw" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#555", marginRight: 2 }}>Jiyak:</span>
+          {EDGES.map((e) => (
+            <button key={e.id} type="button" onClick={() => setActiveKromka(e.id)} title={e.name}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 9px", borderRadius: 9, cursor: "pointer", border: activeKromka === e.id ? "2px solid #1f5570" : "1px solid #ddd", background: activeKromka === e.id ? "#eaf2f6" : "#fff", fontSize: 12, fontWeight: 600 }}>
+              <span style={{ width: 15, height: 15, borderRadius: 4, background: e.hex, border: "1px solid rgba(0,0,0,0.15)" }} />
+              {e.name.replace(/^(ПВХ|ABS)\s*/, "")}
+            </button>
+          ))}
+          <button type="button" onClick={() => setActiveKromka(null)} title="Jiyakni olib tashlash"
+            style={{ padding: "5px 9px", borderRadius: 9, cursor: "pointer", border: activeKromka === null ? "2px solid #1f5570" : "1px solid #ddd", background: activeKromka === null ? "#eaf2f6" : "#fff", fontSize: 12, fontWeight: 600 }}>✕ Yo'q</button>
+        </div>
+      )}
       {/* Phase 4 — edit toolbar: engine operations on the target section (selected panel's, else first leaf) */}
       <div style={editbar}>
         {/* Step 3.2 (v4 §5) — the two permanent selection modes; Space-select reveals the add toolset. */}
@@ -751,6 +784,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         )}
         {selectedId && !selectedId.includes("__div_") && (
           <button style={{ ...act, ...(showCutout ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowCutout((v) => !v)} type="button">▢ O'yiq…</button>
+        )}
+        {selectedId && !selectedId.includes("__div_") && (
+          <button style={{ ...act, ...(showKromka ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowKromka((v) => !v)} type="button">▤ Jiyak…</button>
         )}
         </>)}
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
@@ -948,6 +984,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             {c.r > 0 ? (units === "cm" ? +(c.r / 100).toFixed(1) : Math.round(c.r / 10)) : "+"}
           </button>
         ) : null))}
+        {/* Step 6 (fixture 06-kromka-mode) — kromka balls on the selected panel's 4 edges; tap to paint
+            with the active K-pill (or strip it if the active pill is «Yo'q»). Coloured by each edge's K. */}
+        {showKromka && edgeBalls.map((b) => (b.vis ? (
+          <button
+            key={b.i}
+            type="button"
+            title={b.k ? edgeVarById(b.k)?.name : "Jiyaksiz"}
+            onClick={() => setEdgeKromka(b.i, activeKromka)}
+            style={{ position: "absolute", left: b.x, top: b.y, transform: "translate(-50%,-50%)", zIndex: 42, width: 26, height: 26, borderRadius: 13, cursor: "pointer", border: "2px solid #fff", background: b.k ? (edgeVarById(b.k)?.hex ?? "#999") : "rgba(120,120,120,0.55)", boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}
+          />
+        ) : null))}
         {/* Step 5 — materials legend + isolate filter (v4 §3, "see everything by material") */}
         {showMaterials && (
           <div style={{ position: "absolute", left: 10, top: 10, zIndex: 44, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 10, minWidth: 210, maxHeight: "70%", overflow: "auto" }}>
@@ -1002,6 +1049,32 @@ function cornerChipPositions(
     p[faceAxes[1]] += (sv * board.size[faceAxes[1]]) / 2;
     v.set(p[0], p[1], p[2]).project(camera);
     return { i, x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, r: corners?.[i] ?? 0, vis: v.z < 1 };
+  });
+}
+
+/** Step 6 — screen positions (canvas px) of a board's 4 edge midpoints for the kromka balls. Edge order
+ *  mirrors the engine [front, back, side, side]: 0 = +v (top), 1 = −v (bottom), 2 = +u (right), 3 = −u
+ *  (left) on the largest face. `kromka` supplies each edge's current K id. `vis` false when behind. */
+function edgeBallPositions(
+  board: { pos: [number, number, number]; size: [number, number, number] },
+  camera: THREE.PerspectiveCamera,
+  renderer: THREE.WebGLRenderer,
+  kromka?: readonly (string | null)[],
+): { i: number; x: number; y: number; k: string | null; vis: boolean }[] {
+  const [sx, sy, sz] = board.size;
+  let tAxis: 0 | 1 | 2 = 0;
+  if (sy <= sx && sy <= sz) tAxis = 1;
+  else if (sz <= sx && sz <= sy) tAxis = 2;
+  const faceAxes = [0, 1, 2].filter((a) => a !== tAxis) as [number, number];
+  const w = renderer.domElement.clientWidth || 1, h = renderer.domElement.clientHeight || 1;
+  const specs: [number, number, number][] = [[0, 0, 1], [1, 0, -1], [2, 1, 0], [3, -1, 0]]; // [i, u-sign, v-sign]
+  const v = new THREE.Vector3();
+  return specs.map(([i, ua, va]) => {
+    const p: [number, number, number] = [board.pos[0], board.pos[1], board.pos[2]];
+    p[faceAxes[0]] += (ua * board.size[faceAxes[0]]) / 2;
+    p[faceAxes[1]] += (va * board.size[faceAxes[1]]) / 2;
+    v.set(p[0], p[1], p[2]).project(camera);
+    return { i, x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, k: kromka?.[i] ?? null, vis: v.z < 1 };
   });
 }
 
@@ -1132,6 +1205,23 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
   const e = estimate(parts, plan);
   const hw = hardwareEstimate(model);
   const total = e.priceUzs + hw.priceUzs;
+  // Step 6 — per-K painted kromka metres from the features overlay (counted once per physical panel,
+  // matching the render board id or its layout base id so a 32mm double isn't double-counted).
+  const kromkaByVar = useMemo(() => {
+    const acc: Record<string, number> = {};
+    const feats = model.features;
+    if (feats) {
+      const byId = new Map(parts.map((p) => [p.id, p] as const));
+      for (const [pid, f] of Object.entries(feats)) {
+        if (!f.kromka) continue;
+        const part = byId.get(pid) ?? parts.find((p) => p.id.replace(/__(a|b|front)$/, "") === pid);
+        if (!part) continue;
+        for (const [k, v] of Object.entries(kromkaMetersByVariable(part.length_mm10, part.width_mm10, f.kromka, f.corners))) acc[k] = (acc[k] ?? 0) + v;
+      }
+    }
+    return acc;
+  }, [parts, model.features]);
+  const kromkaVars = Object.entries(kromkaByVar).filter(([, mm10]) => mm10 > 0);
   return (
     <div style={specPanel}>
       <div style={specHead}>
@@ -1163,6 +1253,18 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
       <div style={{ ...mono, padding: "2px 14px 6px" }}>
         {e.byMaterial.map((g) => `${g.name}: ${g.count} · ${money(g.priceUzs)}`).join("     ")}
       </div>
+      {/* Step 6 (Gate 6) — per-K painted kromka running metres (from the paint UI), beside the uniform edge total */}
+      {kromkaVars.length > 0 && (
+        <div style={{ ...mono, padding: "0 14px 6px", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ color: "#8a6d1f", fontWeight: 700 }}>Jiyak (bo'yalgan):</span>
+          {kromkaVars.map(([k, mm10]) => (
+            <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 11, height: 11, borderRadius: 3, background: edgeVarById(k)?.hex ?? "#999", border: "1px solid rgba(0,0,0,0.15)" }} />
+              {edgeVarById(k)?.name ?? k}: {(mm10 / 10000).toFixed(2)} m
+            </span>
+          ))}
+        </div>
+      )}
       {hw.lines.length > 0 && (
         <div style={{ ...mono, padding: "0 14px 6px" }}>
           Фурнитура: {hw.lines.map((l) => `${l.name} ×${l.qty}`).join(" · ")} — {money(hw.priceUzs)}
