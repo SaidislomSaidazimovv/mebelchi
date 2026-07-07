@@ -438,6 +438,12 @@ export interface StructuralModel {
    * stable. Optional\additive: absent = every panel is a plain square-cornered rectangle.
    */
   readonly features?: Readonly<Record<PartId, PanelFeatures>>;
+  /**
+   * Step 7c — per-hole position overrides (the master moves an individual auto-placed drill), keyed by
+   * `${partId}::${opId}` → the new face-local mm10 position. A moved hole is re-stamped source:"user" so
+   * the solver never recomputes it. Optional\additive; absent = every hole stays where the profile put it.
+   */
+  readonly holeOverrides?: Readonly<Record<string, { readonly x_mm10: mm10; readonly y_mm10: mm10 }>>;
 }
 
 /** A rectangular aperture cut into a panel — sink / hob / boiler (Step 4b, v4 §12). Part-local mm10.

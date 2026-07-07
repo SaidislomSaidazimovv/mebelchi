@@ -21,6 +21,12 @@ export interface HoleMarker {
   readonly r: number;
   /** the panel-thickness axis the hole drills along → which 2D view it shows in */
   readonly normal: "x" | "y" | "z";
+  /** Step 7c — the part + operation this marker came from, and its face-local mm10 position, so a tap can
+   *  select the individual hole and a move re-keys the model override. */
+  readonly partId: string;
+  readonly opId: string;
+  readonly fx: number;
+  readonly fy: number;
 }
 
 const MM = (mm10: number): number => mm10 / 10;
@@ -50,7 +56,7 @@ export function blockHoles(parts: readonly Part[], placements: readonly PanelPla
       pos[lengthAxis] = org[lengthAxis] + d.x_mm10;
       pos[widthAxis] = org[widthAxis] + d.y_mm10;
       pos[normal] = org[normal] + ext[normal] / 2; // mid-thickness (collapses in the 2D view; fine in 3D)
-      out.push({ x: MM(pos.x), y: MM(pos.y), z: MM(pos.z), r: MM(d.diameter_mm10) / 2, normal });
+      out.push({ x: MM(pos.x), y: MM(pos.y), z: MM(pos.z), r: MM(d.diameter_mm10) / 2, normal, partId: part.id, opId: d.id, fx: d.x_mm10, fy: d.y_mm10 });
     }
   }
   return out;

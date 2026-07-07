@@ -7,12 +7,12 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type 
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas, type ZoneRow } from "./karkasStore";
-import type { DivisionRule } from "../../../../engine/contracts/variables";
+import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
-import { exportModelToSWJ008, solveModelToParts } from "../../../../engine/cnc.js";
+import { exportModelToSWJ008, solveModelToParts, defaultJointProfile } from "../../../../engine/cnc.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { kromkaMetersByVariable } from "../../../../engine/structure/features.js";
 import { buildBlockDrawing } from "./blockDrawing";
@@ -130,6 +130,19 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const addOrUpdateCutout = useKarkas((s) => s.addOrUpdateCutout);
   const removeCutout = useKarkas((s) => s.removeCutout);
   const setEdgeKromka = useKarkas((s) => s.setEdgeKromka);
+  // Step 7 — Joint profile (System-32 grid + cam). jointProfile() returns a fresh object → memo on model.
+  const jointProfileFn = useKarkas((s) => s.jointProfile);
+  const joint = useMemo(() => jointProfileFn(), [jointProfileFn, model]);
+  const setJointProfile = useKarkas((s) => s.setJointProfile);
+  const [showJoints, setShowJoints] = useState(false);
+  const jointFindingsFn = useKarkas((s) => s.jointFindings);
+  const jointFinds = useMemo(() => (showJoints ? jointFindingsFn() : []), [jointFindingsFn, model, showJoints]);
+  const exportOverride = useKarkas((s) => s.exportOverride);
+  const setExportOverride = useKarkas((s) => s.setExportOverride);
+  const selectedHole = useKarkas((s) => s.selectedHole);
+  const selectHole = useKarkas((s) => s.selectHole);
+  const setHoleOverride = useKarkas((s) => s.setHoleOverride);
+  const clearHoleOverride = useKarkas((s) => s.clearHoleOverride);
   const setTarget = useKarkas((s) => s.setTarget);
   const activeTarget = targetId && sections.some((x) => x.id === targetId) ? targetId : sections[0]?.id;
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
@@ -253,6 +266,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // material map carries the chosen decors into the cut file. exportModelToSWJ008 runs the safety
   // gate and throws if the model can't be manufactured.
   const exportCnc = () => {
+    // Step 7c — export gate: joint rule breaks block the cut file until the master explicitly overrides.
+    const finds = useKarkas.getState().jointFindings();
+    if (finds.length > 0 && !useKarkas.getState().exportOverride) {
+      alert(`Eksport to'xtatildi — ${finds.length} ta birikma qoidasi buzilgan:\n• ${finds.slice(0, 4).map((f) => f.message_ru).join("\n• ")}${finds.length > 4 ? `\n• …+${finds.length - 4}` : ""}\n\n«⚙ Birikma» panelida «Usta override»ni belgilang yoki teshiklarni to'g'rilang.`);
+      setShowJoints(true);
+      return;
+    }
     try {
       const text = exportModelToSWJ008(model, {}, materialMap(plan), Object.fromEntries(BOARDS.map((b) => [b.id, b.name])));
       const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
@@ -433,9 +453,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const onUp = (e: PointerEvent) => {
       if (drag) { drag = null; controls.enabled = true; return; } // finished a divider move / block resize
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return; // a camera orbit, not a tap
-      const g = rt.current?.group; if (!g) return;
       raycaster.setFromCamera(ndc(e), camera);
+      // Step 7c — a tap on a drill marker selects that individual hole (markers sit proud of the face)
+      const hg = rt.current?.holeGroup;
+      if (hg) {
+        const hHit = raycaster.intersectObjects(hg.children, false)[0];
+        const hole = hHit?.object.userData.hole as { partId: string; opId: string; fx: number; fy: number } | undefined;
+        if (hole) { useKarkas.getState().selectHole(hole); return; }
+      }
+      const g = rt.current?.group; if (!g) return;
       const hit = raycaster.intersectObjects(g.children, false)[0]; // faces only (not edge lines)
+      useKarkas.getState().selectHole(null); // a panel tap clears any hole selection
       tapPart((hit?.object.userData.partId as string) ?? null);
     };
     renderer.domElement.addEventListener("pointerdown", onDown);
@@ -516,13 +544,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene]);
 
-  // ── «Teshiklar» — rebuild the drill markers when toggled (no geometry rebuild) ──
+  // ── «Teshiklar» — rebuild the drill markers when toggled, and when the model changes (a JointProfile
+  //    edit only affects drilling, not the scene geometry, so it must refresh here too, Step 7a). ──
   useEffect(() => {
     if (!rt.current) return;
     rebuildHoles();
     rt.current.renderer.render(rt.current.scene, rt.current.camera);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showHoles]);
+  }, [showHoles, model]);
 
   // ── re-tint on selection change (no rebuild) ──
   useEffect(() => {
@@ -810,6 +839,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={{ ...act, ...(showMaterials ? { borderColor: "#8a6d1f", background: "#f7efd8", color: "#8a6d1f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowMaterials((v) => !v)} type="button">▦ {matFilter ? "Material ✓" : "Materiallar"}</button>
         <button style={{ ...act, ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
         <button style={{ ...act, ...(showHoles ? { borderColor: "#1f6f86", background: "#dcecf2", color: "#13485a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowHoles((v) => !v)} type="button" title="Teshiklarni ko'rsatish (shtok, petlya)">🕳 {showHoles ? "Teshik ✓" : "Teshiklar"}</button>
+        {/* Step 7 — Birikma (joints) mode: the JointProfile editor; turning it on shows the drilled holes */}
+        <button style={{ ...act, ...(showJoints ? { borderColor: "#8a5a1f", background: "#f2e3cd", color: "#6b3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowJoints((v) => { const nv = !v; if (nv) setShowHoles(true); return nv; })} type="button" title="Birikma profili (System-32 teshiklar)">⚙ Birikma</button>
         <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
         <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spec</button>
         <button style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a" }} onClick={printDrawing} type="button">📐 Chizma</button>
@@ -1017,6 +1048,60 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             {matFilter && <div style={{ fontSize: 11, color: "#8a6d1f", marginTop: 6, paddingLeft: 2 }}>Faqat «{projMaterials.find((m) => m.id === matFilter)?.name}» ajratildi</div>}
           </div>
         )}
+        {/* Step 7a — the Joint profile editor (System-32 grid + cam). Editing a value re-drills live. */}
+        {showJoints && (
+          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 44, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 250 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <b style={{ fontSize: 13 }}>⚙ Birikma profili</b>
+              <button onClick={() => setShowJoints(false)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "#888", lineHeight: 1 }}>✕</button>
+            </div>
+            <p style={{ fontSize: 11, color: "#777", margin: "0 0 6px", lineHeight: 1.35 }}>System-32 to'r (mm). Namunа panelda jonli ko'rinadi — <b>setback/qadam</b> shtok qatorlarini suradi.</p>
+            <JointDiagram profile={joint} />
+            <p style={{ fontSize: 10, color: "#999", margin: "0 0 8px" }}>Real blokda: shtoklar faqat <b>polka bo'lса</b> ko'rinadi (Ø5).</p>
+            {([
+              ["Qadam (pitch)", joint.system32.pitch_mm10, (v: number) => setJointProfile({ ...joint, system32: { ...joint.system32, pitch_mm10: v } })],
+              ["Old setback", joint.system32.frontSetback_mm10, (v: number) => setJointProfile({ ...joint, system32: { ...joint.system32, frontSetback_mm10: v } })],
+              ["Orqa setback", joint.system32.backSetback_mm10, (v: number) => setJointProfile({ ...joint, system32: { ...joint.system32, backSetback_mm10: v } })],
+              ["Cam chuqurligi", joint.camSeatDepth_mm10, (v: number) => setJointProfile({ ...joint, camSeatDepth_mm10: v })],
+              ["Min chekka", joint.minEdgeMargin_mm10, (v: number) => setJointProfile({ ...joint, minEdgeMargin_mm10: v })],
+            ] as const).map(([label, mm10v, commit]) => (
+              <div key={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 12, color: "#444" }}>{label}</span>
+                <DimField label="mm" value={Math.round(mm10v / 10)} onCommit={(mm) => commit(mm * 10)} min={0} />
+              </div>
+            ))}
+            <button onClick={() => setJointProfile(defaultJointProfile())} type="button" style={{ width: "100%", marginTop: 4, padding: "6px 10px", borderRadius: 8, border: "1px solid #bbb", background: "#f6f6f6", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>↺ Fabrika qiymatlari</button>
+            {/* Step 7c — rule-break warnings (min-edge-margin) + the export-override gate */}
+            {jointFinds.length > 0 && (
+              <div style={{ marginTop: 10, padding: 8, borderRadius: 8, background: "#fdf1d6", border: "1px solid #e5b84b" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#8a5a1f", marginBottom: 4 }}>⚠ {jointFinds.length} ta teshik chekkага yaqin</div>
+                <div style={{ fontSize: 10.5, color: "#7a5a2f", maxHeight: 66, overflow: "auto", lineHeight: 1.4 }}>
+                  {jointFinds.slice(0, 5).map((f, i) => <div key={i}>• {f.message_ru}</div>)}
+                  {jointFinds.length > 5 && <div>• …+{jointFinds.length - 5}</div>}
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, cursor: "pointer" }}>
+                  <input type="checkbox" checked={exportOverride} onChange={(e) => setExportOverride(e.target.checked)} />
+                  <span style={{ fontWeight: 600 }}>Usta override (eksportga ruxsat)</span>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+        {/* Step 7c — the selected drill hole: move it on the panel face (persists as an override) or reset */}
+        {selectedHole && (
+          <div style={{ position: "absolute", left: 10, bottom: 10, zIndex: 45, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 214 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <b style={{ fontSize: 13 }}>🕳 Teshik — ko'chirish</b>
+              <button onClick={() => selectHole(null)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "#888", lineHeight: 1 }}>✕</button>
+            </div>
+            <p style={{ fontSize: 10.5, color: "#888", margin: "0 0 8px" }}>Panel yuzasidagi joyi (mm). O'zgartirsangiz — usta override bo'ladi.</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <DimField label="X" value={Math.round(selectedHole.fx / 10)} min={0} onCommit={(mm) => { const nx = mm * 10; setHoleOverride(selectedHole.partId, selectedHole.opId, nx, selectedHole.fy); selectHole({ ...selectedHole, fx: nx }); }} />
+              <DimField label="Y" value={Math.round(selectedHole.fy / 10)} min={0} onCommit={(mm) => { const ny = mm * 10; setHoleOverride(selectedHole.partId, selectedHole.opId, selectedHole.fx, ny); selectHole({ ...selectedHole, fy: ny }); }} />
+            </div>
+            <button onClick={() => { clearHoleOverride(selectedHole.partId, selectedHole.opId); selectHole(null); }} type="button" style={{ width: "100%", marginTop: 8, padding: "6px 10px", borderRadius: 8, border: "1px solid #bbb", background: "#f6f6f6", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>↺ Avto joyga qaytar</button>
+          </div>
+        )}
         {showTree && <TreePanel onClose={() => setShowTree(false)} />}
         {showSpec && <SpecPanel onClose={() => setShowSpec(false)} />}
       </div>
@@ -1076,6 +1161,30 @@ function edgeBallPositions(
     v.set(p[0], p[1], p[2]).project(camera);
     return { i, x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, k: kromka?.[i] ?? null, vis: v.z < 1 };
   });
+}
+
+/** Step 7b — a live sample-panel diagram of the System-32 grid: two pin rows (front + back setback) with
+ *  dots at the pitch spacing. Redraws as the profile is edited, so the effect is visible even on a block
+ *  with no shelves. Purely illustrative (a fixed 560×360 sample side panel), not the real geometry. */
+function JointDiagram({ profile }: { profile: JointProfile }) {
+  const W = 210, H = 128, pad = 8;
+  const depth = 5600, height = 3600; // sample side panel mm10
+  const sx = (W - 2 * pad) / depth, sy = (H - 2 * pad) / height;
+  const front = Math.max(0, profile.system32.frontSetback_mm10);
+  const back = Math.max(0, profile.system32.backSetback_mm10);
+  const pitch = Math.max(profile.system32.pitch_mm10, 60);
+  const rows = [front, depth - back].filter((x) => x >= 0 && x <= depth); // clamp rows to the panel
+  const dots: { x: number; y: number }[] = [];
+  for (const rx of rows) for (let y = pitch; y < height; y += pitch) dots.push({ x: pad + rx * sx, y: pad + y * sy });
+  return (
+    <svg width={W} height={H} style={{ display: "block", margin: "0 auto 8px" }}>
+      <rect x={pad} y={pad} width={W - 2 * pad} height={H - 2 * pad} rx={4} fill="#fff" stroke="#c9bd9e" />
+      <line x1={pad} y1={pad} x2={pad} y2={H - pad} stroke="#8a5a1f" strokeWidth={2} />
+      {dots.map((d, i) => <circle key={i} cx={d.x} cy={d.y} r={2.3} fill="#1f6f86" />)}
+      <text x={pad + 3} y={pad + 11} fontSize={8} fill="#8a5a1f">old</text>
+      <text x={W - pad - 20} y={pad + 11} fontSize={8} fill="#8a5a1f">orqa</text>
+    </svg>
+  );
 }
 
 function DimField({ label, value, onCommit, min = 1, units = "mm" }: { label: string; value: number; onCommit: (mm: number) => void; min?: number; units?: "mm" | "cm" }) {

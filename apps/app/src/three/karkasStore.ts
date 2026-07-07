@@ -15,6 +15,10 @@ import { divideSection, addInstance, removeInstance, setLoadBearing, setComponen
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
 import { planDecors, foreignDecors, bindBlockMaterials } from "./slotBinding";
+import { defaultJointProfile, solveModelToParts } from "../../../../engine/cnc.js";
+import { checkJointConstraints, type JointFinding } from "../../../../engine/structure/jointConstraints.js";
+import { holeKey } from "../../../../engine/structure/holeOverride.js";
+import type { JointProfile } from "../../../../engine/contracts/variables.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -217,6 +221,22 @@ interface KarkasState extends Derived {
   /** Step 6 — paint the selected panel's edge (0..3 = front/back/side/side) with kromka K-variable
    *  `kId`; null strips the band. */
   setEdgeKromka: (edgeIndex: number, kId: string | null) => void;
+  /** Step 7 — the project's Joint profile (System-32 grid + cam depth + margins); catalog default until
+   *  the workshop edits it. Drives auto hole placement (solveModelToParts reads model.jointProfile). */
+  jointProfile: () => JointProfile;
+  setJointProfile: (profile: JointProfile) => void;
+  /** Step 7c — auto-placed holes that break the Joint profile's rules (e.g. min-edge-margin), or []. */
+  jointFindings: () => JointFinding[];
+  /** Export gate: the master's explicit override that lets the CNC file emit despite joint warnings. */
+  exportOverride: boolean;
+  setExportOverride: (on: boolean) => void;
+  /** Step 7c — the individually-selected drill hole (from a 3D marker tap), or null. */
+  selectedHole: { partId: string; opId: string; fx: number; fy: number } | null;
+  selectHole: (h: { partId: string; opId: string; fx: number; fy: number } | null) => void;
+  /** Move the selected hole to a face-local mm10 position (persists as a model override; re-drills). */
+  setHoleOverride: (partId: string, opId: string, x_mm10: number, y_mm10: number) => void;
+  /** Reset one hole back to its auto-placed position. */
+  clearHoleOverride: (partId: string, opId: string) => void;
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
@@ -491,6 +511,28 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const kromka: [string | null, string | null, string | null, string | null] = [cur[0] ?? null, cur[1] ?? null, cur[2] ?? null, cur[3] ?? null];
       kromka[edgeIndex] = kId;
       apply(patchFeatures(s.model, pid, { kromka }), true);
+    },
+    jointProfile: () => get().model.jointProfile ?? defaultJointProfile(),
+    setJointProfile: (profile) => apply({ ...get().model, jointProfile: profile }, true),
+    jointFindings: () => {
+      const s = get();
+      return checkJointConstraints(solveModelToParts(s.model, planThickness(s.plan)), s.jointProfile().minEdgeMargin_mm10);
+    },
+    exportOverride: false,
+    setExportOverride: (on) => set({ exportOverride: on }),
+    selectedHole: null,
+    selectHole: (h) => set({ selectedHole: h }),
+    setHoleOverride: (partId, opId, x, y) => {
+      const s = get();
+      const overrides = { ...(s.model.holeOverrides ?? {}), [holeKey(partId, opId)]: { x_mm10: Math.round(x), y_mm10: Math.round(y) } };
+      apply({ ...s.model, holeOverrides: overrides }, true);
+    },
+    clearHoleOverride: (partId, opId) => {
+      const s = get();
+      if (!s.model.holeOverrides) return;
+      const overrides = { ...s.model.holeOverrides };
+      delete overrides[holeKey(partId, opId)];
+      apply({ ...s.model, holeOverrides: Object.keys(overrides).length ? overrides : undefined }, true);
     },
     undo: () =>
       set((s) => {
