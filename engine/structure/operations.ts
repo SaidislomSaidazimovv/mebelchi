@@ -989,55 +989,113 @@ function scaleBlockAxis(block: Block, axis: Axis, factor: number): Block {
  * reposition proportionally within their (resized) leaf. Block-local (0-based) coords, matching the
  * model builders. An equal split (all Ratio-1) reproduces the old proportional result exactly.
  */
+type RelayoutCtx = {
+  readonly axis: Axis;
+  readonly lineAxisOf: ReadonlyMap<LineId, Axis>;
+  readonly linePos: Map<LineId, mm10>;
+  readonly leafSpan: Map<SectionId, { o0: mm10; e0: mm10; o1: mm10; e1: mm10 }>;
+};
+
+/** Recursively place `section` into the span `[o1, o1+e1]` along `ctx.axis`, re-solving each division
+ *  level that tiles along that axis via `resolveChain` (per-zone rules). Records new divider positions in
+ *  `ctx.linePos` and each leaf's old/new span in `ctx.leafSpan` (for proportional instance re-anchoring).
+ *  Shared by the whole-block resize (`resolveBlockAxis`) and the single-section rule edit (`setZoneRule`). */
+function relayoutAlong(section: Section, o1: mm10, e1: mm10, ctx: RelayoutCtx): Section {
+  const o0 = originOf(section.box, ctx.axis);
+  const e0 = extentOf(section.box, ctx.axis);
+  const box = withAxis(section.box, ctx.axis, o1, e1);
+  if (section.children.length === 0) {
+    ctx.leafSpan.set(section.id, { o0, e0, o1, e1 });
+    return { ...section, box };
+  }
+  const divAxis = section.dividers.length > 0 ? ctx.lineAxisOf.get(section.dividers[0]!) : undefined;
+  if (divAxis === ctx.axis) {
+    // children tile ALONG the axis → re-solve the chain by their per-zone rules
+    const zones: ChainZone[] = section.children.map((c) => ({
+      rule: c.rule ?? { kind: "flex" },
+      currentSize: extentOf(c.box, ctx.axis),
+    }));
+    const { sizes } = resolveChain(e1, zones);
+    let cursor = o1;
+    const children = section.children.map((c, i) => {
+      const child = relayoutAlong(c, cursor, sizes[i]!, ctx);
+      cursor += sizes[i]!;
+      if (i < section.dividers.length) ctx.linePos.set(section.dividers[i]!, cursor); // boundary after child i
+      return child;
+    });
+    return { ...section, box, children };
+  }
+  // children split along ANOTHER axis → each spans the full new extent along the axis
+  return { ...section, box, children: section.children.map((c) => relayoutAlong(c, o1, e1, ctx)) };
+}
+
+/** Re-anchor an instance proportionally within its (resized) leaf, using the leaf's old/new span. */
+function reanchorInstance<T extends { sectionId: SectionId; anchor: { x: mm10; y: mm10; z: mm10 } }>(
+  inst: T,
+  axis: Axis,
+  leafSpan: RelayoutCtx["leafSpan"],
+): T {
+  const s = leafSpan.get(inst.sectionId);
+  if (!s || s.e0 <= 0) return inst;
+  const a = inst.anchor;
+  const cur = axis === "x" ? a.x : axis === "y" ? a.y : a.z;
+  const v = Math.round(s.o1 + ((cur - s.o0) / s.e0) * s.e1); // same fraction within the resized leaf
+  const anchor = axis === "x" ? { ...a, x: v } : axis === "y" ? { ...a, y: v } : { ...a, z: v };
+  return { ...inst, anchor };
+}
+
 function resolveBlockAxis(block: Block, axis: Axis, newExtent: mm10): Block {
-  const lineAxisOf = new Map(block.lines.map((l) => [l.id, l.axis] as const));
-  const linePos = new Map<LineId, mm10>();
-  const leafSpan = new Map<SectionId, { o0: mm10; e0: mm10; o1: mm10; e1: mm10 }>();
-
-  const relayout = (section: Section, o1: mm10, e1: mm10): Section => {
-    const o0 = originOf(section.box, axis);
-    const e0 = extentOf(section.box, axis);
-    const box = withAxis(section.box, axis, o1, e1);
-    if (section.children.length === 0) {
-      leafSpan.set(section.id, { o0, e0, o1, e1 });
-      return { ...section, box };
-    }
-    const divAxis = section.dividers.length > 0 ? lineAxisOf.get(section.dividers[0]!) : undefined;
-    if (divAxis === axis) {
-      // children tile ALONG the resize axis → re-solve the chain by their per-zone rules
-      const zones: ChainZone[] = section.children.map((c) => ({
-        rule: c.rule ?? { kind: "flex" },
-        currentSize: extentOf(c.box, axis),
-      }));
-      const { sizes } = resolveChain(e1, zones);
-      let cursor = o1;
-      const children = section.children.map((c, i) => {
-        const child = relayout(c, cursor, sizes[i]!);
-        cursor += sizes[i]!;
-        if (i < section.dividers.length) linePos.set(section.dividers[i]!, cursor); // boundary after child i
-        return child;
-      });
-      return { ...section, box, children };
-    }
-    // children split along ANOTHER axis → each spans the full new extent along `axis`
-    return { ...section, box, children: section.children.map((c) => relayout(c, o1, e1)) };
+  const ctx: RelayoutCtx = {
+    axis,
+    lineAxisOf: new Map(block.lines.map((l) => [l.id, l.axis] as const)),
+    linePos: new Map<LineId, mm10>(),
+    leafSpan: new Map(),
   };
-
   const o = originOf(block.box, axis);
-  const zones = block.zones.map((z) => ({ ...z, root: relayout(z.root, o, newExtent) }));
-
-  const instances = block.instances.map((inst) => {
-    const s = leafSpan.get(inst.sectionId);
-    if (!s || s.e0 <= 0) return inst;
-    const a = inst.anchor;
-    const cur = axis === "x" ? a.x : axis === "y" ? a.y : a.z;
-    const v = Math.round(s.o1 + ((cur - s.o0) / s.e0) * s.e1); // same fraction within the resized leaf
-    const anchor = axis === "x" ? { ...a, x: v } : axis === "y" ? { ...a, y: v } : { ...a, z: v };
-    return { ...inst, anchor };
-  });
-
-  const lines = block.lines.map((l) => (linePos.has(l.id) ? { ...l, position_mm10: linePos.get(l.id)! } : l));
+  const zones = block.zones.map((z) => ({ ...z, root: relayoutAlong(z.root, o, newExtent, ctx) }));
+  const instances = block.instances.map((inst) => reanchorInstance(inst, axis, ctx.leafSpan));
+  const lines = block.lines.map((l) => (ctx.linePos.has(l.id) ? { ...l, position_mm10: ctx.linePos.get(l.id)! } : l));
   return { ...block, box: withAxis(block.box, axis, o, newExtent), zones, instances, lines };
+}
+
+/**
+ * Step 4 (CONSTRUCTION_FRAME_v4 §4, ratio pill-row editor): set the division rule of zone `zoneIndex`
+ * within the divided section `parentSectionId`, then re-solve THAT section's chain so its zones and their
+ * dividing lines reflow to the new rule mix. The section's own origin+extent are unchanged — only its
+ * internal split changes (e.g. retype a weight 1→0.6 and all three shelves move together). Recurses into
+ * each zone's subtree so a divided zone's contents follow. No-op (same ref) if the section isn't divided
+ * or `zoneIndex` is out of range.
+ */
+export function setZoneRule(
+  model: StructuralModel,
+  parentSectionId: SectionId,
+  zoneIndex: number,
+  rule: DivisionRule,
+): StructuralModel {
+  const located = findSection(model, parentSectionId);
+  if (!located) return model;
+  const { block, section } = located;
+  if (section.children.length === 0 || zoneIndex < 0 || zoneIndex >= section.children.length) return model;
+  const divAxis = section.dividers.length > 0 ? block.lines.find((l) => l.id === section.dividers[0])?.axis : undefined;
+  if (!divAxis) return model;
+
+  const withRule: Section = {
+    ...section,
+    children: section.children.map((c, i) => (i === zoneIndex ? { ...c, rule } : c)),
+  };
+  const ctx: RelayoutCtx = {
+    axis: divAxis,
+    lineAxisOf: new Map(block.lines.map((l) => [l.id, l.axis] as const)),
+    linePos: new Map<LineId, mm10>(),
+    leafSpan: new Map(),
+  };
+  const relaid = relayoutAlong(withRule, originOf(section.box, divAxis), extentOf(section.box, divAxis), ctx);
+
+  const zones = block.zones.map((z) => ({ ...z, root: replaceSection(z.root, section.id, relaid) }));
+  const instances = block.instances.map((inst) => reanchorInstance(inst, divAxis, ctx.leafSpan));
+  const lines = block.lines.map((l) => (ctx.linePos.has(l.id) ? { ...l, position_mm10: ctx.linePos.get(l.id)! } : l));
+  const newBlock: Block = { ...block, zones, instances, lines };
+  return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? newBlock : b)) };
 }
 
 /** Set `blockId`'s extent along `axis` to `newExtent_mm10`, re-solving its subtree to match. Plain

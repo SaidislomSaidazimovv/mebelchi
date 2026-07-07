@@ -9,6 +9,7 @@
 import type { StructuralModel } from "./contracts/structure.js";
 import type { Part, Project } from "./contracts/types.js";
 import { solveStructure, type ThicknessSpec } from "./structure/solve.js";
+import { applyFeatures } from "./structure/features.js";
 import { applyDrilling } from "./structure/drilling.js";
 import { loadHardwareSpec } from "./catalogs/hardwareSpec.js";
 import { validateParts } from "./core/validate.js";
@@ -16,12 +17,12 @@ import { checkEmitCompleteness } from "./structure/emitCheck.js";
 import { exportSWJ008 } from "./postprocessors/swj008.js";
 
 /**
- * Full structural solve for manufacturing: geometry (solveStructure) + automatic drilling
- * (applyDrilling) using the loaded hardware catalog. The drilled Part[] is ready for
- * validateParts → exportSWJ008.
+ * Full structural solve for manufacturing: geometry (solveStructure) + panel finishing features
+ * (applyFeatures — corner rounding + cutout contours, Step 4b) + automatic drilling (applyDrilling)
+ * using the loaded hardware catalog. The drilled Part[] is ready for validateParts → exportSWJ008.
  */
 export function solveModelToParts(model: StructuralModel, thickness: ThicknessSpec = {}): Part[] {
-  return applyDrilling(solveStructure(model, thickness), model, loadHardwareSpec());
+  return applyDrilling(applyFeatures(solveStructure(model, thickness), model), model, loadHardwareSpec());
 }
 
 /**

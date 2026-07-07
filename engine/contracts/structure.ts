@@ -431,6 +431,32 @@ export interface StructuralModel {
   readonly materialVars?: readonly MaterialVar[];
   readonly kromkaVars?: readonly KromkaVar[];
   readonly jointProfile?: JointProfile;
+  /**
+   * Per-panel finishing overlay (Step 4b, CONSTRUCTION_FRAME_v4 §12), keyed by `Part.id`. Kept on the
+   * model (not on the derived Part) so it round-trips through save/load and survives every re-solve —
+   * a Part is regenerated each solve, but its id (`${block}__side_l`, `${block}__inst_${id}` …) is
+   * stable. Optional\additive: absent = every panel is a plain square-cornered rectangle.
+   */
+  readonly features?: Readonly<Record<PartId, PanelFeatures>>;
+}
+
+/** A rectangular aperture cut into a panel — sink / hob / boiler (Step 4b, v4 §12). Part-local mm10.
+ *  `offset` is the clearance from the [left, top, right, bottom] panel edges to the aperture; a `locked`
+ *  offset is PINNED — it is preserved when the panel resizes (the opposite, unlocked offset absorbs the
+ *  change), so a boiler keeps its fixed clearance from the wall side. */
+export interface PanelCutout {
+  readonly id: string;
+  readonly w_mm10: mm10;
+  readonly h_mm10: mm10;
+  readonly offset: readonly [mm10, mm10, mm10, mm10];
+  readonly locked: readonly [boolean, boolean, boolean, boolean];
+}
+
+/** Per-panel finishing features (Step 4b): corner rounding + apertures, overlaid on a Part by id. */
+export interface PanelFeatures {
+  /** Corner radii mm10 in Face-A order [top-left, top-right, bottom-right, bottom-left]; 0 = square. */
+  readonly corners?: readonly [mm10, mm10, mm10, mm10];
+  readonly cutouts?: readonly PanelCutout[];
 }
 
 // ---------------------------------------------------------------------------
