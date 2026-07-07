@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
@@ -153,6 +153,12 @@ interface KarkasState extends Derived {
   setHinge: (edge: "left" | "right") => void;
   /** Set the block's width / height / depth in mm (C2). Content reflows proportionally. */
   resize: (dim: "w" | "h" | "d", mm: number) => void;
+  /** Move a divider line by `delta` mm10 (Step 3.3b drag). `pushHistory` true on the FIRST frame of a
+   *  drag (so the whole drag is one undo step), false on the live frames after. */
+  moveLine: (lineId: string, delta: number, scope: "local" | "line" | "row" | "global", pushHistory: boolean) => void;
+  /** Resize the block to an ABSOLUTE extent (mm10) along a dim by dragging a side handle (Step 3.3c).
+   *  Rule-aware (Step 2). `pushHistory` true on the FIRST drag frame; clamped to a minimum; safe on throw. */
+  resizeDrag: (dim: "w" | "h" | "d", extentMm10: number, pushHistory: boolean) => void;
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
@@ -323,6 +329,27 @@ export const useKarkas = create<KarkasState>((set, get) => {
         : dim === "h" ? resizeBlockHeight(m, b.id, mm10)
         : resizeBlockDepth(m, b.id, mm10);
       if (next !== m) apply(next);
+    },
+    moveLine: (lineId, delta, scope, pushHistory) => {
+      const s = get();
+      let next: StructuralModel;
+      try { next = moveLineOp(s.model, lineId, delta, scope); } catch { return; } // dragging past a collapse/edge limit — ignore, don't crash
+      if (next === s.model) return; // no-op (0 delta)
+      if (pushHistory) apply(next, true); // first drag frame → one undo step, keep the selection
+      else set((st) => ({ ...derive(next, st.plan), selectedId: st.selectedId })); // live frame → no history
+    },
+    resizeDrag: (dim, extentMm10, pushHistory) => {
+      const s = get();
+      const b = s.model.blocks[0];
+      if (!b) return;
+      const mm10 = Math.max(300, Math.round(extentMm10)); // clamp to ≥30mm so a drag never collapses it
+      let next: StructuralModel;
+      try {
+        next = dim === "w" ? resizeBlockWidth(s.model, b.id, mm10) : dim === "h" ? resizeBlockHeight(s.model, b.id, mm10) : resizeBlockDepth(s.model, b.id, mm10);
+      } catch { return; }
+      if (next === s.model) return;
+      if (pushHistory) apply(next, true);
+      else set((st) => ({ ...derive(next, st.plan), selectedId: st.selectedId }));
     },
     undo: () =>
       set((s) => {
