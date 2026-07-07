@@ -195,7 +195,7 @@ export function applyRenderMode(group: THREE.Group, mode: RenderMode): void {
  *  `bounds` is the scene recentering from layoutBounds (mm10). Returns a group to add/remove on the
  *  «Teshiklar» toggle. */
 export function buildHoleMarkers(
-  holes: readonly { x: number; y: number; z: number; r: number; normal: "x" | "y" | "z" }[],
+  holes: readonly { x: number; y: number; z: number; r: number; normal: "x" | "y" | "z"; partId?: string; opId?: string; fx?: number; fy?: number }[],
   bounds: { cx: number; cz: number; minY: number; ctrX: number; ctrY: number; ctrZ: number },
 ): THREE.Group {
   const g = new THREE.Group();
@@ -214,7 +214,9 @@ export function buildHoleMarkers(
     mesh.position.set(M(px - bounds.cx), M(py - bounds.minY), M(pz - bounds.cz));
     if (h.normal === "x") mesh.rotation.y = Math.PI / 2;
     else if (h.normal === "y") mesh.rotation.x = Math.PI / 2;
-    mesh.raycast = () => {}; // decorative — never intercept panel picks
+    // Step 7c — carry the hole identity so a tap on the marker can select the individual hole. The main
+    // panel picker raycasts the block group (not this hole group), so enabling raycast here is safe.
+    if (h.partId && h.opId) mesh.userData.hole = { partId: h.partId, opId: h.opId, fx: h.fx ?? 0, fy: h.fy ?? 0 };
     g.add(mesh);
   }
   return g;
