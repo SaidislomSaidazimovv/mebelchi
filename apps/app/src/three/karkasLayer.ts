@@ -10,7 +10,7 @@ import { solveStructure } from "../../../../engine/structure/solve.js";
 import type { StructuralModel } from "../../../../engine/contracts/structure.js";
 import { layoutToScene, sceneDimsMm } from "./structureScene";
 import { buildStructureGroup } from "./structureRenderer";
-import { partColorLookup, DEFAULT_PLAN, type MaterialPlan } from "./materials";
+import { partColorLookup, planThickness, DEFAULT_PLAN, type MaterialPlan } from "./materials";
 
 const GAP_M = 0.06; // 6 cm between placed blocks
 
@@ -66,9 +66,10 @@ export function buildProjectBlocksGroup(
       // F1 — colour each board by its decor (part role → plan → colour), via the SAME shared lookup
       // the editor uses so a placed block matches its karkas exactly (incl. doubled 32mm / glazed
       // parts, whose split ids would otherwise miss the single render board → bare WOOD).
-      const parts = solveStructure(model);
+      const tk = planThickness(plan);
+      const parts = solveStructure(model, tk);
       const colorOf = partColorLookup(parts, plan);
-      const g = buildStructureGroup(layoutToScene(solveLayout(model)), colorOf);
+      const g = buildStructureGroup(layoutToScene(solveLayout(model, tk)), colorOf);
       // «Ichini ko'rish» — mark the FRONT (facade: doors + drawer fronts) boards so the room can fade
       // them out to reveal the interior (imos shows the whole carcass semi-transparent while editing).
       tagFacades(g, parts);

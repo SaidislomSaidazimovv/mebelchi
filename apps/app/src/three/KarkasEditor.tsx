@@ -19,7 +19,7 @@ import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGro
 import { tagFacades, fadeFacades } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, partColorLookup, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, boardForRole, partColorLookup, planThickness, type MaterialPlan } from "./materials";
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
@@ -120,8 +120,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       r.holeGroup = null;
     }
     if (holesRef.current) {
-      const places = solveLayout(model);
-      const g = buildHoleMarkers(blockHoles(solveModelToParts(model), places), layoutBounds(places));
+      const places = solveLayout(model, planThickness(plan));
+      const g = buildHoleMarkers(blockHoles(solveModelToParts(model, planThickness(plan)), places), layoutBounds(places));
       r.scene.add(g);
       r.holeGroup = g;
     }
@@ -180,7 +180,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // only (no GPU) → mobile-safe. Materials label = the carcass decor from the plan.
   const printDrawing = () => {
     try {
-      const drawing = buildBlockDrawing(solveLayout(model), solveModelToParts(model));
+      const drawing = buildBlockDrawing(solveLayout(model, planThickness(plan)), solveModelToParts(model, planThickness(plan)));
       const boardName = (id: string) => BOARDS.find((b) => b.id === id)?.name ?? "—";
       const carcass = boardName(plan.carcass);
       const edge = EDGES.find((e) => e.id === plan.edge)?.name ?? "—";

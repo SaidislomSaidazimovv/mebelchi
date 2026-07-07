@@ -35,7 +35,8 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   const sections: { id: string; label: string }[] = [];
   for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) sections.push({ id: s.id, label: `${sections.length + 1}` });
   // 7b — each role's board thickness comes from its plan decor (ЛДСП 16 / МДФ 18 / ХДФ 3)
-  return { model, parts: solveStructure(model, planThickness(plan)), scene: layoutToScene(solveLayout(model)), warnings, sections };
+  const tk = planThickness(plan); // one per-role thickness spec for BOTH cut list + render (parity)
+  return { model, parts: solveStructure(model, tk), scene: layoutToScene(solveLayout(model, tk)), warnings, sections };
 }
 
 /** First leaf section of the model (the default edit target when nothing is selected). */
