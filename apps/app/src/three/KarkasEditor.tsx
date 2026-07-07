@@ -63,7 +63,55 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const colorRef = useRef(colorFn);
   colorRef.current = colorFn;
   const selComp = useKarkas((s) => s.selectedComponent());
-  const selParts = useKarkas((s) => s.selectedParts());
+  // NB: selectedParts() returns a FRESH array each call, so subscribing to it directly (`useKarkas(s =>
+  // s.selectedParts())`) makes zustand's snapshot change every render → an infinite re-render loop (blank
+  // screen). Subscribe to the stable function ref + memoize the result on selectedId/parts instead.
+  const selectedPartsFn = useKarkas((s) => s.selectedParts);
+  const selParts = useMemo(() => selectedPartsFn(), [selectedPartsFn, selectedId, parts]);
+  // (3.3d) selectedParts() only covers instance parts (shelves/drawers/facades); a divider or a carcass
+  // panel is a bare part whose id IS the selection — fall back to it so the readout shows their dims too.
+  const selPart = useMemo(() => selParts[0] ?? parts.find((p) => p.id === selectedId) ?? null, [selParts, parts, selectedId]);
+  // (3.3d) numeric-entry target for the readout: a divider → a typed ±mm nudge; a carcass panel → a typed
+  // absolute block dim. Everything else falls through to the block DimField, so no inline entry is shown.
+  const precise = useMemo(() => {
+    const id = selectedId;
+    if (!id) return null;
+    if (id.includes("__div_")) return { kind: "line" as const, lineId: id.slice(id.indexOf("__div_") + 6) };
+    if (!id.includes("__inst_")) {
+      const dim = id.endsWith("__side_l") || id.endsWith("__side_r") ? ("w" as const)
+        : id.endsWith("__top") || id.endsWith("__bottom") ? ("h" as const)
+        : id.endsWith("__back") ? ("d" as const) : null;
+      if (dim) return { kind: "resize" as const, dim };
+    }
+    return null;
+  }, [selectedId]);
+  // (3.3d) keyboard nudge — arrow keys move the selected divider / resize the block by exactly 5 mm
+  // (Shift → 1 mm); each press is one undo step. Ignored while typing in a field.
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return;
+      const dir = ev.key === "ArrowRight" || ev.key === "ArrowUp" ? 1 : ev.key === "ArrowLeft" || ev.key === "ArrowDown" ? -1 : 0;
+      if (!dir) return;
+      const st = useKarkas.getState();
+      const id = st.selectedId;
+      if (!id) return;
+      const step = ev.shiftKey ? 10 : 50; // mm10 → 1 mm fine / 5 mm coarse
+      if (id.includes("__div_")) {
+        ev.preventDefault();
+        st.moveLine(id.slice(id.indexOf("__div_") + 6), dir * step, "line", true);
+      } else if (!id.includes("__inst_")) {
+        const dim = id.endsWith("__side_l") || id.endsWith("__side_r") ? "w" : id.endsWith("__top") || id.endsWith("__bottom") ? "h" : id.endsWith("__back") ? "d" : null;
+        const box = st.model.blocks[0]?.box;
+        if (!dim || !box) return;
+        ev.preventDefault();
+        const cur = dim === "w" ? box.w : dim === "h" ? box.h : box.d;
+        st.resizeDrag(dim as "w" | "h" | "d", cur + dir * step, true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const sections = useKarkas((s) => s.sections);
   const targetId = useKarkas((s) => s.targetId);
   const setTarget = useKarkas((s) => s.setTarget);
@@ -271,21 +319,87 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     rt.current = { renderer, scene: scene3, camera, controls, group: null, holeGroup: null, raf: 0, labels, aabb: null, framedKey: "" };
 
     const raycaster = new THREE.Raycaster();
-    const down = { x: 0, y: 0 };
-    const onDown = (e: PointerEvent) => { down.x = e.clientX; down.y = e.clientY; };
-    const onUp = (e: PointerEvent) => {
-      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return;
-      const g = rt.current?.group;
-      if (!g) return;
+    const ndc = (e: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
-      raycaster.setFromCamera(
-        new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1),
-        camera,
-      );
+      return new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    };
+    const down = { x: 0, y: 0 };
+    // Step 3.3b — an active divider drag (null = not dragging). Dragging the SELECTED divider re-solves
+    // the split live (moveLine); model metres → mm10 is ×10000 (layoutToScene scales mm10 by /10000).
+    let drag:
+      | { kind: "line"; lineId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; last: number; first: boolean }
+      | { kind: "resize"; dim: "w" | "h" | "d"; axis: "x" | "y" | "z"; sign: number; plane: THREE.Plane; startWorld: number; startExtent: number; first: boolean }
+      | null = null;
+    const alongAxis = (e: PointerEvent, axis: "x" | "y" | "z", plane: THREE.Plane): number | null => {
+      raycaster.setFromCamera(ndc(e), camera);
+      const pt = new THREE.Vector3();
+      if (!raycaster.ray.intersectPlane(plane, pt)) return null;
+      return axis === "x" ? pt.x : axis === "y" ? pt.y : pt.z;
+    };
+    const onDown = (e: PointerEvent) => {
+      down.x = e.clientX; down.y = e.clientY;
+      const g = rt.current?.group; if (!g) return;
+      raycaster.setFromCamera(ndc(e), camera);
+      const hit = raycaster.intersectObjects(g.children, false)[0];
+      const pid = hit?.object.userData.partId as string | undefined;
+      const st = useKarkas.getState();
+      // dragging is armed only on the ALREADY-selected part under the pointer (v4 §5 drag = move / resize)
+      if (hit && pid && pid === st.selectedId) {
+        const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
+        const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, hit.point);
+        if (pid.includes("__div_")) {
+          // (3.3b) a divider → move the dividing line, rule-aware reflow of the two zones it splits
+          const lineId = pid.slice(pid.indexOf("__div_") + "__div_".length);
+          const line = st.model.blocks[0]?.lines.find((l) => l.id === lineId);
+          if (line) {
+            const start = alongAxis(e, line.axis, plane);
+            if (start != null) { drag = { kind: "line", lineId, axis: line.axis, plane, last: start, first: true }; controls.enabled = false; }
+          }
+        } else if (!pid.includes("__inst_")) {
+          // (3.3c) a carcass OUTER panel → resize the whole block along that face's axis (Step 2 rule-aware).
+          // side_l/side_r → width, bottom/top → height, back → depth; min-side grows when dragged outward (−sign).
+          const spec = pid.endsWith("__side_l") ? { dim: "w" as const, axis: "x" as const, sign: -1 }
+            : pid.endsWith("__side_r") ? { dim: "w" as const, axis: "x" as const, sign: 1 }
+            : pid.endsWith("__bottom") ? { dim: "h" as const, axis: "y" as const, sign: -1 }
+            : pid.endsWith("__top") ? { dim: "h" as const, axis: "y" as const, sign: 1 }
+            : pid.endsWith("__back") ? { dim: "d" as const, axis: "z" as const, sign: 1 }
+            : null;
+          const box = st.model.blocks[0]?.box;
+          if (spec && box) {
+            const start = alongAxis(e, spec.axis, plane);
+            const startExtent = spec.dim === "w" ? box.w : spec.dim === "h" ? box.h : box.d;
+            if (start != null) { drag = { kind: "resize", dim: spec.dim, axis: spec.axis, sign: spec.sign, plane, startWorld: start, startExtent, first: true }; controls.enabled = false; }
+          }
+        }
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!drag) return;
+      const cur = alongAxis(e, drag.axis, drag.plane);
+      if (cur == null) return;
+      // (3.3d) magnetic snap — quantise to a 5 mm grid so drags land on round sizes; hold Shift → fine 1 mm
+      const step = e.shiftKey ? 10 : 50; // mm10 (1 mm / 5 mm)
+      if (drag.kind === "line") {
+        const raw = Math.round((cur - drag.last) * 10000);
+        const snapped = Math.round(raw / step) * step; // emit whole grid steps → the divider clicks to 5 mm
+        if (snapped !== 0) { useKarkas.getState().moveLine(drag.lineId, snapped, "line", drag.first); drag.first = false; drag.last += snapped / 10000; }
+      } else {
+        // absolute extent = start extent + outward drag distance (world m → mm10 ×10000), min-side inverted
+        const raw = drag.startExtent + drag.sign * Math.round((cur - drag.startWorld) * 10000);
+        const nextExtent = Math.round(raw / step) * step; // snap the absolute extent to the grid
+        if (Math.abs(nextExtent - drag.startExtent) >= 1) { useKarkas.getState().resizeDrag(drag.dim, nextExtent, drag.first); drag.first = false; }
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      if (drag) { drag = null; controls.enabled = true; return; } // finished a divider move / block resize
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return; // a camera orbit, not a tap
+      const g = rt.current?.group; if (!g) return;
+      raycaster.setFromCamera(ndc(e), camera);
       const hit = raycaster.intersectObjects(g.children, false)[0]; // faces only (not edge lines)
       tapPart((hit?.object.userData.partId as string) ?? null);
     };
     renderer.domElement.addEventListener("pointerdown", onDown);
+    renderer.domElement.addEventListener("pointermove", onMove);
     renderer.domElement.addEventListener("pointerup", onUp);
 
     const tmp = new THREE.Vector3();
@@ -314,6 +428,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       cancelAnimationFrame(rt.current?.raf ?? 0);
       window.removeEventListener("resize", onResize);
       renderer.domElement.removeEventListener("pointerdown", onDown);
+      renderer.domElement.removeEventListener("pointermove", onMove);
       renderer.domElement.removeEventListener("pointerup", onUp);
       controls.dispose();
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
@@ -454,6 +569,39 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </div>
         <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={onFileChange} />
       </div>
+      {/* Step 3.3a (v4 §5 readout law) — the selection's dimensions in a FIXED top-centre strip, never
+          hidden by the hand. Updates live during a drag/resize (later pieces). 2 axes only (face w×h). */}
+      {selectedId && selPart && (
+        <div style={{ position: "fixed", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 60, background: "rgba(31,85,112,0.94)", color: "#fff", borderRadius: 9, padding: "5px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 2px 10px rgba(0,0,0,0.22)", display: "flex", gap: 11, alignItems: "center", pointerEvents: precise ? "auto" : "none", whiteSpace: "nowrap" }}>
+          <span>{selComp?.name ?? "Bo'lak"}</span>
+          <span style={{ opacity: 0.5 }}>│</span>
+          <span style={{ fontFamily: "monospace" }}>{Math.round(selPart.length_mm10 / 10)} × {Math.round(selPart.width_mm10 / 10)} mm</span>
+          {/* (3.3d) tap-readout → numpad: type an exact size (panel → block dim) or a ± nudge (divider). */}
+          {precise && (
+            <>
+              <span style={{ opacity: 0.5 }}>│</span>
+              <input
+                key={selectedId + (precise.kind === "resize" ? precise.dim : "")}
+                defaultValue={precise.kind === "resize" ? String(precise.dim === "w" ? dims.w : precise.dim === "h" ? dims.h : dims.d) : ""}
+                placeholder={precise.kind === "line" ? "±mm" : "mm"}
+                inputMode="numeric"
+                title={precise.kind === "line" ? "Aniq siljitish (± mm) — Enter" : "Aniq o'lcham (mm) — Enter"}
+                style={{ width: 62, padding: "2px 6px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.9)", color: "#123", fontFamily: "monospace", fontWeight: 700, fontSize: 12, textAlign: "center" }}
+                onKeyDown={(ev) => {
+                  if (ev.key !== "Enter") return;
+                  const v = parseInt((ev.target as HTMLInputElement).value.replace(/[^\d-]/g, ""), 10);
+                  if (!Number.isFinite(v)) return;
+                  if (precise.kind === "resize") useKarkas.getState().resizeDrag(precise.dim, v * 10, true);
+                  else useKarkas.getState().moveLine(precise.lineId, v * 10, "line", true);
+                  (ev.target as HTMLInputElement).blur();
+                }}
+                onClick={(ev) => (ev.target as HTMLInputElement).select()}
+              />
+              <span style={{ opacity: 0.6, fontSize: 11, fontWeight: 600 }}>← → 5mm</span>
+            </>
+          )}
+        </div>
+      )}
       {/* Phase 4 — edit toolbar: engine operations on the target section (selected panel's, else first leaf) */}
       <div style={editbar}>
         {/* Step 3.2 (v4 §5) — the two permanent selection modes; Space-select reveals the add toolset. */}
