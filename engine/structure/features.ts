@@ -24,6 +24,37 @@ export function outlinePerimeter(length: mm10, width: mm10, corners: Corners): m
   return base - trim;
 }
 
+/** The four banded-edge lengths (mm10) of a rectangular part in SWJ008 edge order [front, back, side,
+ *  side]: the front/back edges run along the length, the two side edges along the width. */
+export function edgeLengths(length: mm10, width: mm10): [mm10, mm10, mm10, mm10] {
+  return [length, length, width, width];
+}
+
+/**
+ * Step 6 (Gate 6) — kromka (jiyak) running length per K-variable for one part: sum each banded edge's
+ * length under the K id it references. When the whole outline is banded with a SINGLE K and the corners
+ * are rounded (Step 4b), the total collapses to the arc perimeter ("a rounded corner's kromka is
+ * arc-length"). Returns mm10 lengths keyed by K id; a bare (null) edge contributes nothing.
+ */
+export function kromkaMetersByVariable(
+  length: mm10,
+  width: mm10,
+  kromka: readonly (string | null)[] | undefined,
+  corners?: Corners,
+): Record<string, mm10> {
+  const out: Record<string, mm10> = {};
+  if (!kromka) return out;
+  const len = edgeLengths(length, width);
+  for (let i = 0; i < 4; i++) {
+    const k = kromka[i];
+    if (k) out[k] = (out[k] ?? 0) + (len[i] ?? 0);
+  }
+  if (corners && kromka.length === 4 && kromka.every((k) => k) && new Set(kromka).size === 1) {
+    out[kromka[0]!] = outlinePerimeter(length, width, corners); // fully banded + rounded → arc perimeter
+  }
+  return out;
+}
+
 /**
  * The rounded-rectangle OUTLINE as a Face-A contour mill. Traces the perimeter counter-clockwise from
  * just past the bottom-left corner; every non-zero corner becomes one 90° arc segment, square corners

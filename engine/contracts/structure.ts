@@ -452,11 +452,17 @@ export interface PanelCutout {
   readonly locked: readonly [boolean, boolean, boolean, boolean];
 }
 
-/** Per-panel finishing features (Step 4b): corner rounding + apertures, overlaid on a Part by id. */
+/** Per-panel finishing features (Step 4b/6): corner rounding + apertures + per-edge kromka, by Part id. */
 export interface PanelFeatures {
   /** Corner radii mm10 in Face-A order [top-left, top-right, bottom-right, bottom-left]; 0 = square. */
   readonly corners?: readonly [mm10, mm10, mm10, mm10];
   readonly cutouts?: readonly PanelCutout[];
+  /**
+   * Per-edge kromka (jiyak) variable id in SWJ008 edge order [front, back, side, side] (Step 6, v4 §3.3/
+   * §8.1). null = a bare, unbanded edge. The K-variable's band SKU / colour / price / thickness lives in
+   * the app catalog — the engine only records which slot each edge references, and prices the metres.
+   */
+  readonly kromka?: readonly [string | null, string | null, string | null, string | null];
 }
 
 // ---------------------------------------------------------------------------
