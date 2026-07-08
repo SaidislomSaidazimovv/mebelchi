@@ -148,6 +148,9 @@ export interface LibraryItem {
    * instead of addCab-ing a cabinet. Absent = an ordinary kitchen-cabinet block.
    */
   karkasJson?: string;
+  /** Step 10 — a computed auto-category (function-based, e.g. "Eshikli shkaf" / "Yashikli" / "Ochiq
+   *  polka") so the library groups itself without the user filing anything. Absent = "Boshqa". */
+  category?: string;
   updatedAt: number;
 }
 
@@ -211,6 +214,26 @@ function blockGlyph(cab: Cabinet): string {
 }
 
 /** Build a personal LibraryItem from a from-scratch karkas block (Phase K) — its project JSON. */
+/**
+ * Step 10 — the auto-category of a saved karkas block, computed from what it CONTAINS (not user-filed):
+ * drawers → "Yashikli", doors → "Eshikli shkaf", shelves → "Ochiq polka", anything placed → "Aralash",
+ * empty carcass → "Bo'sh karkas". Function-first so the library organises itself.
+ */
+export function karkasCategory(karkasJson: string): string {
+  try {
+    const d = JSON.parse(karkasJson) as { model?: { blocks?: { components?: { role?: string; name?: string }[]; instances?: unknown[] }[] } };
+    const comps = (d.model?.blocks ?? []).flatMap((b) => b.components ?? []);
+    const insts = (d.model?.blocks ?? []).flatMap((b) => b.instances ?? []);
+    const any = (re: RegExp, role?: string) => comps.some((c) => (role && c.role === role) || re.test(c.name ?? ""));
+    if (any(/ящик|yashik|sled|drawer/i)) return "Yashikli";
+    if (any(/дверь|двер|eshik|door|фасад|фасад/i, "facade")) return "Eshikli shkaf";
+    if (any(/полка|polka|shelf/i, "internal_shelf")) return "Ochiq polka";
+    return insts.length > 0 ? "Aralash" : "Bo'sh karkas";
+  } catch {
+    return "Boshqa";
+  }
+}
+
 export function libraryItemFromKarkas(name: string, karkasJson: string): LibraryItem {
   return {
     id: newLibraryId(),
@@ -218,6 +241,7 @@ export function libraryItemFromKarkas(name: string, karkasJson: string): Library
     glyph: "🔧",
     cab: {},
     karkasJson,
+    category: karkasCategory(karkasJson),
     updatedAt: Date.now(),
   };
 }
