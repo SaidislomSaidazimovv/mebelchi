@@ -14,7 +14,7 @@ const SHADED = 0xcfcabd; // uniform clay grey for the "shaded" mode (form withou
 
 /** 3D visual style (imos Visual Styles). `realistic` = solid decor-coloured (default), `wireframe`
  *  = edges only / see-through, `shaded` = solid but a single uniform matte colour (no decor). */
-export type RenderMode = "realistic" | "wireframe" | "shaded";
+export type RenderMode = "realistic" | "wireframe" | "shaded" | "xray";
 
 const axisUnit = (a: 0 | 1 | 2): THREE.Vector3 =>
   new THREE.Vector3(a === 0 ? 1 : 0, a === 1 ? 1 : 0, a === 2 ? 1 : 0);
@@ -176,6 +176,12 @@ export function applyRenderMode(group: THREE.Group, mode: RenderMode): void {
       mat.transparent = true;
       mat.opacity = 0; // faces vanish; the edge outline (a child) carries the wireframe
       mat.depthWrite = false;
+    } else if (mode === "xray") {
+      // Step 8 — X-ray: every board see-through but still decor-tinted, so you read the whole assembly at once
+      mat.transparent = true;
+      mat.opacity = 0.28;
+      mat.depthWrite = false;
+      mat.color = new THREE.Color((mesh.userData.baseColor as number) ?? WOOD);
     } else {
       mat.transparent = false;
       mat.opacity = 1;
@@ -218,6 +224,44 @@ export function buildHoleMarkers(
     // panel picker raycasts the block group (not this hole group), so enabling raycast here is safe.
     if (h.partId && h.opId) mesh.userData.hole = { partId: h.partId, opId: h.opId, fx: h.fx ?? 0, fy: h.fy ?? 0 };
     g.add(mesh);
+  }
+  return g;
+}
+
+/**
+ * Step 8.2 — Frame-view kromka: a coloured line along each BANDED edge of every panel, in its K-variable
+ * colour, so the frame view reads which edges are edge-banded and with what. Edge order matches the
+ * engine [front,back,side,side]; the face = the two largest axes, edge midlines at mid-thickness.
+ */
+export function buildKromkaEdges(scene: Scene, colorOf: (kId: string) => number): THREE.Group {
+  const g = new THREE.Group();
+  const add = (p: THREE.Vector3, axis: 0 | 1 | 2, v: number) => { if (axis === 0) p.x += v; else if (axis === 1) p.y += v; else p.z += v; };
+  for (const b of scene.boards) {
+    if (!b.kromka || !b.kromka.some((k) => k)) continue;
+    const [sx, sy, sz] = b.size;
+    let t: 0 | 1 | 2 = 0;
+    if (sy <= sx && sy <= sz) t = 1;
+    else if (sz <= sx && sz <= sy) t = 2;
+    const fa = [0, 1, 2].filter((a) => a !== t) as [0 | 1 | 2, 0 | 1 | 2];
+    const u = b.size[fa[0]], v = b.size[fa[1]];
+    for (let i = 0; i < 4; i++) {
+      const k = b.kromka[i];
+      if (!k) continue;
+      const p0 = new THREE.Vector3(b.pos[0], b.pos[1], b.pos[2]);
+      const p1 = p0.clone();
+      if (i < 2) { // top(+v)/bottom(-v): run along fa[0], fixed on fa[1]
+        const fy = (i === 0 ? 1 : -1) * v / 2;
+        add(p0, fa[1], fy); add(p1, fa[1], fy);
+        add(p0, fa[0], -u / 2); add(p1, fa[0], u / 2);
+      } else { // right(+u)/left(-u): run along fa[1], fixed on fa[0]
+        const fx = (i === 2 ? 1 : -1) * u / 2;
+        add(p0, fa[0], fx); add(p1, fa[0], fx);
+        add(p0, fa[1], -v / 2); add(p1, fa[1], v / 2);
+      }
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([p0, p1]), new THREE.LineBasicMaterial({ color: colorOf(k) }));
+      line.raycast = () => {};
+      g.add(line);
+    }
   }
   return g;
 }

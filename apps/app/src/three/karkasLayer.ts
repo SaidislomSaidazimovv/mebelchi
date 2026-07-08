@@ -129,6 +129,17 @@ export function fadeFacades(group: THREE.Object3D, on: boolean): void {
   });
 }
 
+/** Step 8 — No-facade view: fully HIDE the front panels (doors + drawer faces) so the interior reads
+ *  clean, unlike «Ichini ko'rish» which only fades them. `on=false` makes them visible again. Tag-driven
+ *  (userData.isFacade from tagFacades); a pure visual, never mutates the model. */
+export function hideFacades(group: THREE.Object3D, on: boolean): void {
+  group.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.userData.isFacade) return;
+    mesh.visible = !on;
+  });
+}
+
 /**
  * Step 5 — the Materials view (CONSTRUCTION_FRAME_v4 §143): every board goes semi-transparent, still
  * tinted by its material colour, so the whole piece reads "by material" at a glance. When `matId` is set

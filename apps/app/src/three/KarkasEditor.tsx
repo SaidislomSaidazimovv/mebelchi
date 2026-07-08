@@ -9,6 +9,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
+import { leafSections } from "../../../../engine/contracts/structure";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
@@ -18,11 +19,11 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, type RenderMode } from "./structureRenderer";
-import { tagFacades, fadeFacades, applyMaterialsView } from "./karkasLayer";
+import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, type RenderMode } from "./structureRenderer";
+import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, boardById, edgeVarById, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
@@ -37,6 +38,7 @@ interface RT {
   controls: OrbitControls;
   group: THREE.Group | null;
   holeGroup: THREE.Group | null; // «Teshiklar» — drill-hole markers, toggled on/off
+  kromkaGroup: THREE.Group | null; // Step 8.2 — coloured banded-edge lines, shown in Frame view
   raf: number;
   labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
   aabb: THREE.Box3 | null;
@@ -143,6 +145,22 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const selectHole = useKarkas((s) => s.selectHole);
   const setHoleOverride = useKarkas((s) => s.setHoleOverride);
   const clearHoleOverride = useKarkas((s) => s.clearHoleOverride);
+  // Step 8 — progressive-zoom dimension labels: each leaf section's height (level 1) + width (level 2),
+  // in world coords (same centering as the boards). Overall W/H/D stays the 3 fixed DOM labels (level 0).
+  const dimLabels = useMemo(() => {
+    const out: { text: string; wx: number; wy: number; wz: number; level: 1 | 2 }[] = [];
+    const b = model.blocks[0];
+    if (!b) return out;
+    const bd = layoutBounds(solveLayout(model, planThickness(plan)));
+    const WX = (v: number) => (v - bd.cx) / 10000, WY = (v: number) => (v - bd.minY) / 10000, WZ = (v: number) => (v - bd.cz) / 10000;
+    for (const z of b.zones) for (const s of leafSections(z.root)) {
+      const zf = s.box.z + s.box.d; // front face
+      out.push({ text: `${Math.round(s.box.h / 10)}`, wx: WX(s.box.x), wy: WY(s.box.y + s.box.h / 2), wz: WZ(zf), level: 1 });
+      out.push({ text: `${Math.round(s.box.w / 10)}`, wx: WX(s.box.x + s.box.w / 2), wy: WY(s.box.y), wz: WZ(zf), level: 2 });
+    }
+    return out;
+  }, [model, plan]);
+  const [dimScreen, setDimScreen] = useState<{ text: string; x: number; y: number; vis: boolean }[]>([]);
   const setTarget = useKarkas((s) => s.setTarget);
   const activeTarget = targetId && sections.some((x) => x.id === targetId) ? targetId : sections[0]?.id;
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
@@ -204,10 +222,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [renderMode, setRenderMode] = useState<RenderMode>("realistic");
   const modeRef = useRef(renderMode);
   modeRef.current = renderMode;
+  // Step 8 — No-facade view: fully hide the fronts (separate from «Ichini ko'rish» fade).
+  const [noFacade, setNoFacade] = useState(false);
+  const noFacadeRef = useRef(noFacade);
+  noFacadeRef.current = noFacade;
   // apply the current Visual Style + fade state to a group (fade is moot in wireframe — faces vanish)
   const applyVisuals = (group: THREE.Group): void => {
     applyRenderMode(group, modeRef.current);
     if (modeRef.current !== "wireframe") fadeFacades(group, insideRef.current);
+    hideFacades(group, noFacadeRef.current); // Step 8 — No-facade wins over fade (fully hidden)
   };
   // «Teshiklar» — show/hide the drilling markers (Ø5 pins, Ø35 cups) on the 3D block, like imos.
   const [showHoles, setShowHoles] = useState(false);
@@ -376,7 +399,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       return d;
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, holeGroup: null, raf: 0, labels, aabb: null, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, holeGroup: null, kromkaGroup: null, raf: 0, labels, aabb: null, framedKey: "" };
 
     const raycaster = new THREE.Raycaster();
     const ndc = (e: PointerEvent) => {
@@ -501,6 +524,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       controls.dispose();
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
       if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
+      if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
       labels.w.remove(); labels.h.remove(); labels.d.remove();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
@@ -518,6 +542,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     applyVisuals(group);
     r.scene.add(group);
     r.group = group;
+    // Step 8.2 — rebuild the coloured kromka edge lines (shown only in Frame view)
+    if (r.kromkaGroup) { r.scene.remove(r.kromkaGroup); disposeStructureGroup(r.kromkaGroup); }
+    const kg = buildKromkaEdges(scene, (kId) => hexToInt(edgeVarById(kId)?.hex ?? "#8a6d1f"));
+    kg.visible = modeRef.current === "wireframe";
+    r.scene.add(kg);
+    r.kromkaGroup = kg;
     highlightBoard(group, selectedId);
     // C5 — refresh the dimension overlay: bounding box + W/H/D text (mm)
     r.aabb = new THREE.Box3().setFromObject(group);
@@ -582,6 +612,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     return () => r.controls.removeEventListener("change", compute);
   }, [showKromka, selectedId, scene, selFeatures]);
 
+  // ── Step 8: progressive-zoom dimensions — in Frame (wireframe) view, show more section dimensions the
+  //    closer the camera gets (level 0 far → overall only; 1 mid → heights; 2 near → + widths). ──
+  useEffect(() => {
+    const r = rt.current;
+    if (!r || renderMode !== "wireframe") { setDimScreen([]); return; }
+    const v = new THREE.Vector3();
+    const compute = () => {
+      const dist = r.camera.position.distanceTo(r.controls.target);
+      const radius = Math.max(scene.radius, 0.3);
+      const level = dist < radius * 1.5 ? 2 : dist < radius * 2.6 ? 1 : 0;
+      const w = r.renderer.domElement.clientWidth || 1, h = r.renderer.domElement.clientHeight || 1;
+      setDimScreen(dimLabels.filter((d) => d.level <= level).map((d) => {
+        v.set(d.wx, d.wy, d.wz).project(r.camera);
+        return { text: d.text, x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, vis: v.z < 1 };
+      }));
+    };
+    compute();
+    r.controls.addEventListener("change", compute);
+    return () => r.controls.removeEventListener("change", compute);
+  }, [dimLabels, renderMode, scene]);
+
   // ── Step 5: Materials view (v4 §143) — ON makes every board translucent + tinted by material, and the
   //    chosen filter isolates one; OFF restores the edge outlines (the view dims them) + normal visuals. ──
   useEffect(() => {
@@ -616,11 +667,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   useEffect(() => {
     if (rt.current?.group) {
       applyVisuals(rt.current.group);
+      if (rt.current.kromkaGroup) rt.current.kromkaGroup.visible = renderMode === "wireframe"; // Frame-only edges
       highlightBoard(rt.current.group, selectedId);
       rt.current.renderer.render(rt.current.scene, rt.current.camera);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [insideView, renderMode]);
+  }, [insideView, renderMode, noFacade]);
 
   const dims = sceneDimsMm(scene);
   return (
@@ -822,11 +874,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         {/* #7 — imos Visual Styles: a proper dropdown (matches the ＋Polka / ＋Eshik menus) */}
         <div style={{ ...popWrap, marginLeft: "auto" }}>
           <button style={{ ...act, ...(menu === "mode" ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : { borderColor: "#7aa0b8", color: "#1f5570" }) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "mode" ? null : "mode"); }} type="button" title="Ko'rinish rejimi">
-            🎨 {renderMode === "realistic" ? "Realistik" : renderMode === "wireframe" ? "Simli" : "Soya"} ▾
+            🎨 {renderMode === "realistic" ? "Realistik" : renderMode === "wireframe" ? "Karkas" : renderMode === "xray" ? "Rentgen" : "Soya"} ▾
           </button>
           {menu === "mode" && (
             <div style={popover}>
-              {([["realistic", "Realistik", "To'liq, rangli"], ["wireframe", "Simli", "Faqat qirralar"], ["shaded", "Soya", "Bir xil kulrang"]] as const).map(([m, label, sub]) => (
+              {([["realistic", "Realistik", "To'liq, rangli"], ["wireframe", "Karkas", "Frame — zoomда o'lcham"], ["xray", "Rentgen", "Yarim-shaffof"], ["shaded", "Soya", "Bir xil kulrang"]] as const).map(([m, label, sub]) => (
                 <button key={m} style={{ ...popItem, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, minWidth: 168, ...(renderMode === m ? { background: "#dce9f0", color: "#1f5570", fontWeight: 700 } : {}) }} onClick={() => { setRenderMode(m); setMenu(null); }} type="button">
                   <span>{renderMode === m ? "✓ " : ""}{label}</span>
                   <span style={{ fontSize: 11, color: "#8a8577", fontWeight: 400 }}>{sub}</span>
@@ -838,6 +890,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         {/* Step 5 — materials view: list the decors in use; click one to isolate it in 3D */}
         <button style={{ ...act, ...(showMaterials ? { borderColor: "#8a6d1f", background: "#f7efd8", color: "#8a6d1f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowMaterials((v) => !v)} type="button">▦ {matFilter ? "Material ✓" : "Materiallar"}</button>
         <button style={{ ...act, ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
+        {/* Step 8 — No-facade: hide the fronts entirely (not just fade) */}
+        <button style={{ ...act, ...(noFacade ? { borderColor: "#a2571f", background: "#f2e0cd", color: "#7a3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setNoFacade((v) => !v)} type="button" title="Fasadsiz ko'rinish">▢ {noFacade ? "Fasadsiz ✓" : "Fasadsiz"}</button>
         <button style={{ ...act, ...(showHoles ? { borderColor: "#1f6f86", background: "#dcecf2", color: "#13485a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowHoles((v) => !v)} type="button" title="Teshiklarni ko'rsatish (shtok, petlya)">🕳 {showHoles ? "Teshik ✓" : "Teshiklar"}</button>
         {/* Step 7 — Birikma (joints) mode: the JointProfile editor; turning it on shows the drilled holes */}
         <button style={{ ...act, ...(showJoints ? { borderColor: "#8a5a1f", background: "#f2e3cd", color: "#6b3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowJoints((v) => { const nv = !v; if (nv) setShowHoles(true); return nv; })} type="button" title="Birikma profili (System-32 teshiklar)">⚙ Birikma</button>
@@ -1017,6 +1071,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         ) : null))}
         {/* Step 6 (fixture 06-kromka-mode) — kromka balls on the selected panel's 4 edges; tap to paint
             with the active K-pill (or strip it if the active pill is «Yo'q»). Coloured by each edge's K. */}
+        {/* Step 8 — progressive-zoom dimension labels (Frame view): denser as you zoom in */}
+        {renderMode === "wireframe" && dimScreen.map((d, i) => (d.vis ? (
+          <div key={i} style={{ position: "absolute", left: d.x, top: d.y, transform: "translate(-50%,-50%)", zIndex: 41, background: "rgba(31,85,112,0.9)", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 4px", borderRadius: 4, pointerEvents: "none", fontFamily: "ui-monospace, monospace", whiteSpace: "nowrap" }}>{d.text}</div>
+        ) : null))}
         {showKromka && edgeBalls.map((b) => (b.vis ? (
           <button
             key={b.i}
