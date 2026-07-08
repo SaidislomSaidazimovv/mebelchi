@@ -23,6 +23,8 @@ export interface Board {
   corners?: readonly [number, number, number, number];
   /** Step 4b — rectangular apertures (mm10, part-local) punched through the panel's largest face. */
   cutouts?: PanelFeatures["cutouts"];
+  /** Step 8.2 — per-edge kromka K-variable ids [front,back,side,side] for colouring edges in Frame view. */
+  kromka?: PanelFeatures["kromka"];
 }
 
 export interface Scene {
@@ -75,6 +77,7 @@ export function boxesToScene(boxes: RawBox[], features?: Readonly<Record<string,
       ...(b.rot ? { rotX: (b.rot * Math.PI) / 180 } : {}),
       ...(f?.corners && f.corners.some((r) => r > 0) ? { corners: f.corners } : {}),
       ...(f?.cutouts && f.cutouts.length > 0 ? { cutouts: f.cutouts } : {}),
+      ...(f?.kromka && f.kromka.some((k) => k) ? { kromka: f.kromka } : {}),
     };
   });
   const w = M(maxX - minX), h = M(maxY - minY), d = M(maxZ - minZ);
