@@ -830,21 +830,33 @@ export function ConfigScreen() {
                       {myLibrary.length === 0 && projectBlocks.length === 0 ? (
                         <div className="add-sub" style={{ padding: "8px 4px" }}>{t.config.myBlocksEmpty}</div>
                       ) : (
-                        <div className="add-grid">
-                      {myLibrary.map((item) => (
-                        <button key={item.id} className="add-chip" style={{ position: "relative" }} onClick={() => openLibraryItem(item)} type="button">
-                          <span
-                            role="button"
-                            aria-label={t.config.del}
-                            onClick={(e) => { e.stopPropagation(); removeLibraryItem(item.id); }}
-                            style={{ position: "absolute", top: 2, right: 6, fontSize: 13, lineHeight: 1, color: "var(--muted)", padding: 2 }}
-                          >✕</span>
-                          <span className="add-glyph" aria-hidden="true">{item.glyph}</span>
-                          <span className="add-name">{item.name}</span>
-                          <span className="add-sub">{item.karkasJson ? "Karkas" : t.config.myBlock}</span>
-                        </button>
-                      ))}
-                        </div>
+                        /* Step 10 — group the library by its computed auto-category (organises itself) */
+                        Object.entries(
+                          myLibrary.reduce<Record<string, typeof myLibrary>>((acc, it) => {
+                            const cat = it.category ?? (it.karkasJson ? "Karkas" : t.config.myBlock);
+                            (acc[cat] ??= []).push(it);
+                            return acc;
+                          }, {}),
+                        ).map(([cat, items]) => (
+                          <div key={cat} style={{ width: "100%" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", margin: "8px 2px 3px", textTransform: "uppercase", letterSpacing: 0.4 }}>{cat} · {items.length}</div>
+                            <div className="add-grid">
+                              {items.map((item) => (
+                                <button key={item.id} className="add-chip" style={{ position: "relative" }} onClick={() => openLibraryItem(item)} type="button">
+                                  <span
+                                    role="button"
+                                    aria-label={t.config.del}
+                                    onClick={(e) => { e.stopPropagation(); removeLibraryItem(item.id); }}
+                                    style={{ position: "absolute", top: 2, right: 6, fontSize: 13, lineHeight: 1, color: "var(--muted)", padding: 2 }}
+                                  >✕</span>
+                                  <span className="add-glyph" aria-hidden="true">{item.glyph}</span>
+                                  <span className="add-name">{item.name}</span>
+                                  <span className="add-sub">{cat}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))
                       )}
                     </>
                   )}
