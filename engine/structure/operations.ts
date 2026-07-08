@@ -41,6 +41,7 @@ import type {
   Scope,
   Section,
   SectionId,
+  SectionPurpose,
   StructuralModel,
   Zone,
 } from "../contracts/structure.js";
@@ -1066,6 +1067,39 @@ function resolveBlockAxis(block: Block, axis: Axis, newExtent: mm10): Block {
  * each zone's subtree so a divided zone's contents follow. No-op (same ref) if the section isn't divided
  * or `zoneIndex` is out of range.
  */
+/** Step 9 — tag a leaf space with its purpose (storage / hanging / boiler / …) so Application view shows
+ *  the right ghost contents. No-op (same ref) if the section is missing or already tagged that way. */
+export function setSectionPurpose(model: StructuralModel, sectionId: SectionId, purpose: SectionPurpose | null): StructuralModel {
+  const located = findSection(model, sectionId);
+  if (!located) return model;
+  const { block, section } = located;
+  if (section.purpose === purpose) return model;
+  const updated: Section = { ...section, purpose };
+  const zones = block.zones.map((z) => ({ ...z, root: replaceSection(z.root, sectionId, updated) }));
+  return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? { ...b, zones } : b)) };
+}
+
+/** A boiler space that fails its minimum clearance (Step 9, Gate 9). */
+export interface BoilerClearance {
+  readonly sectionId: SectionId;
+  readonly need: { readonly w: mm10; readonly h: mm10; readonly d: mm10 };
+  readonly have: { readonly w: mm10; readonly h: mm10; readonly d: mm10 };
+}
+/** A typical wall boiler + service clearance (mm10): 500 × 800 × 300 mm. */
+export const BOILER_MIN = { w: 5000, h: 8000, d: 3000 } as const;
+/** Step 9 — every "boiler"-tagged space that is smaller than the boiler needs (drives the amber warning). */
+export function checkBoilerClearance(model: StructuralModel): BoilerClearance[] {
+  const out: BoilerClearance[] = [];
+  for (const b of model.blocks)
+    forEachSection(b, (s) => {
+      if (s.purpose !== "boiler") return;
+      if (s.box.w < BOILER_MIN.w || s.box.h < BOILER_MIN.h || s.box.d < BOILER_MIN.d) {
+        out.push({ sectionId: s.id, need: BOILER_MIN, have: { w: s.box.w, h: s.box.h, d: s.box.d } });
+      }
+    });
+  return out;
+}
+
 export function setZoneRule(
   model: StructuralModel,
   parentSectionId: SectionId,

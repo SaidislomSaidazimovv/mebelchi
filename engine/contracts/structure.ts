@@ -100,7 +100,8 @@ export type SectionPurpose =
   | "appliance"
   | "drawer"
   | "display"
-  | "structural";
+  | "structural"
+  | "boiler"; // Step 9 — a wall boiler hidden in a cabinet (attaches min-clearance, §9)
 
 /** Composition kind of a `Row` above the carcasses. */
 export type RowKind = "base" | "upper" | "tall";
