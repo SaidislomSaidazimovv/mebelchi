@@ -46,6 +46,18 @@ interface RT {
   framedKey: string; // F3 — last camera-framing signature; lives on rt so a remount reframes fresh
 }
 
+/** Responsive breakpoint: `compact` covers phones + tablets in portrait (< 900px) — they get the swipe
+ *  toolbar, full-screen panels and bigger tap targets; wider screens keep the full desktop layout. */
+function useViewport(): { w: number; compact: boolean } {
+  const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return { w, compact: w < 900 };
+}
+
 export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rt = useRef<RT | null>(null);
@@ -58,6 +70,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const divide = useKarkas((s) => s.divide);
   const undo = useKarkas((s) => s.undo);
   const canUndo = useKarkas((s) => s.past.length > 0);
+  const redo = useKarkas((s) => s.redo);
+  const canRedo = useKarkas((s) => s.future.length > 0);
   const model = useKarkas((s) => s.model);
   const plan = useKarkas((s) => s.plan);
   const parts = useKarkas((s) => s.parts);
@@ -137,7 +151,23 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const jointProfileFn = useKarkas((s) => s.jointProfile);
   const joint = useMemo(() => jointProfileFn(), [jointProfileFn, model]);
   const setJointProfile = useKarkas((s) => s.setJointProfile);
-  const [showJoints, setShowJoints] = useState(false);
+  // Only ONE tool/panel is open at a time (mobile fix): a single active-panel state, toggled per button,
+  // replaces the old independent booleans so panels never stack/overlap.
+  const { compact } = useViewport();
+  // On compact screens a floating panel becomes a near-full-screen sheet (never overlaps the 3D / another
+  // panel); a big ✕ closes it. Spread AFTER the panel's desktop style to override its corner + width.
+  const compactSheet: CSSProperties = compact ? { left: 8, right: 8, top: 8, bottom: 8, width: "auto", maxWidth: "none", maxHeight: "calc(100% - 16px)", overflowY: "auto" } : {};
+  const [activePanel, setActivePanel] = useState<null | "divide" | "corners" | "cutout" | "kromka" | "materials" | "app" | "joints" | "tree" | "spec">(null);
+  const togglePanel = (p: NonNullable<typeof activePanel>) => setActivePanel((cur) => (cur === p ? null : p));
+  const showDivide = activePanel === "divide";
+  const showCorners = activePanel === "corners";
+  const showCutout = activePanel === "cutout";
+  const showKromka = activePanel === "kromka";
+  const showMaterials = activePanel === "materials";
+  const appView = activePanel === "app";
+  const showJoints = activePanel === "joints";
+  const showTree = activePanel === "tree";
+  const showSpec = activePanel === "spec";
   const jointFindingsFn = useKarkas((s) => s.jointFindings);
   const jointFinds = useMemo(() => (showJoints ? jointFindingsFn() : []), [jointFindingsFn, model, showJoints]);
   const exportOverride = useKarkas((s) => s.exportOverride);
@@ -162,8 +192,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     return out;
   }, [model, plan]);
   const [dimScreen, setDimScreen] = useState<{ text: string; x: number; y: number; vis: boolean }[]>([]);
-  // Step 9 — Application view: tag spaces + show ghost contents (esp. the wall boiler).
-  const [appView, setAppView] = useState(false);
+  // Step 9 — Application view: tag spaces + show ghost contents (esp. the wall boiler). (appView derived above)
   const activePurposeFn = useKarkas((s) => s.activePurpose);
   const activePurpose = useMemo(() => activePurposeFn(), [activePurposeFn, model, targetId]);
   const setPurpose = useKarkas((s) => s.setPurpose);
@@ -196,16 +225,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const resize = useKarkas((s) => s.resize);
   const divideBy = useKarkas((s) => s.divideBy);
   const addShelves = useKarkas((s) => s.addShelves);
-  const [showDivide, setShowDivide] = useState(false);
-  const [showCorners, setShowCorners] = useState(false);
   const [chainCorners, setChainCorners] = useState(true);
-  const [showCutout, setShowCutout] = useState(false);
-  const [showKromka, setShowKromka] = useState(false); // Step 6 — kromka paint mode
   const [activeKromka, setActiveKromka] = useState<string | null>(EDGES[0]?.id ?? null); // the K-pill in hand
   const [edgeBalls, setEdgeBalls] = useState<{ i: number; x: number; y: number; k: string | null; vis: boolean }[]>([]);
   const [units, setUnits] = useState<"mm" | "cm">("mm"); // Step 4b — length-field display unit (mm ⇄ cm)
   const [chips, setChips] = useState<{ i: number; x: number; y: number; r: number; vis: boolean }[]>([]); // 3D corner chips
-  const [showMaterials, setShowMaterials] = useState(false); // Step 5 — materials view panel
   const [matFilter, setMatFilter] = useState<string | null>(null); // isolated material id, or null
   const projMaterials = useMemo(() => projectMaterials(parts, plan), [parts, plan]);
   const matLookup = useMemo(() => materialIdLookup(parts, plan), [parts, plan]);
@@ -229,8 +253,6 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const updateProjectBlock = useStore((s) => s.updateProjectBlock);
   const editingBlockId = useKarkas((s) => s.editingBlockId);
   const fromCabinet = useKarkas((s) => s.fromCabinet);
-  const [showSpec, setShowSpec] = useState(false);
-  const [showTree, setShowTree] = useState(false);
   // «Ichini ko'rish» — fade the fronts so the interior shows. Default ON in the editor (like imos's
   // always-transparent Article Designer) so you always see the structure you're building.
   const [insideView, setInsideView] = useState(true);
@@ -271,7 +293,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     }
   };
   // compact toolbar: which dropdown (add-variants / overflow) is open
-  const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel">(null);
+  const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel" | "tools">(null);
   // Step 3.2 (v4 §5) — the two permanent selection modes: ◇ Part-select (edit) / ▢ Space-select (add).
   const [selMode, setSelMode] = useState<"part" | "space">("part");
   useEffect(() => {
@@ -312,7 +334,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const finds = useKarkas.getState().jointFindings();
     if (finds.length > 0 && !useKarkas.getState().exportOverride) {
       alert(`Eksport to'xtatildi — ${finds.length} ta birikma qoidasi buzilgan:\n• ${finds.slice(0, 4).map((f) => f.message_ru).join("\n• ")}${finds.length > 4 ? `\n• …+${finds.length - 4}` : ""}\n\n«⚙ Birikma» panelida «Usta override»ni belgilang yoki teshiklarni to'g'rilang.`);
-      setShowJoints(true);
+      setActivePanel("joints");
       return;
     }
     try {
@@ -747,7 +769,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     { label: "🔒 Blok", on: false },
                     { label: "✎ Nomini o'zgartirish", on: false },
                     { label: "🌲 Ierarxiya", on: false },
-                    { label: "💾 Kutubxonaga saqlash", on: false },
+                    { label: "💾 Kutubxonaga saqlash", fn: () => { saveToBiblioteka(); setMenu(null); }, on: true },
                     { label: "✂ Ajratish (ungroup)", on: false },
                     { label: "↻ Aylantirish", on: false },
                   ].map((it) => (
@@ -780,7 +802,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* Step 3.3a (v4 §5 readout law) — the selection's dimensions in a FIXED top-centre strip, never
           hidden by the hand. Updates live during a drag/resize (later pieces). 2 axes only (face w×h). */}
       {selectedId && selPart && (
-        <div style={{ position: "fixed", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 60, background: "rgba(31,85,112,0.94)", color: "#fff", borderRadius: 9, padding: "5px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 2px 10px rgba(0,0,0,0.22)", display: "flex", gap: 11, alignItems: "center", pointerEvents: precise ? "auto" : "none", whiteSpace: "nowrap" }}>
+        <div style={{ position: "fixed", ...(compact ? { bottom: 14 } : { top: 8 }), left: "50%", transform: "translateX(-50%)", zIndex: 60, background: "rgba(31,85,112,0.94)", color: "#fff", borderRadius: 9, padding: "5px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 2px 10px rgba(0,0,0,0.22)", display: "flex", gap: 11, alignItems: "center", pointerEvents: precise ? "auto" : "none", whiteSpace: "nowrap", maxWidth: "94vw", overflowX: "auto" }}>
           <span>{selComp?.name ?? "Bo'lak"}</span>
           <span style={{ opacity: 0.5 }}>│</span>
           <span style={{ fontFamily: "monospace" }}>{Math.round(selPart.length_mm10 / 10)} × {Math.round(selPart.width_mm10 / 10)} mm</span>
@@ -871,7 +893,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             style={{ padding: "5px 9px", borderRadius: 9, cursor: "pointer", border: activeKromka === null ? "2px solid #1f5570" : "1px solid #ddd", background: activeKromka === null ? "#eaf2f6" : "#fff", fontSize: 12, fontWeight: 600 }}>✕ Yo'q</button>
         </div>
       )}
-      {/* Phase 4 — edit toolbar: engine operations on the target section (selected panel's, else first leaf) */}
+      {/* Phase 4 — edit toolbar. It stays WRAP (never overflow-clip, else the ＋Polka/＋Eshik/🎨 popovers get
+          cut off); on compact the «⋯ Ko'proq» menu removes the 10 secondary tools so it stays short. */}
       <div style={editbar}>
         {/* Step 3.2 (v4 §5) — the two permanent selection modes; Space-select reveals the add toolset. */}
         <div style={{ display: "flex", gap: 2, background: "#eef0f3", borderRadius: 8, padding: 2, marginRight: 4 }}>
@@ -901,21 +924,22 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </div>
         <button style={act} onClick={() => add("drawer")} type="button">＋ Yashik</button>
         <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
-        <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowDivide((v) => !v)} type="button">⊟ Bo'lish…</button>
+        <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => togglePanel("divide")} type="button">⊟ Bo'lish…</button>
         {/* Step 4b — corner rounding on the selected panel (not a divider) */}
         {selectedId && !selectedId.includes("__div_") && (
-          <button style={{ ...act, ...(showCorners ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowCorners((v) => !v)} type="button">⌜ Burchak…</button>
+          <button style={{ ...act, ...(showCorners ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => togglePanel("corners")} type="button">⌜ Burchak…</button>
         )}
         {selectedId && !selectedId.includes("__div_") && (
-          <button style={{ ...act, ...(showCutout ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowCutout((v) => !v)} type="button">▢ O'yiq…</button>
+          <button style={{ ...act, ...(showCutout ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => togglePanel("cutout")} type="button">▢ O'yiq…</button>
         )}
         {selectedId && !selectedId.includes("__div_") && (
-          <button style={{ ...act, ...(showKromka ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => setShowKromka((v) => !v)} type="button">▤ Jiyak…</button>
+          <button style={{ ...act, ...(showKromka ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => togglePanel("kromka")} type="button">▤ Jiyak…</button>
         )}
         </>)}
         <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
+        <button style={{ ...act, opacity: canRedo ? 1 : 0.4 }} onClick={() => redo()} disabled={!canRedo} type="button" title="Oldinga (redo)">↻ Oldinga</button>
         {/* #7 — imos Visual Styles: a proper dropdown (matches the ＋Polka / ＋Eshik menus) */}
-        <div style={{ ...popWrap, marginLeft: "auto" }}>
+        <div style={{ ...popWrap, ...(compact ? {} : { marginLeft: "auto" }) }}>
           <button style={{ ...act, ...(menu === "mode" ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : { borderColor: "#7aa0b8", color: "#1f5570" }) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "mode" ? null : "mode"); }} type="button" title="Ko'rinish rejimi">
             🎨 {renderMode === "realistic" ? "Realistik" : renderMode === "wireframe" ? "Karkas" : renderMode === "xray" ? "Rentgen" : "Soya"} ▾
           </button>
@@ -930,20 +954,26 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             </div>
           )}
         </div>
+        {/* Compact toolbar (mobile/tablet): the view/action cluster collapses into a «⋯ Ko'proq» dropdown */}
+        {compact && (
+          <button style={{ ...act, ...(menu === "tools" ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : {}) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "tools" ? null : "tools"); }} type="button">⋯ Ko'proq</button>
+        )}
+        <div style={!compact ? { display: "contents" } : (menu === "tools" ? { position: "fixed", right: 8, top: 108, zIndex: 70, display: "flex", flexDirection: "column", gap: 6, background: "#fff", borderRadius: 12, boxShadow: "0 8px 28px rgba(0,0,0,0.22)", padding: 10, maxHeight: "72vh", overflowY: "auto", minWidth: 196 } : { display: "none" })}>
         {/* Step 5 — materials view: list the decors in use; click one to isolate it in 3D */}
-        <button style={{ ...act, ...(showMaterials ? { borderColor: "#8a6d1f", background: "#f7efd8", color: "#8a6d1f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowMaterials((v) => !v)} type="button">▦ {matFilter ? "Material ✓" : "Materiallar"}</button>
+        <button style={{ ...act, ...(showMaterials ? { borderColor: "#8a6d1f", background: "#f7efd8", color: "#8a6d1f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => togglePanel("materials")} type="button">▦ {matFilter ? "Material ✓" : "Materiallar"}</button>
         <button style={{ ...act, ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
         {/* Step 8 — No-facade: hide the fronts entirely (not just fade) */}
         <button style={{ ...act, ...(noFacade ? { borderColor: "#a2571f", background: "#f2e0cd", color: "#7a3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setNoFacade((v) => !v)} type="button" title="Fasadsiz ko'rinish">▢ {noFacade ? "Fasadsiz ✓" : "Fasadsiz"}</button>
         {/* Step 9 — Application view: show what goes inside (boiler / clothes / dishes) */}
-        <button style={{ ...act, ...(appView ? { borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setAppView((v) => !v)} type="button" title="Ichidagini ko'rsatish (kotyol, kiyim…)">🛋 {appView ? "Ichida ✓" : "Ichida nima"}</button>
+        <button style={{ ...act, ...(appView ? { borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => togglePanel("app")} type="button" title="Ichidagini ko'rsatish (kotyol, kiyim…)">🛋 {appView ? "Ichida ✓" : "Ichida nima"}</button>
         <button style={{ ...act, ...(showHoles ? { borderColor: "#1f6f86", background: "#dcecf2", color: "#13485a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowHoles((v) => !v)} type="button" title="Teshiklarni ko'rsatish (shtok, petlya)">🕳 {showHoles ? "Teshik ✓" : "Teshiklar"}</button>
         {/* Step 7 — Birikma (joints) mode: the JointProfile editor; turning it on shows the drilled holes */}
-        <button style={{ ...act, ...(showJoints ? { borderColor: "#8a5a1f", background: "#f2e3cd", color: "#6b3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowJoints((v) => { const nv = !v; if (nv) setShowHoles(true); return nv; })} type="button" title="Birikma profili (System-32 teshiklar)">⚙ Birikma</button>
-        <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => setShowTree((v) => !v)} type="button">☰ Detallar</button>
-        <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => setShowSpec((v) => !v)} type="button">📋 Spec</button>
+        <button style={{ ...act, ...(showJoints ? { borderColor: "#8a5a1f", background: "#f2e3cd", color: "#6b3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => { if (activePanel !== "joints") setShowHoles(true); togglePanel("joints"); }} type="button" title="Birikma profili (System-32 teshiklar)">⚙ Birikma</button>
+        <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => togglePanel("tree")} type="button">☰ Detallar</button>
+        <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => togglePanel("spec")} type="button">📋 Spec</button>
         <button style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a" }} onClick={printDrawing} type="button">📐 Chizma</button>
         <button style={{ ...act, borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a" }} onClick={exportCnc} type="button">⬇ CNC</button>
+        </div>
       </div>
       {/* Placement (#1) — choose which compartment the next add lands in; tapping a part also sets it */}
       {sections.length > 1 && (
@@ -1131,10 +1161,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         ) : null))}
         {/* Step 5 — materials legend + isolate filter (v4 §3, "see everything by material") */}
         {showMaterials && (
-          <div style={{ position: "absolute", left: 10, top: 10, zIndex: 44, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 10, minWidth: 210, maxHeight: "70%", overflow: "auto" }}>
+          <div style={{ position: "absolute", left: 10, top: 10, zIndex: 44, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 10, minWidth: 210, maxHeight: "70%", overflow: "auto", ...compactSheet }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <b style={{ fontSize: 13 }}>Materiallar</b>
-              <button onClick={() => setShowMaterials(false)} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "#888", lineHeight: 1 }} type="button">✕</button>
+              <button onClick={() => setActivePanel(null)} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }} type="button">✕</button>
             </div>
             <button onClick={() => setMatFilter(null)} type="button" style={{ ...matLegendRow, ...(matFilter === null ? matLegendActive : {}) }}>
               <span style={{ ...matLegendSwatch, background: "linear-gradient(90deg,#f4f2ec,#c9a877,#4b3a2f)" }} />
@@ -1153,10 +1183,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         )}
         {/* Step 7a — the Joint profile editor (System-32 grid + cam). Editing a value re-drills live. */}
         {showJoints && (
-          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 44, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 250 }}>
+          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 44, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 250, ...compactSheet }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <b style={{ fontSize: 13 }}>⚙ Birikma profili</b>
-              <button onClick={() => setShowJoints(false)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "#888", lineHeight: 1 }}>✕</button>
+              <button onClick={() => setActivePanel(null)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }}>✕</button>
             </div>
             <p style={{ fontSize: 11, color: "#777", margin: "0 0 6px", lineHeight: 1.35 }}>System-32 to'r (mm). Namunа panelda jonli ko'rinadi — <b>setback/qadam</b> shtok qatorlarini suradi.</p>
             <JointDiagram profile={joint} />
@@ -1192,10 +1222,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         )}
         {/* Step 7c — the selected drill hole: move it on the panel face (persists as an override) or reset */}
         {selectedHole && (
-          <div style={{ position: "absolute", left: 10, bottom: 10, zIndex: 45, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 214 }}>
+          <div style={{ position: "absolute", left: 10, bottom: 10, zIndex: 45, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 214, ...compactSheet }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <b style={{ fontSize: 13 }}>🕳 Teshik — ko'chirish</b>
-              <button onClick={() => selectHole(null)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "#888", lineHeight: 1 }}>✕</button>
+              <button onClick={() => selectHole(null)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }}>✕</button>
             </div>
             <p style={{ fontSize: 10.5, color: "#888", margin: "0 0 8px" }}>Panel yuzasidagi joyi (mm). O'zgartirsangiz — usta override bo'ladi.</p>
             <div style={{ display: "flex", gap: 8 }}>
@@ -1207,10 +1237,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         )}
         {/* Step 9 — Application view: tag the active space's purpose + boiler-clearance warning */}
         {appView && (
-          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 45, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 220 }}>
+          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 45, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 220, ...compactSheet }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <b style={{ fontSize: 13 }}>🛋 Bo'shliq maqsadi</b>
-              <button onClick={() => setAppView(false)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "#888", lineHeight: 1 }}>✕</button>
+              <button onClick={() => setActivePanel(null)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }}>✕</button>
             </div>
             <p style={{ fontSize: 10.5, color: "#888", margin: "0 0 8px" }}>Bo'shliqni bosib tanlang, keyin maqsad bering — ichida ne borligi ko'rinadi.</p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -1224,8 +1254,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             )}
           </div>
         )}
-        {showTree && <TreePanel onClose={() => setShowTree(false)} />}
-        {showSpec && <SpecPanel onClose={() => setShowSpec(false)} />}
+        {showTree && <TreePanel onClose={() => setActivePanel(null)} />}
+        {showSpec && <SpecPanel onClose={() => setActivePanel(null)} />}
       </div>
     </div>
   );
@@ -1383,13 +1413,14 @@ function ZonePill({ zone, onValue, onCycle }: { zone: ZoneRow["zones"][number]; 
 /** Left «Detallar» drawer (C1) — every solved part listed; click a row to select it (syncs both
  *  ways with the 3D highlight), like imos's Article-Designer component tree. */
 function TreePanel({ onClose }: { onClose: () => void }) {
+  const { compact } = useViewport();
   const parts = useKarkas((s) => s.parts);
   const plan = useKarkas((s) => s.plan);
   const selectedId = useKarkas((s) => s.selectedId);
   const tapPart = useKarkas((s) => s.tapPart);
   const rows = estimate(parts, plan).parts;
   return (
-    <div style={treePanel}>
+    <div style={compact ? { ...treePanel, right: 0, width: "auto", zIndex: 46 } : treePanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Detallar ({rows.length})</b>
         <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
@@ -1428,10 +1459,14 @@ function MatSelect({ label, slot }: { label: string; slot: keyof Omit<MaterialPl
 
 /** Right-hand «Спецификация» drawer — material picker + cut list + material-plan price totals. */
 function SpecPanel({ onClose }: { onClose: () => void }) {
+  const { compact } = useViewport();
   const parts = useKarkas((s) => s.parts);
   const plan = useKarkas((s) => s.plan);
   const model = useKarkas((s) => s.model);
   const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
+  const lockedQuote = useKarkas((s) => s.lockedQuote);
+  const lockQuote = useKarkas((s) => s.lockQuote);
+  const unlockQuote = useKarkas((s) => s.unlockQuote);
   const money = useMoney();
   const e = estimate(parts, plan);
   const hw = hardwareEstimate(model);
@@ -1454,7 +1489,7 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
   }, [parts, model.features]);
   const kromkaVars = Object.entries(kromkaByVar).filter(([, mm10]) => mm10 > 0);
   return (
-    <div style={specPanel}>
+    <div style={compact ? { ...specPanel, left: 0, width: "auto", zIndex: 46 } : specPanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Спецификация</b>
         <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
@@ -1505,6 +1540,21 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
         <span>Итого</span>
         <span>{money(total)}</span>
       </div>
+      {/* Step 11 — client sign-off: lock the approved quote (snapshot); flag drift if the price changed */}
+      <div style={{ margin: "0 14px 8px" }}>
+        {!lockedQuote ? (
+          <button type="button" onClick={() => lockQuote(total)} style={{ width: "100%", padding: "9px", borderRadius: 8, border: "none", background: "#00a961", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>✓ Tasdiqlash — narxni qulflash</button>
+        ) : (
+          <div style={{ padding: "8px 12px", borderRadius: 8, background: lockedQuote.total === total ? "#e3f3ea" : "#fdf1d6", border: `1px solid ${lockedQuote.total === total ? "#00a961" : "#e5b84b"}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <b style={{ color: lockedQuote.total === total ? "#00532f" : "#8a5a1f" }}>🔒 Tasdiqlangan · {lockedQuote.date}</b>
+              <button type="button" onClick={() => unlockQuote()} style={{ ...pill }}>🔓 Ochish</button>
+            </div>
+            <div style={{ ...mono, marginTop: 4 }}>Qulflangan narx: {money(lockedQuote.total)}</div>
+            {lockedQuote.total !== total && <div style={{ fontSize: 11.5, color: "#8a5a1f", fontWeight: 600, marginTop: 2 }}>⚠ Joriy narx o'zgardi: {money(total)} (farq {money(total - lockedQuote.total)})</div>}
+          </div>
+        )}
+      </div>
       <div style={specList}>
         {e.parts.map((p) => (
           <div key={p.id} style={specRow}>
@@ -1533,7 +1583,7 @@ const mono: CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 1
 const dimField: CSSProperties = { display: "flex", alignItems: "center", gap: 2, border: "1px solid #d8d2c4", borderRadius: 7, padding: "1px 3px", background: "#fff" };
 const dimLabel: CSSProperties = { fontFamily: "system-ui", fontSize: 11, fontWeight: 700, color: "#8a6d1f", width: 12, textAlign: "center" };
 const dimInput: CSSProperties = { width: 44, border: "none", outline: "none", background: "transparent", font: "600 13px ui-monospace, monospace", color: "#18241d", textAlign: "right", padding: "3px 2px" };
-const pill: CSSProperties = { padding: "6px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer" };
+const pill: CSSProperties = { padding: "7px 12px", minHeight: 34, borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer", flex: "0 0 auto", whiteSpace: "nowrap" };
 const editbar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, flexWrap: "wrap" };
 // Step 9 — the purpose tags a client cares about (each id is a SectionPurpose)
 const PURPOSES = [
@@ -1552,8 +1602,8 @@ const popover: CSSProperties = { position: "absolute", top: "calc(100% + 6px)", 
 const popRight: CSSProperties = { ...popover, left: "auto", right: 0 };
 const popItem: CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "none", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer", textAlign: "left", whiteSpace: "nowrap" };
 const popSep: CSSProperties = { height: 1, background: "#eee7d8", margin: "4px 2px" };
-const act: CSSProperties = { padding: "8px 13px", borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer" };
-const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
+const act: CSSProperties = { padding: "9px 13px", minHeight: 40, borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer", flex: "0 0 auto", whiteSpace: "nowrap" };
+const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", overflowX: "auto", overflowY: "hidden" };
 const badge: CSSProperties = { padding: "3px 8px", borderRadius: 999, background: "#e3f3ea", color: "#006b3f", font: "600 11px system-ui" };
 const warnBar: CSSProperties = { margin: "0 14px 10px", padding: "8px 12px", borderRadius: 8, background: "#fdf3e0", border: "1px solid #f0d9a8", color: "#8a5a1f", display: "flex", gap: 10, alignItems: "center", font: "13px system-ui", minWidth: 0 };
 const specPanel: CSSProperties = { position: "absolute", top: 0, right: 0, bottom: 0, width: "min(380px, 92vw)", background: "#fbfaf6", borderLeft: "1px solid #e0dccf", boxShadow: "-8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };

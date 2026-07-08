@@ -150,6 +150,8 @@ interface KarkasState extends Derived {
   targetId: string | null;
   setTarget: (id: string) => void;
   past: StructuralModel[];
+  /** Step 12 (#15) — the redo forward stack; a fresh edit clears it. */
+  future: StructuralModel[];
   /** Which decor each panel role is cut from (drives the spec price). Persists across model edits. */
   plan: MaterialPlan;
   setPlanMaterial: (slot: keyof MaterialPlan, id: string) => void;
@@ -244,9 +246,18 @@ interface KarkasState extends Derived {
   setPurpose: (purpose: SectionPurpose | null) => void;
   /** Boiler-tagged spaces smaller than the boiler's clearance (Gate 9 amber). */
   boilerFindings: () => ReturnType<typeof checkBoilerClearance>;
+  /** Step 11 — the approved-and-locked price snapshot (client sign-off), or null. Persists in the file. */
+  lockedQuote: { total: number; date: string } | null;
+  /** Lock the current total as the approved quote (client demo close). */
+  lockQuote: (total: number) => void;
+  /** Release the locked quote (re-open the price for edits). */
+  unlockQuote: () => void;
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
+  /** Step 12 (#15) — step forward through the redo stack. */
+  redo: () => void;
+  canRedo: () => boolean;
   /** Serialize the current project (model + material plan) to a JSON string (P7 save). */
   exportProject: () => string;
   /**
@@ -267,13 +278,14 @@ interface ProjectFile {
   version: 1;
   model: StructuralModel;
   plan: MaterialPlan;
+  lockedQuote?: { total: number; date: string } | null;
 }
 
 export const useKarkas = create<KarkasState>((set, get) => {
   // push the current model onto the undo stack, then swap in + re-derive the next one. Structural
   // edits clear the selection (the tapped part id may be gone); property edits keep it (keepSel).
   const apply = (next: StructuralModel, keepSel = false): void =>
-    set((s) => ({ ...derive(next, s.plan), past: [...s.past.slice(-49), s.model], selectedId: keepSel ? s.selectedId : null }));
+    set((s) => ({ ...derive(next, s.plan), past: [...s.past.slice(-49), s.model], future: [], selectedId: keepSel ? s.selectedId : null }));
   // the section an edit targets: the section of the selected panel's instance, else the first leaf.
   const targetSection = (): string | undefined => {
     const s = get();
@@ -298,6 +310,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     targetId: null,
     setTarget: (id) => set({ targetId: id }),
     past: [],
+    future: [],
     plan: DEFAULT_PLAN,
     materialPool: planDecors(DEFAULT_PLAN),
     pendingBinding: null,
@@ -308,8 +321,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, materialPool: [...new Set([...s.materialPool, id])], ...derive(s.model, plan) }; }),
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
     // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
-    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, materialPool: planDecors(p), pendingBinding: null, open: true, selectedId: null, past: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
-    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], editingBlockId: null, fromCabinet: false })),
+    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
+    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
     close: () => set({ open: false }),
     tapPart: (id) => {
       // tapping a placed part also targets its section, so the next add lands where you're looking
@@ -538,6 +551,9 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (next !== get().model) apply(next, true);
     },
     boilerFindings: () => checkBoilerClearance(get().model),
+    lockedQuote: null,
+    lockQuote: (total) => set({ lockedQuote: { total, date: new Date().toISOString().slice(0, 10) } }),
+    unlockQuote: () => set({ lockedQuote: null }),
     selectedHole: null,
     selectHole: (h) => set({ selectedHole: h }),
     setHoleOverride: (partId, opId, x, y) => {
@@ -556,12 +572,19 @@ export const useKarkas = create<KarkasState>((set, get) => {
       set((s) => {
         const prev = s.past[s.past.length - 1];
         if (!prev) return {};
-        return { ...derive(prev, s.plan), past: s.past.slice(0, -1), selectedId: null };
+        return { ...derive(prev, s.plan), past: s.past.slice(0, -1), future: [...s.future, s.model], selectedId: null };
       }),
     canUndo: () => get().past.length > 0,
+    redo: () =>
+      set((s) => {
+        const next = s.future[s.future.length - 1];
+        if (!next) return {};
+        return { ...derive(next, s.plan), past: [...s.past, s.model], future: s.future.slice(0, -1), selectedId: null };
+      }),
+    canRedo: () => get().future.length > 0,
     exportProject: () => {
       const s = get();
-      const file: ProjectFile = { version: 1, model: s.model, plan: s.plan };
+      const file: ProjectFile = { version: 1, model: s.model, plan: s.plan, lockedQuote: s.lockedQuote };
       return JSON.stringify(file, null, 2);
     },
     importProject: (json, blockId) => {
@@ -573,7 +596,9 @@ export const useKarkas = create<KarkasState>((set, get) => {
       // §3.2 — a library block may carry decors the project pool lacks; flag them for the map-or-create
       // prompt (the block still loads so it's visible; resolveBinding/cancelBinding reconciles the pool).
       const foreign = foreignDecors(get().materialPool, data.model, plan);
-      set({ ...derive(data.model, plan), plan, selectedId: null, past: [], open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null });
+      // reset the FULL edit context on load (Step 12 audit fix): future[] (else redo restores the previous
+      // project), and the manufacturing exportOverride / selectedHole (else block A's override leaks to B).
+      set({ ...derive(data.model, plan), plan, selectedId: null, past: [], future: [], exportOverride: false, selectedHole: null, open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null, lockedQuote: data.lockedQuote ?? null });
     },
     resolveBinding: (mapping) => {
       const s = get();
