@@ -19,7 +19,7 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
@@ -39,6 +39,7 @@ interface RT {
   group: THREE.Group | null;
   holeGroup: THREE.Group | null; // «Teshiklar» — drill-hole markers, toggled on/off
   kromkaGroup: THREE.Group | null; // Step 8.2 — coloured banded-edge lines, shown in Frame view
+  ghostGroup: THREE.Group | null; // Step 9 — Application-view ghost props (boiler / clothes / …)
   raf: number;
   labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
   aabb: THREE.Box3 | null;
@@ -161,6 +162,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     return out;
   }, [model, plan]);
   const [dimScreen, setDimScreen] = useState<{ text: string; x: number; y: number; vis: boolean }[]>([]);
+  // Step 9 — Application view: tag spaces + show ghost contents (esp. the wall boiler).
+  const [appView, setAppView] = useState(false);
+  const activePurposeFn = useKarkas((s) => s.activePurpose);
+  const activePurpose = useMemo(() => activePurposeFn(), [activePurposeFn, model, targetId]);
+  const setPurpose = useKarkas((s) => s.setPurpose);
+  const boilerFindingsFn = useKarkas((s) => s.boilerFindings);
+  const boilerFinds = useMemo(() => boilerFindingsFn(), [boilerFindingsFn, model]);
+  const ghostItems = useMemo(() => {
+    const out: { purpose: string; cx: number; cy: number; cz: number; w: number; h: number; d: number }[] = [];
+    const b = model.blocks[0];
+    if (!b) return out;
+    const bd = layoutBounds(solveLayout(model, planThickness(plan)));
+    for (const z of b.zones) for (const s of leafSections(z.root)) {
+      if (!s.purpose || s.purpose === "structural") continue;
+      out.push({ purpose: s.purpose, cx: (s.box.x + s.box.w / 2 - bd.cx) / 10000, cy: (s.box.y + s.box.h / 2 - bd.minY) / 10000, cz: (s.box.z + s.box.d / 2 - bd.cz) / 10000, w: s.box.w / 10000, h: s.box.h / 10000, d: s.box.d / 10000 });
+    }
+    return out;
+  }, [model, plan]);
   const setTarget = useKarkas((s) => s.setTarget);
   const activeTarget = targetId && sections.some((x) => x.id === targetId) ? targetId : sections[0]?.id;
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
@@ -399,7 +418,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       return d;
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, holeGroup: null, kromkaGroup: null, raf: 0, labels, aabb: null, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, holeGroup: null, kromkaGroup: null, ghostGroup: null, raf: 0, labels, aabb: null, framedKey: "" };
 
     const raycaster = new THREE.Raycaster();
     const ndc = (e: PointerEvent) => {
@@ -525,6 +544,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
       if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
       if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
+      if (rt.current?.ghostGroup) disposeStructureGroup(rt.current.ghostGroup);
       labels.w.remove(); labels.h.remove(); labels.d.remove();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
@@ -632,6 +652,29 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     r.controls.addEventListener("change", compute);
     return () => r.controls.removeEventListener("change", compute);
   }, [dimLabels, renderMode, scene]);
+
+  // ── Step 9: Application view — build the ghost props for tagged spaces + fade the furniture so the
+  //    client sees what goes inside (boiler / clothes / dishes). Off → restore the normal visuals. ──
+  useEffect(() => {
+    const r = rt.current;
+    if (!r) return;
+    if (r.ghostGroup) { r.scene.remove(r.ghostGroup); disposeStructureGroup(r.ghostGroup); r.ghostGroup = null; }
+    if (appView) {
+      const gg = buildGhostProps(ghostItems);
+      r.scene.add(gg);
+      r.ghostGroup = gg;
+      r.group?.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = m.material as THREE.MeshStandardMaterial;
+        if (mat && "opacity" in mat) { mat.transparent = true; mat.opacity = 0.15; mat.depthWrite = false; mat.needsUpdate = true; }
+      });
+    } else if (r.group) {
+      applyVisuals(r.group);
+    }
+    r.renderer.render(r.scene, r.camera);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appView, ghostItems, scene]);
 
   // ── Step 5: Materials view (v4 §143) — ON makes every board translucent + tinted by material, and the
   //    chosen filter isolates one; OFF restores the edge outlines (the view dims them) + normal visuals. ──
@@ -892,6 +935,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <button style={{ ...act, ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
         {/* Step 8 — No-facade: hide the fronts entirely (not just fade) */}
         <button style={{ ...act, ...(noFacade ? { borderColor: "#a2571f", background: "#f2e0cd", color: "#7a3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setNoFacade((v) => !v)} type="button" title="Fasadsiz ko'rinish">▢ {noFacade ? "Fasadsiz ✓" : "Fasadsiz"}</button>
+        {/* Step 9 — Application view: show what goes inside (boiler / clothes / dishes) */}
+        <button style={{ ...act, ...(appView ? { borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setAppView((v) => !v)} type="button" title="Ichidagini ko'rsatish (kotyol, kiyim…)">🛋 {appView ? "Ichida ✓" : "Ichida nima"}</button>
         <button style={{ ...act, ...(showHoles ? { borderColor: "#1f6f86", background: "#dcecf2", color: "#13485a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowHoles((v) => !v)} type="button" title="Teshiklarni ko'rsatish (shtok, petlya)">🕳 {showHoles ? "Teshik ✓" : "Teshiklar"}</button>
         {/* Step 7 — Birikma (joints) mode: the JointProfile editor; turning it on shows the drilled holes */}
         <button style={{ ...act, ...(showJoints ? { borderColor: "#8a5a1f", background: "#f2e3cd", color: "#6b3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowJoints((v) => { const nv = !v; if (nv) setShowHoles(true); return nv; })} type="button" title="Birikma profili (System-32 teshiklar)">⚙ Birikma</button>
@@ -1158,6 +1203,25 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               <DimField label="Y" value={Math.round(selectedHole.fy / 10)} min={0} onCommit={(mm) => { const ny = mm * 10; setHoleOverride(selectedHole.partId, selectedHole.opId, selectedHole.fx, ny); selectHole({ ...selectedHole, fy: ny }); }} />
             </div>
             <button onClick={() => { clearHoleOverride(selectedHole.partId, selectedHole.opId); selectHole(null); }} type="button" style={{ width: "100%", marginTop: 8, padding: "6px 10px", borderRadius: 8, border: "1px solid #bbb", background: "#f6f6f6", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>↺ Avto joyga qaytar</button>
+          </div>
+        )}
+        {/* Step 9 — Application view: tag the active space's purpose + boiler-clearance warning */}
+        {appView && (
+          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 45, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 220 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <b style={{ fontSize: 13 }}>🛋 Bo'shliq maqsadi</b>
+              <button onClick={() => setAppView(false)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16, color: "#888", lineHeight: 1 }}>✕</button>
+            </div>
+            <p style={{ fontSize: 10.5, color: "#888", margin: "0 0 8px" }}>Bo'shliqni bosib tanlang, keyin maqsad bering — ichida ne borligi ko'rinadi.</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {PURPOSES.map((p) => (
+                <button key={p.id} type="button" onClick={() => setPurpose(p.id)} style={{ ...pill, ...(activePurpose === p.id ? { borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", fontWeight: 700 } : {}) }}>{p.icon} {p.label}</button>
+              ))}
+              <button type="button" onClick={() => setPurpose(null)} style={{ ...pill }}>✕ Yo'q</button>
+            </div>
+            {boilerFinds.length > 0 && (
+              <div style={{ marginTop: 10, padding: 8, borderRadius: 8, background: "#fdf1d6", border: "1px solid #e5b84b", fontSize: 11.5, color: "#8a5a1f", fontWeight: 600 }}>⚠ Kotyol joyi kichik — kamida 500×800×300mm kerak</div>
+            )}
           </div>
         )}
         {showTree && <TreePanel onClose={() => setShowTree(false)} />}
@@ -1471,6 +1535,15 @@ const dimLabel: CSSProperties = { fontFamily: "system-ui", fontSize: 11, fontWei
 const dimInput: CSSProperties = { width: 44, border: "none", outline: "none", background: "transparent", font: "600 13px ui-monospace, monospace", color: "#18241d", textAlign: "right", padding: "3px 2px" };
 const pill: CSSProperties = { padding: "6px 12px", borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer" };
 const editbar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, flexWrap: "wrap" };
+// Step 9 — the purpose tags a client cares about (each id is a SectionPurpose)
+const PURPOSES = [
+  { id: "boiler", icon: "🔥", label: "Kotyol" },
+  { id: "hanging", icon: "👔", label: "Osma" },
+  { id: "storage", icon: "📦", label: "Saqlash" },
+  { id: "appliance", icon: "🔌", label: "Texnika" },
+  { id: "display", icon: "🖼", label: "Vitrina" },
+  { id: "drawer", icon: "🗄", label: "Tortma" },
+] as const;
 const matLegendRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "6px 7px", marginBottom: 2, border: "1px solid transparent", borderRadius: 8, background: "transparent", cursor: "pointer", font: "600 12px system-ui", color: "#222" };
 const matLegendActive: CSSProperties = { borderColor: "#c9a24b", background: "#f7efd8" };
 const matLegendSwatch: CSSProperties = { width: 20, height: 20, borderRadius: 5, flex: "0 0 auto", border: "1px solid rgba(0,0,0,0.15)" };
