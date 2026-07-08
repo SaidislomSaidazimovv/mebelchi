@@ -266,6 +266,41 @@ export function buildKromkaEdges(scene: Scene, colorOf: (kId: string) => number)
   return g;
 }
 
+const GHOST_COLOR: Record<string, number> = {
+  boiler: 0xd9534f, hanging: 0x5b8def, storage: 0xcaa15a, appliance: 0x8a8f98, display: 0x6fbf8f, drawer: 0xc9a24b, structural: 0x9aa0a6,
+};
+
+/**
+ * Step 9 — Application-view ghost props: a low-poly translucent silhouette of what each tagged space
+ * holds (a cylinder for a boiler / appliance-ish box, a rail for hanging, stacked boxes for storage),
+ * centred in the space and sized to ~70%. Purely illustrative for the client; never machined.
+ */
+export function buildGhostProps(
+  items: readonly { purpose: string; cx: number; cy: number; cz: number; w: number; h: number; d: number }[],
+): THREE.Group {
+  const g = new THREE.Group();
+  for (const it of items) {
+    const mat = new THREE.MeshStandardMaterial({ color: GHOST_COLOR[it.purpose] ?? 0x8892a0, transparent: true, opacity: 0.6, roughness: 0.75, metalness: 0 });
+    let mesh: THREE.Mesh;
+    if (it.purpose === "boiler") {
+      const r = Math.min(it.w, it.d) * 0.34;
+      mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, it.h * 0.82, 18), mat);
+    } else if (it.purpose === "hanging") {
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(it.w * 0.78, it.h * 0.08, it.d * 0.5), mat); // a rail near the top
+      mesh.position.set(it.cx, it.cy + it.h * 0.34, it.cz);
+      mesh.raycast = () => {};
+      g.add(mesh);
+      continue;
+    } else {
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(it.w * 0.72, it.h * 0.72, it.d * 0.72), mat);
+    }
+    mesh.position.set(it.cx, it.cy, it.cz);
+    mesh.raycast = () => {};
+    g.add(mesh);
+  }
+  return g;
+}
+
 /** Free the GPU resources of a structure group (call on unmount / before rebuild). */
 export function disposeStructureGroup(group: THREE.Group): void {
   group.traverse((o) => {

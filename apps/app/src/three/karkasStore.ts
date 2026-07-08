@@ -11,7 +11,8 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
 import { planDecors, foreignDecors, bindBlockMaterials } from "./slotBinding";
@@ -237,6 +238,12 @@ interface KarkasState extends Derived {
   setHoleOverride: (partId: string, opId: string, x_mm10: number, y_mm10: number) => void;
   /** Reset one hole back to its auto-placed position. */
   clearHoleOverride: (partId: string, opId: string) => void;
+  /** Step 9 — the active space's purpose tag (storage/hanging/boiler/…), or null. */
+  activePurpose: () => SectionPurpose | null;
+  /** Tag the active space with a purpose (null clears it). Drives Application-view ghosts + boiler check. */
+  setPurpose: (purpose: SectionPurpose | null) => void;
+  /** Boiler-tagged spaces smaller than the boiler's clearance (Gate 9 amber). */
+  boilerFindings: () => ReturnType<typeof checkBoilerClearance>;
   /** Revert the last edit. */
   undo: () => void;
   canUndo: () => boolean;
@@ -520,6 +527,17 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     exportOverride: false,
     setExportOverride: (on) => set({ exportOverride: on }),
+    activePurpose: () => {
+      const sid = targetSection();
+      return sid ? findSection(get().model, sid)?.purpose ?? null : null;
+    },
+    setPurpose: (purpose) => {
+      const sid = targetSection();
+      if (!sid) return;
+      const next = setSectionPurposeOp(get().model, sid, purpose);
+      if (next !== get().model) apply(next, true);
+    },
+    boilerFindings: () => checkBoilerClearance(get().model),
     selectedHole: null,
     selectHole: (h) => set({ selectedHole: h }),
     setHoleOverride: (partId, opId, x, y) => {
