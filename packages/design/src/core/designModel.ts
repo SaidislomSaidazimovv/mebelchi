@@ -128,6 +128,22 @@ export function toggleDoor(project: DesignProject, cabinetId: string): DesignPro
 }
 
 /**
+ * Set a node's Division — where a divider/shelf sits within its compartment
+ * (fixed mm / ratio weight / flex). Pure DESIGN intent: it says WHERE, not how the
+ * board is built. Variant C's seam-drag writes `{ rule:"fixed", mm }` here; the app's
+ * layout reads it to place the divider (position is a visualisation concern the app
+ * owns — see layout.ts). Passing undefined clears it back to the even-spread default.
+ */
+export function setDivision(
+  project: DesignProject, nodeId: string, division: Division | undefined,
+): DesignProject {
+  return withNode(project, nodeId, (n) => {
+    if (division) n.division = division;
+    else delete n.division;
+  });
+}
+
+/**
  * Remove a CHILD node (shelf / divider) by id. Root cabinets are protected: a
  * removeNode call can never empty `project.nodes` (that would leave the app with
  * nothing to render/edit). To drop a whole cabinet, use a dedicated action later.

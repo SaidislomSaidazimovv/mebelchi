@@ -28,4 +28,19 @@ identity, approximate in height. Acceptance ("add/move a shelf") still works —
 shelf exists, is selectable, and re-decomposes correctly; only its exact Y is
 nominal.
 
+**Update (Phase 3, Variant C):** a DIVIDER's X position is now honoured from its
+node's fixed `Division` — because *placing* a panel is a visualisation concern the
+app owns (see `layout.ts` header), the app can move a divider without any engine
+change. So Variant C's seam-drag re-flows compartments correctly on screen.
+
+What is STILL engine-owned and awaits the decompose result carrying placement:
+- a SHELF's true height (still evenly spread);
+- the manufactured WIDTHS of the parts on either side of a moved divider (a wider
+  left compartment should yield a wider left shelf — that per-compartment sizing is
+  construction, not layout, so the app cannot compute it).
+
+So Variant C is correct in *interaction and design intent* (the Division is edited,
+undo works, the divider moves) but the neighbouring parts' manufactured sizes won't
+reflect the move until the engine honours Division. Expected, logged, not a bug.
+
 **Status:** open, founder-owned. Not blocking the 3 variants.

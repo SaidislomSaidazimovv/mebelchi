@@ -74,7 +74,10 @@ export function layoutCabinet(
   // a shelf/divider part carries its OWN child nodeId in provenance, not the
   // cabinet's. So gather the cabinet id plus every descendant id.
   const own = new Set<string>([node.nodeId]);
-  const collect = (n: DesignNode) => { own.add(n.nodeId); n.children?.forEach(collect); };
+  // Also index each descendant node so a placed part can read its OWN design intent
+  // (e.g. a divider's Division) back from its provenance nodeId.
+  const nodeById = new Map<string, DesignNode>();
+  const collect = (n: DesignNode) => { own.add(n.nodeId); nodeById.set(n.nodeId, n); n.children?.forEach(collect); };
   collect(node);
   const mine = result.parts.filter((p) => own.has(result.provenance[p.id]?.nodeId ?? ""));
   const t = carcassThickness(result.parts);
@@ -126,10 +129,17 @@ export function layoutCabinet(
         origin = [t, Math.round(H * slot), 0];
         break;
       }
-      case "divider": { // h×d, vertical, spread across the inner width
-        const slot = (dividerSeen + 1) / (dividers.length + 1);
+      case "divider": { // h×d, vertical; positioned by the node's Division if it has one
+        // The app owns position (see header): a divider node carrying a fixed Division
+        // sits at that X; otherwise it's spread evenly as the placeholder default.
+        // This is what makes Variant C's seam-drag visible — no engine change needed
+        // to MOVE a divider (only its manufactured neighbours' widths await the engine).
+        const div = nodeById.get(prov.nodeId)?.division;
+        const x = div?.rule === "fixed"
+          ? Math.min(Math.max(div.mm, t), W - t) // keep the seam inside the carcass
+          : Math.round(W * ((dividerSeen + 1) / (dividers.length + 1)));
         dividerSeen += 1;
-        origin = [Math.round(W * slot), t, 0];
+        origin = [x, t, 0];
         break;
       }
       case "plinth": // w×h, short strip at the floor, front
@@ -159,12 +169,13 @@ export function layoutCabinet(
  * not a laid-out cabinet is collected at the far side rather than silently
  * dropped — the header's promise ("never silently discarded") kept honestly.
  *
- * CONTRACT NOTE for the founder (Watcher 0.4a #3): shelves/dividers are spread
- * evenly because the decompose result carries dimensions only — it does not tell
- * the app a part's height/anchor, so the app CANNOT honour a node's Division
- * (fixed/ratio/flex) here. To place a shelf at its true height, position/anchor
- * info must flow through panelDecomposition's result. That is an engine change,
- * not an app fix. Recorded in CONTRACT_NOTES.md.
+ * CONTRACT NOTE for the founder (Watcher 0.4a #3, updated Phase 3): a DIVIDER's X is
+ * now honoured from its node's fixed Division — placing a divider is a visualisation
+ * concern the app owns (see header), so Variant C can move a seam with no engine
+ * change. What STILL awaits the engine: a SHELF's true height, and the manufactured
+ * WIDTHS of the parts on either side of a moved divider (per-compartment sizing lives
+ * in construction, not layout). Those need placement/anchor info in the decompose
+ * result. Shelves remain evenly spread until then. Recorded in CONTRACT_NOTES.md.
  */
 export function layout(nodes: readonly DesignNode[], result: DecomposeResult): PlacedPanel[] {
   const all: PlacedPanel[] = [];
