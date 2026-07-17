@@ -10,6 +10,12 @@ import type {
   CabinetType, DesignNode, DesignProject, Division, NodeKind,
 } from "@mebelchi/construction/design";
 
+// INVARIANT (load-bearing — undo depends on it): every function here is PURE. It
+// returns a NEW DesignProject and NEVER mutates its input in place. History (undo.ts)
+// stores project references without cloning, trusting this. If any edit below ever
+// mutates its argument, undo silently corrupts. Keep every mutator going through
+// withNode/cloneProject.
+
 // mm10 = tenths of a millimetre (engine unit). A helper so call sites read in mm.
 export const mm = (millimetres: number): number => Math.round(millimetres * 10);
 
