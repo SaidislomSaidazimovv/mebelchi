@@ -44,8 +44,8 @@ Edit by grabbing handles on the 3D.
 |  | ↳ Watcher 0.5 #1: call `metrics.reset()` at drag START so the headline FPS reflects the edit being tested, not the preceding idle-orbit mean (the founder's "≥30 fps during every edit" bar). | — | ⬜ |
 |  | ↳ Watcher 1.1 note: do NOT route drag frames through `commit` (one undo entry + full engine per frame). Use a PREVIEW path — live rerender WITHOUT `history.push` during the drag, then `commit` a single snapshot on pointerup. The `rerender`/`commit` split already supports this. Call controller methods as `app.method()` ( `this` binding). | — | ⬜ |
 | 1.3 | Add shelf / divider / door via on-3D affordances | each appears, priced from the profile | ✅ 👀 |
-| 1.4 | Undo wired to the gizmo edits | undo steps back exactly | 🔨 (watcher review) |
-| 1.5 | Build URL A · watcher + agy review · report | founder can open on Redmi | ⬜ |
+| 1.4 | Undo wired to the gizmo edits | undo steps back exactly | ✅ 👀 |
+| 1.5 | Build URL A · watcher + agy review · report | founder can open on Redmi | 🔨 build ✅ · watcher ✅ · agy pending · deploy deferred to A/B/C |
 
 ---
 
@@ -91,4 +91,5 @@ Same edits. Drag the seams between compartments.
 - 2026-07-17 · Phase 1.1 — tap-to-select + highlight (nodeId, not part id). Watcher-reviewed. Commit 828a095.
 - 2026-07-17 · Phase 1.2 — Variant A resize by direct manipulation (preview-during-drag, one commit on release). Watcher-reviewed. Commit c6a56ab (scene.ts support committed later with 1.3 — c6a56ab alone was missing it).
 - 2026-07-17 · Phase 1.3 — add shelf/divider/door via on-screen action bar; findCabinetOf targets owning cabinet by nodeId; geom stays 1 on add. Watcher-reviewed, no blockers. Commit a8f1a9c.
-- 2026-07-17 · Phase 1.4 — undo/redo buttons wired to History; app.undo/redo rerender + emitChange so bar refreshes. In-browser: undo steps back exactly, geom stays 1, 0 errors. Watcher review in progress.
+- 2026-07-17 · Phase 1.4 — undo/redo buttons wired to History; app.undo/redo rerender + emitChange so bar refreshes. In-browser: undo steps back exactly, geom stays 1, 0 errors. Watcher-reviewed, no blockers. Commit 47c5595.
+- 2026-07-17 · Phase 1.5 — clean production build (a/b/c.html); phase-gate smoke test on dist (select+resize+add+undo+redo: FPS 44 green, draws 1, geom 1, 0 errors). Holistic watcher (integration): gesture compose, stale-selection, preview/commit, dispose, law — all pass, no blockers. Two minors FIXED: (#1) shared app.pointerConsumed flag — a variant's drag claims the pointer so tap-select skips the release, closing the dead-zone/tap-threshold overlap for ALL variants (C reuses it); (#2) dispose teardown loop wrapped in try/catch. Verified: tap select+deselect+reselect and resize all work post-fix, 0 errors. URL deploy DEFERRED — founder opens A/B/C together after Phases 2–3. agy phase-review pending (user action).

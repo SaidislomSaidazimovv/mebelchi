@@ -90,6 +90,7 @@ export function wireResizeA(app: AppController): () => void {
     if (!dragging.moved) {
       if (Math.hypot(e.clientX - dragging.downX, e.clientY - dragging.downY) < DEADZONE) return;
       dragging.moved = true;
+      app.pointerConsumed = true; // claim the pointer so tap-select skips this release
       app.scene.resetMetrics(); // fps now reflects the drag that just started
     }
     const world = toWorldOnPlane(e.clientX, e.clientY);

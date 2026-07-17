@@ -18,6 +18,11 @@ export interface AppController {
   readonly history: History;
   /** The nodeId under selection, or null. */
   selectedNodeId: string | null;
+  /** A variant's drag gesture sets this the moment it takes over the active pointer
+   *  (crosses its dead-zone). The shared tap-to-select then ignores the trailing
+   *  pointerup, so a small drag can never ALSO fire a tap — independent of each
+   *  variant's dead-zone size. tap-to-select resets it. (Watcher Phase-1 #1.) */
+  pointerConsumed: boolean;
   /** Decompose + lay out + push to the scene; returns the placed panels. Pass a
    *  transient project to PREVIEW it (e.g. a live drag) without recording history;
    *  omit to render the committed `history.project`. */
@@ -51,6 +56,7 @@ export function startApp(): AppController {
     scene,
     history,
     selectedNodeId: null,
+    pointerConsumed: false,
 
     rerender(project = history.project) {
       const result = decompose(project);
@@ -98,7 +104,11 @@ export function startApp(): AppController {
     },
 
     dispose() {
-      for (const t of teardowns) t();
+      // Isolate teardowns: one that throws must not strand the rest — or the scene's
+      // own dispose (RAF/GL/DOM release) below. (Watcher Phase-1 #2.)
+      for (const t of teardowns) {
+        try { t(); } catch (err) { console.error("[app] a teardown threw during dispose", err); }
+      }
       scene.dispose();
     },
   };
@@ -124,6 +134,9 @@ function wireTapToSelect(app: AppController): () => void {
   };
   const onUp = (e: PointerEvent) => {
     if (!e.isPrimary) return;
+    // A variant's drag already claimed this pointer — don't also treat the release
+    // as a tap. Reset for the next gesture. (Closes the dead-zone/tap-threshold gap.)
+    if (app.pointerConsumed) { app.pointerConsumed = false; return; }
     const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
     const held = performance.now() - downT;
     if (moved > 6 || held > 400) return; // an orbit/drag or long press — not a tap
