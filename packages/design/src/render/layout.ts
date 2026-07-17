@@ -101,24 +101,29 @@ export function layoutCabinet(
     const Wd = part.width_mm10;
     const Th = part.thickness_mm10;
 
-    // origin = bottom-left-back corner of Face A, chosen per role.
+    // origin = Face A (the panel's OUTER face); the body extends back from it by Th
+    // (scene.panelMatrix: centre = origin + u·L/2 + v·W/2 − n·Th/2). So each origin is
+    // placed on the outer skin of the cabinet and the board sits just inside it — that
+    // is what makes the six carcass panels tile into a clean, gap-free box.
     let origin: Vec3 = [0, 0, 0];
     switch (role) {
-      case "side": // h×d, stands vertical; sub 0 = left (x=0), sub 1 = right (x=W−t)
-        origin = [panels.filter((p) => p.role === "side").length === 0 ? 0 : W - t, 0, 0];
+      case "side": { // h×d, stands vertical. Left outer face at x=Th, right at x=W.
+        const isFirst = panels.filter((p) => p.role === "side").length === 0;
+        origin = [isFirst ? Th : W, 0, 0]; // body → [0,Th] (left) / [W−Th,W] (right)
         break;
-      case "bottom": // w×d, flat near the floor, centred in width
-        origin = [(W - L) / 2, 0, 0];
+      }
+      case "bottom": // w×d, flat on the floor; body sits in y∈[0,Th]
+        origin = [(W - L) / 2, Th, 0];
         break;
-      case "top": // w×d, flat at the very top
+      case "top": // w×d, flat under the ceiling; body sits in y∈[H−Th,H]
       case "stretcher":
-        origin = [(W - L) / 2, H - Th, 0];
+        origin = [(W - L) / 2, H, 0];
         break;
       case "worktop": // overhangs; sits on top, centred over the carcass
         origin = [(W - L) / 2, H, -(Wd - D) / 2];
         break;
-      case "back": // w×h, vertical plane at the back (z≈0)
-        origin = [(W - L) / 2, t, 0];
+      case "back": // w×h, vertical plane at the rear; body sits in z∈[0,Th], full height
+        origin = [(W - L) / 2, 0, Th];
         break;
       case "door": // h×w, vertical plane at the front (z=D)
         origin = [0, 0, D];
@@ -142,8 +147,8 @@ export function layoutCabinet(
         origin = [x, t, 0];
         break;
       }
-      case "plinth": // w×h, short strip at the floor, front
-        origin = [(W - L) / 2, 0, D - Th];
+      case "plinth": // w×h, short strip at the floor, front; body sits in z∈[D−Th,D]
+        origin = [(W - L) / 2, 0, D];
         break;
       case "filler":
         origin = [0, 0, 0];
