@@ -74,7 +74,7 @@ Same edits. Drag the seams between compartments.
 | 3.2 | Draw seam handles between compartments; drag a seam → re-flow via division rules | compartments resize | ✅ (seam.ts: grab divider → setDivision fixed mm; layout honours it; grab side → resize) |
 | 3.3 | Add shelf/divider/door by tapping a seam/zone | same result | ✅ (shared action bar; +Toʻsiq then drag the seam) |
 | 3.4 | Undo | steps back | ✅ (shared bar undo; divider X reverts to centre) |
-| 3.5 | Build URL C · watcher + agy review · report | Redmi | 🔨 build ✅ · watcher ✅ (no blockers) · agy pending · deploy with A/B/C |
+| 3.5 | Build URL C · watcher + agy review · report | Redmi | ✅ build · watcher ✅ · **agy ✅ ("TO'LIQ TAYYOR", all 3 variants deploy-ready)** · deploy next |
 |  | ↳ Watcher C #3 (CROSS-FILE, deferred by user — Variant A is agy-approved, do not touch): `resize.ts:99,116` (Variant A) still uses `((world.x-startX)/mmScale)*10` — the 10× over-sensitivity Variant C moved away from. A's drag feels ~10× twitchier than C's. Founder-facing inconsistency for the Redmi compare; fix = drop the `*10` in resize.ts if/when the founder OKs touching A. | — | ⬜ |
 |  | ↳ Watcher C #2 (minor): seam side-drag always maps drag-right → widen regardless of which outer seam is grabbed (left side feels inverted) — same width-only simplification as Variant A. | — | ⬜ |
 |  | ↳ Watcher C #1/#4 (notes): `mmPerPx` sampled once at grab, drifts slightly during a side resize (preview still tracks); single-cabinet assumption (xOffset 0) documented in seam.ts header. | — | ⬜ |
