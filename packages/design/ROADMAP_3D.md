@@ -42,6 +42,7 @@ Edit by grabbing handles on the 3D.
 | 1.2 | Resize handle: drag → mutate node `size` → re-decompose → **matrices only** | width changes, `geometries` count constant | ⬜ |
 |  | ↳ Watcher 0.4b #2: `setPanels` re-stamps ALL matrices per call. For a live drag, add a targeted update (only the changed cabinet's panels, like the spike's `applyWidth`) so drag cost is O(changed), not O(all). Do it here. | — | ⬜ |
 |  | ↳ Watcher 0.5 #1: call `metrics.reset()` at drag START so the headline FPS reflects the edit being tested, not the preceding idle-orbit mean (the founder's "≥30 fps during every edit" bar). | — | ⬜ |
+|  | ↳ Watcher 1.1 note: do NOT route drag frames through `commit` (one undo entry + full engine per frame). Use a PREVIEW path — live rerender WITHOUT `history.push` during the drag, then `commit` a single snapshot on pointerup. The `rerender`/`commit` split already supports this. Call controller methods as `app.method()` ( `this` binding). | — | ⬜ |
 | 1.3 | Add shelf / divider / door via on-3D affordances | each appears, priced from the profile | ⬜ |
 | 1.4 | Undo wired to the gizmo edits | undo steps back exactly | ⬜ |
 | 1.5 | Build URL A · watcher + agy review · report | founder can open on Redmi | ⬜ |

@@ -25,10 +25,19 @@ export interface Scene {
   setPanels(panels: PlacedPanel[]): void;
   /** Frame the camera on the current panels' bounding box. */
   frame(panels: PlacedPanel[]): void;
+  /** Hit-test a screen point against the panels. Returns the PlacedPanel under the
+   *  pointer, or null. The caller reads `.nodeId` — never the instance index. */
+  pick(clientX: number, clientY: number): PlacedPanel | null;
+  /** Tint every panel of `nodeId` as selected; null clears the highlight.
+   *  Colour only — no geometry, no matrix change. */
+  highlight(nodeId: string | null): void;
   renderer: THREE.WebGLRenderer;
   camera: THREE.PerspectiveCamera;
   dispose(): void;
 }
+
+const BASE_COLOR = new THREE.Color(0xb8a888); // wood
+const SELECT_COLOR = new THREE.Color(0x5ad0a0); // brand-ish green highlight
 
 export function createScene(): Scene {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -58,11 +67,19 @@ export function createScene(): Scene {
   scene.add(root);
 
   // ONE InstancedMesh of a unit box. One draw call for the whole cabinet.
+  // Material is white so per-instance colour (instanceColor) fully drives the look:
+  // base wood for all, green for the selected node — a colour change, never geometry.
   const panelGeo = new THREE.BoxGeometry(1, 1, 1);
-  const panelMat = new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.7, metalness: 0.02 });
+  const panelMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, metalness: 0.02 });
   const panelMesh = new THREE.InstancedMesh(panelGeo, panelMat, MAX_PANELS);
   panelMesh.count = 0;
   root.add(panelMesh);
+
+  // The panel list backing the current instances — the map from instanceId → panel
+  // (and thus → nodeId). Transient render state, rebuilt every setPanels.
+  let currentPanels: PlacedPanel[] = [];
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
 
   // Reused scratch objects — no per-frame allocation.
   const _m = new THREE.Matrix4();
@@ -97,10 +114,32 @@ export function createScene(): Scene {
       );
     }
     const count = Math.min(panels.length, MAX_PANELS);
-    for (let i = 0; i < count; i++) panelMesh.setMatrixAt(i, panelMatrix(panels[i]!, _m));
+    for (let i = 0; i < count; i++) {
+      panelMesh.setMatrixAt(i, panelMatrix(panels[i]!, _m));
+      panelMesh.setColorAt(i, BASE_COLOR); // reset to wood; highlight() re-tints
+    }
     panelMesh.count = count; // shrink/grow without touching geometry
     panelMesh.instanceMatrix.needsUpdate = true;
+    if (panelMesh.instanceColor) panelMesh.instanceColor.needsUpdate = true;
     panelMesh.computeBoundingSphere();
+    currentPanels = panels.slice(0, count);
+  }
+
+  function pick(clientX: number, clientY: number): PlacedPanel | null {
+    const rect = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObject(panelMesh);
+    const id = hits[0]?.instanceId;
+    return id !== undefined ? (currentPanels[id] ?? null) : null;
+  }
+
+  function highlight(nodeId: string | null): void {
+    for (let i = 0; i < currentPanels.length; i++) {
+      panelMesh.setColorAt(i, nodeId !== null && currentPanels[i]!.nodeId === nodeId ? SELECT_COLOR : BASE_COLOR);
+    }
+    if (panelMesh.instanceColor) panelMesh.instanceColor.needsUpdate = true;
   }
 
   function frame(panels: PlacedPanel[]): void {
@@ -152,7 +191,7 @@ export function createScene(): Scene {
   window.addEventListener("resize", onResize);
 
   return {
-    setPanels, frame, renderer, camera,
+    setPanels, frame, pick, highlight, renderer, camera,
     dispose() {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
