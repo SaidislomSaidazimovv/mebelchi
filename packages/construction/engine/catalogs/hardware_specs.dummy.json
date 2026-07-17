@@ -1,0 +1,73 @@
+{
+  "_README": "DUMMY SPEC — placeholder values. Every entry has verified:false until confirmed against factory datasheet/output. Primitives read ONLY from this file. No drilling number is ever a literal in code. Replace values after the factory visit; do not touch the primitive functions.",
+  "_units": "All dimensions in mm (the engine converts to mm10 integers internally).",
+  "_extends": "Copied from CORE 2/hardware_specs.dummy.json. Fields marked ADDED were not in the original dummy but are structurally required by a primitive; the doc's 'data to bring back' lists them. They carry placeholder values and verified:false.",
+
+  "hinges": {
+    "DUMMY_CUP_110": {
+      "brand": "TBD — SKU/brand still unknown; drilling pattern verified against factory door export",
+      "verified": true,
+      "source": "Example sets/prop-2/SHKOF ORTA CHAP ESHIK_7_1.XML (golden fixture, dump 2026-06-12)",
+      "grade": "manufacturing",
+      "cup": {
+        "diameter": 35,
+        "depth": 13,
+        "comment": "PROVEN: Ø35.000 × 13.000 on Face 5, ×94 across the dump — research estimate 13mm was right"
+      },
+      "cupCenterFromDoorEdge": 21.5,
+      "comment_offset": "PROVEN: 21.5mm (research said 22.5 — WRONG). prop-0 doors show float noise 21.496/21.504 of the same value. Overlay dependence still unknown.",
+      "satelliteMarks": {
+        "count": 2,
+        "diameter": 3,
+        "depth": 1,
+        "alongFromCupCenter": 26,
+        "beyondCupFromEdge": 5.5,
+        "comment": "PROVEN: the factory does NOT drill wing screws (research claimed Ø8×11 at ±24 — WRONG twice). It pricks 2× Ø3×1 marks per cup at cupX±26, 5.5mm beyond the cup centre (Y=27 for cups at Y=21.5). NOTE: the 4 prop-0 SHK ESHIK doors have cups with NO marks at all — possibly a different hinge SKU or operator setting; ask the constructor."
+      }
+    }
+  },
+
+  "connectors": {
+    "DUMMY_RASTEX_15": {
+      "brand": "TBD (Häfele Rastex 15 / Minifix 15 class)",
+      "verified": false,
+      "source": "research-estimate CORRECTED against factory files; CONFIRM at factory",
+      "camSeat": {
+        "face": "A_or_B",
+        "diameter": 15,
+        "depth": 12.5,
+        "comment_depth": "FACTORY FILES show 11.0 and 12.5 — NOT the 15.7 the research doc claimed. Two values seen; confirm which connector uses which.",
+        "fromMatingEdge": 20,
+        "comment_fromMatingEdge": "ADDED — placeholder guess. Distance of the Ø15 cam-seat centre from the mating edge, on the face. Factory ORTA_BAK shows ~34mm; CONFIRM."
+      },
+      "dowelHole": {
+        "edge": true,
+        "diameter": 8,
+        "depth": 34,
+        "comment_depth": "factory edge Ø8 holes drill 34mm deep; face Ø8 drill 11mm — depth depends on operation context"
+      }
+    }
+  },
+
+  "shelfPins": {
+    "DUMMY_PIN_5": {
+      "brand": "TBD",
+      "verified": false,
+      "source": "depth from factory files; offsets research-estimate; CONFIRM",
+      "diameter": 5,
+      "depth": 11,
+      "comment_depth": "factory files confirm Ø5 face holes drill 11mm"
+    }
+  },
+
+  "system32": {
+    "verified": false,
+    "source": "research-estimate; CONFIRM at factory",
+    "verticalPitch": 32,
+    "firstHoleOffset": 37,
+    "comment_firstOffset": "research says 37mm from top/bottom edge; factory files show Ø4.5 construction holes at Y=32/64 and various — CONFIRM the row origin convention",
+    "frontRowSetback": 37,
+    "backRowSetback": 37,
+    "comment_rowSetbacks": "ADDED — placeholder guesses (reused firstHoleOffset). Setback of the front/back shelf-pin rows from the panel's Y edges. Factory ORTA_BAK shows ~91.5mm; CONFIRM front and back separately."
+  }
+}
