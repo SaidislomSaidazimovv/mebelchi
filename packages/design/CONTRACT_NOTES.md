@@ -44,3 +44,37 @@ undo works, the divider moves) but the neighbouring parts' manufactured sizes wo
 reflect the move until the engine honours Division. Expected, logged, not a bug.
 
 **Status:** open, founder-owned. Not blocking the 3 variants.
+
+---
+
+## 2. What the cabinet LOOKS like = the engine's part output (deploy review, 2026-07-18)
+
+On first look at the deployed build the cabinet can read as "incomplete": no top
+panel, the shelf/bottom/divider sit ~17 mm back from the front, the divider doesn't
+reach the ceiling. **None of this is an app bug — it is the real cabinet.**
+
+`panelDecomposition(shelf_unit)` is DONE and PROVEN (DB/30 §1): *"replay gate green —
+reproduces a real cabinet to the mm."* So the parts the app renders are the exact
+manufactured parts of a real `shelf_unit`:
+
+| What's seen | Why (engine/profile output) |
+|---|---|
+| open top (no top panel) | a `shelf_unit` is open-topped — the decompose emits no top |
+| shelf/bottom depth 5430 vs cabinet 5600 | real ~17 mm front setback (door/reveal) |
+| divider height 6240 vs cabinet 7200 | the divider's real manufactured height |
+
+The app owns **placement**; the engine owns **which parts exist and their sizes**
+(TASK Law 1 — "your 3D must not contain a single millimetre of construction"). The
+Phase-3 fix corrected the app's job: the five carcass panels (2 sides, bottom, back,
+plinth) now tile into a clean, gap-free box (their origins were previously placed one
+thickness outside the cabinet volume). Verified by exact coordinates.
+
+**If the founder wants a different-looking cabinet** (e.g. a closed top, a base unit
+with a worktop): that is engine/profile work, not app work —
+- other cabinet types (`kitchen_base` / `tall` / `wardrobe`) exist but are UNPROVEN
+  (DB/30 §1: "only `shelf_unit` … others use the census aggregate = unproven"), so
+  switching the default to them would show LESS-accurate cabinets, not more;
+- adding a top / changing setbacks to `shelf_unit` = a profile change (founder-owned).
+
+**Status:** not a bug. The render is faithful to the proven engine. Founder decides
+whether to prove/adjust other cabinet types or tune the profile.
