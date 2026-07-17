@@ -55,11 +55,12 @@ Same edits, same data. Tap a panel, type the number.
 
 | # | Step | Verify | State |
 |---|---|---|---|
-| 2.1 | Reuse core + render + selection from Phase 0/1 | no engine/render change | ⬜ |
-| 2.2 | Tap panel → numeric pad → set node size by number | width set by typing | ⬜ |
-| 2.3 | Add shelf/divider/door from a menu | same result as A | ⬜ |
-| 2.4 | Undo | steps back | ⬜ |
-| 2.5 | Build URL B · watcher + agy review · report | Redmi | ⬜ |
+| 2.1 | Reuse core + render + selection from Phase 0/1 | no engine/render change | ✅ (main-b: startApp+createActionBar, zero core change) |
+| 2.2 | Tap panel → numeric pad → set node size by number | width set by typing | ✅ (numpad.ts: W/H/D chips + keypad → resize→commit) |
+| 2.3 | Add shelf/divider/door from a menu | same result as A | ✅ (shared action bar; +Polka works in B) |
+| 2.4 | Undo | steps back | ✅ (shared bar undo/redo; Boʻyi 800→720 reverts) |
+| 2.5 | Build URL B · watcher + agy review · report | Redmi | 🔨 build ✅ · watcher ✅ (no blockers) · agy pending · deploy deferred to A/B/C |
+|  | ↳ Watcher B #3 (cosmetic, deferred): the 210px top-right numpad panel occludes the canvas corner while visible — a panel directly beneath it can't be tapped there (orbit to reach). Founder judges UI feel across variants; "don't mind the UI now". Revisit if it bites the compare. | — | ⬜ |
 
 ---
 
@@ -92,4 +93,5 @@ Same edits. Drag the seams between compartments.
 - 2026-07-17 · Phase 1.2 — Variant A resize by direct manipulation (preview-during-drag, one commit on release). Watcher-reviewed. Commit c6a56ab (scene.ts support committed later with 1.3 — c6a56ab alone was missing it).
 - 2026-07-17 · Phase 1.3 — add shelf/divider/door via on-screen action bar; findCabinetOf targets owning cabinet by nodeId; geom stays 1 on add. Watcher-reviewed, no blockers. Commit a8f1a9c.
 - 2026-07-17 · Phase 1.4 — undo/redo buttons wired to History; app.undo/redo rerender + emitChange so bar refreshes. In-browser: undo steps back exactly, geom stays 1, 0 errors. Watcher-reviewed, no blockers. Commit 47c5595.
-- 2026-07-17 · Phase 1.5 — clean production build (a/b/c.html); phase-gate smoke test on dist (select+resize+add+undo+redo: FPS 44 green, draws 1, geom 1, 0 errors). Holistic watcher (integration): gesture compose, stale-selection, preview/commit, dispose, law — all pass, no blockers. Two minors FIXED: (#1) shared app.pointerConsumed flag — a variant's drag claims the pointer so tap-select skips the release, closing the dead-zone/tap-threshold overlap for ALL variants (C reuses it); (#2) dispose teardown loop wrapped in try/catch. Verified: tap select+deselect+reselect and resize all work post-fix, 0 errors. URL deploy DEFERRED — founder opens A/B/C together after Phases 2–3. agy phase-review pending (user action).
+- 2026-07-17 · Phase 1.5 — clean production build (a/b/c.html); phase-gate smoke test on dist (select+resize+add+undo+redo: FPS 44 green, draws 1, geom 1, 0 errors). Holistic watcher (integration): gesture compose, stale-selection, preview/commit, dispose, law — all pass, no blockers. Two minors FIXED: (#1) shared app.pointerConsumed flag — a variant's drag claims the pointer so tap-select skips the release, closing the dead-zone/tap-threshold overlap for ALL variants (C reuses it); (#2) dispose teardown loop wrapped in try/catch. Verified: tap select+deselect+reselect and resize all work post-fix, 0 errors. URL deploy DEFERRED — founder opens A/B/C together after Phases 2–3. Phase 1 agy-reviewed: PASS ("TO'LIQ TAYYOR" for Phase 2).
+- 2026-07-17 · Phase 2 COMPLETE — Variant B (tap-then-numpad). numpad.ts: W/H/D chips + on-screen keypad → type mm → OK → resize→commit (one OK = one undo entry, no per-digit commits). Adds + undo/redo via the SHARED action bar (app.ts/designModel/actionbar reused with ZERO change — architecture bet validated). Watcher: no blockers; two minors FIXED via one change — onChange now clears a half-typed entry so an external undo/redo/select can't leave stale digits and OK always reads the committed value (#1+#2). #3 (panel occludes canvas corner) deferred as cosmetic. Verified in-browser: type 900→OK (geom 1), switch dim, undo reverts + clears half-entry, +Polka works in B, FPS 48, draws 1, 0 errors. agy phase-review pending (user action). Next: Phase 3 (Variant C — line/seam drag).
