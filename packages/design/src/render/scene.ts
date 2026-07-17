@@ -14,6 +14,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { PlacedPanel, Vec3 } from "./layout.ts";
+import { Metrics, drawOverlay, makeOverlay } from "./overlay.ts";
 
 const MM = 0.001; // locked mm → metre scale
 const MAX_PANELS = 1024; // capacity; a cabinet is ~10 panels, a kitchen ~100
@@ -124,13 +125,24 @@ export function createScene(): Scene {
     controls.update();
   }
 
+  // Live overlay: proves ≥30 fps and that `geom` stays constant across edits (a
+  // climb = a leaked rebuild). renderer.info.render.calls is the true draw count.
+  const metrics = new Metrics();
+  const overlayEl = makeOverlay();
+
   let raf = 0;
-  const loop = () => {
+  const loop = (now: number) => {
     raf = requestAnimationFrame(loop);
     controls.update();
     renderer.render(scene, camera);
+    metrics.tick(now);
+    drawOverlay(overlayEl, metrics, {
+      calls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+      geometries: renderer.info.memory.geometries,
+    });
   };
-  loop();
+  raf = requestAnimationFrame(loop);
 
   const onResize = () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -144,6 +156,7 @@ export function createScene(): Scene {
     dispose() {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      overlayEl.remove();
       controls.dispose();
       panelGeo.dispose();
       panelMat.dispose();
