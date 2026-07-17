@@ -24,12 +24,18 @@ export interface AppController {
   rerender(project?: DesignProject): PlacedPanel[];
   /** Replace the current design (records it in history) and rerender. */
   commit(next: DesignProject): void;
+  /** Step back / forward through the design snapshots, then rerender. No-op when
+   *  the stack is empty. Both notify onChange so UI (button enablement) refreshes. */
+  undo(): void;
+  redo(): void;
   /** Select a node (or null to clear) and update the highlight. */
   select(nodeId: string | null): void;
   /** Register a variant's input-unbind so `dispose` tears it down too. */
   onDispose(unbind: () => void): void;
-  /** Subscribe to state changes (selection / commit / undo). UI refreshes on this. */
-  onChange(cb: () => void): void;
+  /** Subscribe to state changes (selection / commit / undo). UI refreshes on this.
+   *  Returns an unsubscribe so a UI component can drop its listener on teardown
+   *  (else recreating it — e.g. a variant re-mount — leaks stale closures). */
+  onChange(cb: () => void): () => void;
   /** Tear down input listeners and the scene. */
   dispose(): void;
 }
@@ -60,6 +66,19 @@ export function startApp(): AppController {
       emitChange();
     },
 
+    undo() {
+      // history.undo() returns null when there's nothing to undo — skip the work.
+      if (history.undo() === null) return;
+      this.rerender(); // decompose the restored design; identity/geometry re-derive
+      emitChange();     // Watcher 1.3 #1: refresh button enablement after undo/redo
+    },
+
+    redo() {
+      if (history.redo() === null) return;
+      this.rerender();
+      emitChange();
+    },
+
     select(nodeId) {
       this.selectedNodeId = nodeId;
       scene.highlight(nodeId);
@@ -72,6 +91,10 @@ export function startApp(): AppController {
 
     onChange(cb) {
       changeListeners.push(cb);
+      return () => {
+        const i = changeListeners.indexOf(cb);
+        if (i >= 0) changeListeners.splice(i, 1);
+      };
     },
 
     dispose() {

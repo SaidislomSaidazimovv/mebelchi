@@ -38,13 +38,13 @@ Edit by grabbing handles on the 3D.
 
 | # | Step | Verify | State |
 |---|---|---|---|
-| 1.1 | Selection: tap a panel → `provenance[part.id].nodeId` → highlight the node | tap logs the right nodeId | ⬜ |
-| 1.2 | Resize handle: drag → mutate node `size` → re-decompose → **matrices only** | width changes, `geometries` count constant | ⬜ |
+| 1.1 | Selection: tap a panel → `provenance[part.id].nodeId` → highlight the node | tap logs the right nodeId | ✅ 👀 |
+| 1.2 | Resize handle: drag → mutate node `size` → re-decompose → **matrices only** | width changes, `geometries` count constant | ✅ 👀 |
 |  | ↳ Watcher 0.4b #2: `setPanels` re-stamps ALL matrices per call. For a live drag, add a targeted update (only the changed cabinet's panels, like the spike's `applyWidth`) so drag cost is O(changed), not O(all). Do it here. | — | ⬜ |
 |  | ↳ Watcher 0.5 #1: call `metrics.reset()` at drag START so the headline FPS reflects the edit being tested, not the preceding idle-orbit mean (the founder's "≥30 fps during every edit" bar). | — | ⬜ |
 |  | ↳ Watcher 1.1 note: do NOT route drag frames through `commit` (one undo entry + full engine per frame). Use a PREVIEW path — live rerender WITHOUT `history.push` during the drag, then `commit` a single snapshot on pointerup. The `rerender`/`commit` split already supports this. Call controller methods as `app.method()` ( `this` binding). | — | ⬜ |
-| 1.3 | Add shelf / divider / door via on-3D affordances | each appears, priced from the profile | ⬜ |
-| 1.4 | Undo wired to the gizmo edits | undo steps back exactly | ⬜ |
+| 1.3 | Add shelf / divider / door via on-3D affordances | each appears, priced from the profile | ✅ 👀 |
+| 1.4 | Undo wired to the gizmo edits | undo steps back exactly | 🔨 (watcher review) |
 | 1.5 | Build URL A · watcher + agy review · report | founder can open on Redmi | ⬜ |
 
 ---
@@ -88,3 +88,7 @@ Same edits. Drag the seams between compartments.
 
 - 2026-07-17 · Phase 0 setup: engine placed at `packages/construction` (Option A), brief written.
 - 2026-07-17 · Phase 0 COMPLETE (0.1–0.7): shared core done — design model, decompose bridge, layout, instanced render, fps/draw-call overlay, undo/redo. All watcher-reviewed, all fixes applied. Gate: 3 variants render one cabinet, 0 errors, draws 1 / geom 1, fps green. Ready for agy phase review, then Phase 1 (Variant A).
+- 2026-07-17 · Phase 1.1 — tap-to-select + highlight (nodeId, not part id). Watcher-reviewed. Commit 828a095.
+- 2026-07-17 · Phase 1.2 — Variant A resize by direct manipulation (preview-during-drag, one commit on release). Watcher-reviewed. Commit c6a56ab (scene.ts support committed later with 1.3 — c6a56ab alone was missing it).
+- 2026-07-17 · Phase 1.3 — add shelf/divider/door via on-screen action bar; findCabinetOf targets owning cabinet by nodeId; geom stays 1 on add. Watcher-reviewed, no blockers. Commit a8f1a9c.
+- 2026-07-17 · Phase 1.4 — undo/redo buttons wired to History; app.undo/redo rerender + emitChange so bar refreshes. In-browser: undo steps back exactly, geom stays 1, 0 errors. Watcher review in progress.

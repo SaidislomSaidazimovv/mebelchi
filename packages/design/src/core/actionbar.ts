@@ -35,20 +35,31 @@ export function createActionBar(app: AppController): () => void {
   const addDivBtn = mkBtn("+ Toʻsiq", () => { const c = cabId(); if (c) app.commit(addDivider(app.history.project, c)); });
   const doorBtn = mkBtn("Eshik", () => { const c = cabId(); if (c) app.commit(toggleDoor(app.history.project, c)); });
 
-  bar.append(addShelfBtn, addDivBtn, doorBtn);
+  // Undo / redo — driven by History, NOT by selection. app.undo/redo already
+  // rerender + emitChange, so `refresh` below re-derives their enabled-state.
+  const undoBtn = mkBtn("↶", () => app.undo());
+  const redoBtn = mkBtn("↷", () => app.redo());
+
+  bar.append(undoBtn, redoBtn, addShelfBtn, addDivBtn, doorBtn);
   document.body.appendChild(bar);
 
-  // Add actions need a cabinet under selection — dim the buttons when there isn't.
+  const setEnabled = (b: HTMLButtonElement, on: boolean) => {
+    b.disabled = !on;
+    b.style.opacity = on ? "1" : "0.4";
+    b.style.cursor = on ? "pointer" : "default";
+  };
+
+  // Add actions need a cabinet under selection; undo/redo track the history stack.
   const refresh = () => {
-    const enabled = cabId() !== null;
-    for (const b of [addShelfBtn, addDivBtn, doorBtn]) {
-      b.disabled = !enabled;
-      b.style.opacity = enabled ? "1" : "0.4";
-      b.style.cursor = enabled ? "pointer" : "default";
-    }
+    const hasCab = cabId() !== null;
+    for (const b of [addShelfBtn, addDivBtn, doorBtn]) setEnabled(b, hasCab);
+    setEnabled(undoBtn, app.history.canUndo());
+    setEnabled(redoBtn, app.history.canRedo());
   };
   refresh();
-  app.onChange(refresh);
+  const offChange = app.onChange(refresh);
 
-  return () => bar.remove();
+  // Teardown: drop the change-listener BEFORE removing the DOM, so a re-mount
+  // never leaves a stale `refresh` firing against detached buttons (Watcher 1.4 #1).
+  return () => { offChange(); bar.remove(); };
 }
