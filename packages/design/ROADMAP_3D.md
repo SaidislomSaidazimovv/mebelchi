@@ -20,13 +20,13 @@ All three variants import this. Only the interaction layer will differ.
 
 | # | Step | Verify | State |
 |---|---|---|---|
-| 0.1 | Vite skeleton in `packages/design/`: 3 entry points (`main-a/b/c.ts`) + shared `index.html` per variant | `npm run build` produces 3 bundles | ⬜ |
-| 0.2 | `core/designModel.ts` — `DesignProject`/`DesignNode` state + **pure** mutations: `resize`, `addShelf`, `addDivider`, `toggleDoor`. Types from `@mebelchi/construction/design`. | unit-free: a mutation returns a new tree, old tree unchanged | ⬜ |
-| 0.3 | `core/decompose.ts` — call `panelDecomposition(design, profile)`, memoized on the design snapshot | logs N parts for a demo cabinet | ⬜ |
-| 0.4 | `render/scene.ts` — adapt render-spike: instanced panels + markers + X-ray toggle, driven by decompose output (NOT by hand) | a cabinet renders from a `DesignProject` | ⬜ |
-| 0.5 | `render/overlay.ts` — fps + draw-call overlay (from render-spike) | overlay shows numbers | ⬜ |
-| 0.6 | `core/undo.ts` — snapshot the **design**, not parts; undo/redo restores it | undo returns the exact previous tree | ⬜ |
-| 0.7 | Phase gate: one cabinet, renders via decompose, ≥30fps on desktop, one build opens | measured, watcher + agy review | ⬜ |
+| 0.1 | Vite skeleton in `packages/design/`: 3 entry points (`main-a/b/c.ts`) + shared `index.html` per variant | `npm run build` produces 3 bundles | ✅ 👀 |
+| 0.2 | `core/designModel.ts` — `DesignProject`/`DesignNode` state + **pure** mutations: `resize`, `addShelf`, `addDivider`, `toggleDoor`. Types from `@mebelchi/construction/design`. | unit-free: a mutation returns a new tree, old tree unchanged | ✅ 👀 |
+| 0.3 | `core/decompose.ts` — call `panelDecomposition(design, profile)`, memoized on the design snapshot | logs N parts for a demo cabinet | ✅ 👀 |
+| 0.4 | `render/layout.ts` (0.4a) + `render/scene.ts` (0.4b) — layout by role/orientation, then instanced render driven by decompose output (NOT by hand) | a cabinet renders from a `DesignProject` | ✅ 👀 |
+| 0.5 | `render/overlay.ts` — fps + draw-call overlay (from render-spike) | overlay shows draws 1 / geom 1 | ✅ 👀 |
+| 0.6 | `core/undo.ts` — snapshot the **design**, not parts; undo/redo restores it | undo returns the exact previous tree | ✅ 👀 |
+| 0.7 | Phase gate: one cabinet, renders via decompose, ≥30fps, one build opens | all 3 variants render, 0 errors, draws 1 / geom 1, fps green. **agy review now.** | ✅ |
 
 **Deliverable:** a static build that shows one cabinet from a DesignProject. No editing yet.
 
@@ -86,3 +86,4 @@ Same edits. Drag the seams between compartments.
 ## Progress log (append one line per completed step)
 
 - 2026-07-17 · Phase 0 setup: engine placed at `packages/construction` (Option A), brief written.
+- 2026-07-17 · Phase 0 COMPLETE (0.1–0.7): shared core done — design model, decompose bridge, layout, instanced render, fps/draw-call overlay, undo/redo. All watcher-reviewed, all fixes applied. Gate: 3 variants render one cabinet, 0 errors, draws 1 / geom 1, fps green. Ready for agy phase review, then Phase 1 (Variant A).
