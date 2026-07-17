@@ -31,6 +31,14 @@ export interface Scene {
   /** Tint every panel of `nodeId` as selected; null clears the highlight.
    *  Colour only — no geometry, no matrix change. */
   highlight(nodeId: string | null): void;
+  /** Freeze/unfreeze the orbit camera — off while a handle drag is in progress so
+   *  the gesture resizes instead of orbiting. */
+  setControlsEnabled(enabled: boolean): void;
+  /** Clear the fps window so the overlay reflects the edit about to happen, not the
+   *  preceding idle-orbit mean (the "≥30 fps during every edit" bar). */
+  resetMetrics(): void;
+  /** The mm→metre scale, so a variant can convert a world drag delta into mm. */
+  readonly mmScale: number;
   renderer: THREE.WebGLRenderer;
   camera: THREE.PerspectiveCamera;
   dispose(): void;
@@ -192,6 +200,9 @@ export function createScene(): Scene {
 
   return {
     setPanels, frame, pick, highlight, renderer, camera,
+    mmScale: MM,
+    setControlsEnabled(enabled: boolean) { controls.enabled = enabled; },
+    resetMetrics() { metrics.reset(); },
     dispose() {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);

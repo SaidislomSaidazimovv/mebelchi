@@ -28,6 +28,8 @@ export interface AppController {
   select(nodeId: string | null): void;
   /** Register a variant's input-unbind so `dispose` tears it down too. */
   onDispose(unbind: () => void): void;
+  /** Subscribe to state changes (selection / commit / undo). UI refreshes on this. */
+  onChange(cb: () => void): void;
   /** Tear down input listeners and the scene. */
   dispose(): void;
 }
@@ -36,6 +38,8 @@ export function startApp(): AppController {
   const scene = createScene();
   const history = new History(newProject());
   const teardowns: Array<() => void> = [];
+  const changeListeners: Array<() => void> = [];
+  const emitChange = () => { for (const cb of changeListeners) cb(); };
 
   const app: AppController = {
     scene,
@@ -53,15 +57,21 @@ export function startApp(): AppController {
     commit(next) {
       history.push(next);
       this.rerender();
+      emitChange();
     },
 
     select(nodeId) {
       this.selectedNodeId = nodeId;
       scene.highlight(nodeId);
+      emitChange();
     },
 
     onDispose(unbind) {
       teardowns.push(unbind);
+    },
+
+    onChange(cb) {
+      changeListeners.push(cb);
     },
 
     dispose() {

@@ -144,5 +144,20 @@ export function removeNode(project: DesignProject, nodeId: string): DesignProjec
   return next;
 }
 
+/**
+ * The cabinet a selection belongs to: the node itself if it's a cabinet, else the
+ * top-level cabinet whose subtree contains it. So "add a shelf" while a shelf is
+ * selected still adds to the right cabinet. Returns null if nothing matches.
+ */
+export function findCabinetOf(project: DesignProject, nodeId: string | null): DesignNode | null {
+  if (!nodeId) return null;
+  const contains = (n: DesignNode): boolean =>
+    n.nodeId === nodeId || (n.children ?? []).some(contains);
+  for (const n of project.nodes) {
+    if (n.kind === "cabinet" && contains(n)) return n;
+  }
+  return null;
+}
+
 // Re-export the read-only find for selection code (returns the node in the live tree).
 export { findNode };
