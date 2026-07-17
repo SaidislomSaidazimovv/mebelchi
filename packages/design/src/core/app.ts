@@ -18,13 +18,16 @@ export interface AppController {
   readonly history: History;
   /** The nodeId under selection, or null. */
   selectedNodeId: string | null;
-  /** Decompose + lay out + push to the scene; returns the placed panels. Call
-   *  after any design change. */
-  rerender(): PlacedPanel[];
+  /** Decompose + lay out + push to the scene; returns the placed panels. Pass a
+   *  transient project to PREVIEW it (e.g. a live drag) without recording history;
+   *  omit to render the committed `history.project`. */
+  rerender(project?: DesignProject): PlacedPanel[];
   /** Replace the current design (records it in history) and rerender. */
   commit(next: DesignProject): void;
   /** Select a node (or null to clear) and update the highlight. */
   select(nodeId: string | null): void;
+  /** Register a variant's input-unbind so `dispose` tears it down too. */
+  onDispose(unbind: () => void): void;
   /** Tear down input listeners and the scene. */
   dispose(): void;
 }
@@ -32,16 +35,16 @@ export interface AppController {
 export function startApp(): AppController {
   const scene = createScene();
   const history = new History(newProject());
-  let unbindInput = () => {};
+  const teardowns: Array<() => void> = [];
 
   const app: AppController = {
     scene,
     history,
     selectedNodeId: null,
 
-    rerender() {
-      const result = decompose(history.project);
-      const panels = layout(history.project.nodes, result);
+    rerender(project = history.project) {
+      const result = decompose(project);
+      const panels = layout(project.nodes, result);
       scene.setPanels(panels);
       scene.highlight(this.selectedNodeId); // keep the highlight across a rerender
       return panels;
@@ -57,8 +60,12 @@ export function startApp(): AppController {
       scene.highlight(nodeId);
     },
 
+    onDispose(unbind) {
+      teardowns.push(unbind);
+    },
+
     dispose() {
-      unbindInput();
+      for (const t of teardowns) t();
       scene.dispose();
     },
   };
@@ -67,7 +74,7 @@ export function startApp(): AppController {
   const panels = app.rerender();
   app.scene.frame(panels);
 
-  unbindInput = wireTapToSelect(app);
+  app.onDispose(wireTapToSelect(app));
   return app;
 }
 

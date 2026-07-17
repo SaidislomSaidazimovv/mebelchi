@@ -1,4 +1,7 @@
-// Variant A entry. Phase 0.4b: shared static render; this variant's own
-// finger-interaction lands in Phase 1.
+// Variant A — direct-manipulation handles. Tap to select, then grab the cabinet
+// and drag to resize (the right edge follows your finger).
 import { startApp } from "./core/app.ts";
-startApp();
+import { wireResizeA } from "./variants/a-handles/resize.ts";
+
+const app = startApp();
+app.onDispose(wireResizeA(app)); // register the resize unbind for teardown
