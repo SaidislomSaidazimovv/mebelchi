@@ -86,7 +86,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // U2 — Moblo shell state: theme (light default, explicit dark toggle) + the active top-bar tab.
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [tab, setTab] = useState<MobTab>("build");
-  const [toolsOpen, setToolsOpen] = useState(false); // mobile: the add-tools slide-up sheet
+  const [toolsOpen, setToolsOpen] = useState(false); // mobile: the «⋯ ko'proq» slide-up sheet
+  const [rpanel, setRpanel] = useState<"none" | "add" | "material">("none"); // U2.3 right panel
   const scene = useKarkas((s) => s.scene);
   const selectedId = useKarkas((s) => s.selectedId);
   const tapPart = useKarkas((s) => s.tapPart);
@@ -181,7 +182,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const { compact } = useViewport();
   // On compact screens a floating panel becomes a near-full-screen sheet (never overlaps the 3D / another
   // panel); a big ✕ closes it. Spread AFTER the panel's desktop style to override its corner + width.
-  const compactSheet: CSSProperties = compact ? { left: 8, right: 8, top: 8, bottom: 8, width: "auto", maxWidth: "none", maxHeight: "calc(100% - 16px)", overflowY: "auto" } : {};
+  // Mobile: float these panels as a CONTENT-HEIGHT card just ABOVE the bottom bar (not a full-height box),
+  // so a short list (materials legend / joints / hole / app) is only as tall as its content, Moblo-style.
+  const compactSheet: CSSProperties = compact ? { left: 8, right: 8, bottom: 122, top: "auto", width: "auto", maxWidth: "none", maxHeight: "56vh", borderRadius: 16, overflowY: "auto", zIndex: 80 } : {};
   const [activePanel, setActivePanel] = useState<null | "divide" | "corners" | "cutout" | "kromka" | "materials" | "app" | "joints" | "tree" | "spec">(null);
   const togglePanel = (p: NonNullable<typeof activePanel>) => setActivePanel((cur) => (cur === p ? null : p));
   const showDivide = activePanel === "divide";
@@ -893,15 +896,76 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
+      {/* ── U2.3 — Moblo right rail (add ＋ · materials 🎨) + panel. Desktop only for now; on mobile the
+          add tools stay in the «⋯ ko'proq» sheet (FAB) until U2.4 folds everything into sheets/tabs. ── */}
+      {tab === "build" && !compact && (
+        <div className="mob-rightrail">
+          <button className={"mob-hex" + (rpanel === "add" ? " is-active" : "")} title="Qo'shish" aria-label="Qo'shish" type="button" onClick={() => setRpanel((p) => (p === "add" ? "none" : "add"))}><MobPlus /></button>
+          <button className={"mob-round" + (rpanel === "material" ? " is-active" : "")} title="Materiallar" aria-label="Materiallar" type="button" onClick={() => setRpanel((p) => (p === "material" ? "none" : "material"))}><MobPaint /></button>
+        </div>
+      )}
+      {tab === "build" && rpanel !== "none" && (
+        <aside className={"mob-panel" + (compact ? " is-sheet" : "")} style={compact ? undefined : { right: 72 }}>
+          <div className="mob-panel-head">
+            <span>{rpanel === "add" ? "Qo'shish" : "Materiallar"}</span>
+            <button className="mob-x" type="button" onClick={() => setRpanel("none")} aria-label="Yopish">×</button>
+          </div>
+          <div className="mob-panel-body">
+            {rpanel === "add" ? (
+              <>
+                <div className="mob-modeseg">
+                  {([["part", "◇ Bo'lak"], ["space", "▢ Bo'shliq"]] as const).map(([m, label]) => (
+                    <button key={m} type="button" className={"mob-modebtn" + (selMode === m ? " is-active" : "")} onClick={() => setSelMode(m)}>{label}</button>
+                  ))}
+                </div>
+                {selMode === "space" ? (
+                  <div className="mob-addgrid">
+                    <button className="mob-addbtn" type="button" onClick={() => add("shelf")}>＋ Polka 16</button>
+                    <button className="mob-addbtn" type="button" onClick={() => add("shelf", { doubled: true })}>＋ Polka 32</button>
+                    <button className="mob-addbtn" type="button" onClick={() => add("door")}>＋ Eshik</button>
+                    <button className="mob-addbtn" type="button" onClick={() => add("door", { glazed: true })}>＋ Oyna eshik</button>
+                    <button className="mob-addbtn" type="button" onClick={() => add("door", { glazedGrid: { lights: 3 } })}>＋ Vitrina</button>
+                    <button className="mob-addbtn" type="button" onClick={() => add("drawer")}>＋ Yashik</button>
+                    <button className="mob-addbtn" type="button" onClick={() => add("divider")}>＋ Razdelitel</button>
+                    <button className={"mob-addbtn" + (showDivide ? " is-active" : "")} type="button" onClick={() => togglePanel("divide")}>⊟ Bo'lish</button>
+                  </div>
+                ) : (
+                  <p className="mob-hint">Bir taxtani tanlang — so'ng burchak, o'yiq yoki jiyak qo'shing.</p>
+                )}
+                {selectedId && !selectedId.includes("__div_") && (
+                  <div className="mob-addgrid" style={{ marginTop: 10 }}>
+                    <button className={"mob-addbtn" + (showCorners ? " is-active" : "")} type="button" onClick={() => togglePanel("corners")}>⌜ Burchak</button>
+                    <button className={"mob-addbtn" + (showCutout ? " is-active" : "")} type="button" onClick={() => togglePanel("cutout")}>▢ O'yiq</button>
+                    <button className={"mob-addbtn" + (showKromka ? " is-active" : "")} type="button" onClick={() => togglePanel("kromka")}>▤ Jiyak</button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <MatSelect label="Korpus" slot="carcass" />
+                <MatSelect label="Fasad" slot="facade" />
+                <MatSelect label="Polka" slot="shelf" />
+                <MatSelect label="Orqa" slot="back" />
+                <button className={"mob-addbtn" + (showMaterials ? " is-active" : "")} type="button" style={{ width: "100%", marginTop: 12 }} onClick={() => { togglePanel("materials"); if (compact) setRpanel("none"); }}>▦ {matFilter ? "Ajratilgan ✓" : "3D'da ajratish"}</button>
+              </>
+            )}
+          </div>
+        </aside>
+      )}
+
       {/* ── mobile bottom tab bar (CSS-hidden on desktop, which uses the top tabs) ── */}
       <nav className="mob-tabbar" role="tablist" aria-label="Rejim">
         {MOB_TABS.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} className={"mob-tabbar-btn" + (tab === t.id ? " is-active" : "")} onClick={() => setTab(t.id)} type="button">{t.label}</button>
         ))}
       </nav>
-      {/* ── mobile ＋ FAB → toggles the add-tools sheet ── */}
+      {/* ── mobile FAB group: ＋ Qo'shish (add sheet) · 🎨 Materiallar (materials sheet) · ⋯ Ko'proq ── */}
       {tab === "build" && compact && (
-        <button className="mob-fab" type="button" onClick={() => setToolsOpen((o) => !o)} aria-label="Asboblar">{toolsOpen ? "×" : <MobPlus />}</button>
+        <div className="mob-fabgroup">
+          <button className="mob-fab-mini" type="button" title="Ko'proq" aria-label="Ko'proq" onClick={() => setToolsOpen((o) => !o)}>⋯</button>
+          <button className={"mob-fab-mini" + (rpanel === "material" ? " is-active" : "")} type="button" title="Materiallar" aria-label="Materiallar" onClick={() => setRpanel((p) => (p === "material" ? "none" : "material"))}><MobPaint /></button>
+          <button className="mob-fab" type="button" title="Qo'shish" aria-label="Qo'shish" onClick={() => setRpanel((p) => (p === "add" ? "none" : "add"))}>{rpanel === "add" ? "×" : <MobPlus />}</button>
+        </div>
       )}
       {/* Step 3.3a (v4 §5 readout law) — the selection's dimensions in a FIXED top-centre strip, never
           hidden by the hand. Updates live during a drag/resize (later pieces). 2 axes only (face w×h). */}
@@ -1005,52 +1069,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* Phase 4 — edit toolbar. It stays WRAP (never overflow-clip, else the ＋Polka/＋Eshik/🎨 popovers get
           cut off); on compact the «⋯ Ko'proq» menu removes the 10 secondary tools so it stays short. */}
       <div style={editbar}>
-        {/* Step 3.2 (v4 §5) — the two permanent selection modes; Space-select reveals the add toolset. */}
-        <div style={{ display: "flex", gap: 2, background: "#eef0f3", borderRadius: 8, padding: 2, marginRight: 4 }}>
-          {([["part", "◇ Bo'lak", "Bo'lakni tanlash / tahrirlash"], ["space", "▢ Bo'shliq", "Bo'shliqqa qo'shish"]] as const).map(([m, label, title]) => (
-            <button key={m} onClick={() => setSelMode(m)} title={title} type="button" style={{ border: "none", borderRadius: 6, padding: "4px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer", ...(selMode === m ? { background: "#fff", color: "#1f5570", boxShadow: "0 1px 2px rgba(0,0,0,0.12)" } : { background: "transparent", color: "#6b7280" }) }}>{label}</button>
-          ))}
-        </div>
-        {selMode === "space" && (<>
-        <div style={popWrap}>
-          <button style={{ ...act, ...(menu === "polka" ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "polka" ? null : "polka"); }} type="button">＋ Polka ▾</button>
-          {menu === "polka" && (
-            <div style={popover}>
-              <button style={popItem} onClick={() => add("shelf")} type="button">Oddiy polka · 16мм</button>
-              <button style={popItem} onClick={() => add("shelf", { doubled: true })} type="button">Qalin polka · 32мм</button>
-            </div>
-          )}
-        </div>
-        <div style={popWrap}>
-          <button style={{ ...act, ...(menu === "eshik" ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "eshik" ? null : "eshik"); }} type="button">＋ Eshik ▾</button>
-          {menu === "eshik" && (
-            <div style={popover}>
-              <button style={popItem} onClick={() => add("door")} type="button">Oddiy eshik</button>
-              <button style={popItem} onClick={() => add("door", { glazed: true })} type="button">Oyna eshik</button>
-              <button style={popItem} onClick={() => add("door", { glazedGrid: { lights: 3 } })} type="button">Витрина · 3 oyna</button>
-            </div>
-          )}
-        </div>
-        <button style={act} onClick={() => add("drawer")} type="button">＋ Yashik</button>
-        <button style={act} onClick={() => add("divider")} type="button">＋ Razdelitel</button>
-        <button style={{ ...act, ...(showDivide ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => togglePanel("divide")} type="button">⊟ Bo'lish…</button>
-        {/* Step 4b — corner rounding on the selected panel (not a divider) */}
-        {selectedId && !selectedId.includes("__div_") && (
-          <button style={{ ...act, ...(showCorners ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => togglePanel("corners")} type="button">⌜ Burchak…</button>
-        )}
-        {selectedId && !selectedId.includes("__div_") && (
-          <button style={{ ...act, ...(showCutout ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => togglePanel("cutout")} type="button">▢ O'yiq…</button>
-        )}
-        {selectedId && !selectedId.includes("__div_") && (
-          <button style={{ ...act, ...(showKromka ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => togglePanel("kromka")} type="button">▤ Jiyak…</button>
-        )}
-        </>)}
+        {/* U2.3 — the add tools (Bo'lak/Bo'shliq · Polka/Eshik/Yashik/Razdelitel/Bo'lish · Burchak/O'yiq/Jiyak)
+            moved to the right ＋ panel — a side panel on desktop, a bottom sheet (＋ FAB) on mobile. */}
         {/* U2.2 — undo/redo + render-mode moved to the Moblo left toolbar */}
-        {/* Compact toolbar (mobile/tablet): the view/action cluster collapses into a «⋯ Ko'proq» dropdown */}
-        {compact && (
-          <button style={{ ...act, ...(menu === "tools" ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : {}) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "tools" ? null : "tools"); }} type="button">⋯ Ko'proq</button>
-        )}
-        <div style={!compact ? { display: "contents" } : (menu === "tools" ? { position: "fixed", right: 8, top: 108, zIndex: 70, display: "flex", flexDirection: "column", gap: 6, background: "#fff", borderRadius: 12, boxShadow: "0 8px 28px rgba(0,0,0,0.22)", padding: 10, maxHeight: "72vh", overflowY: "auto", minWidth: 196 } : { display: "none" })}>
+        {/* U2.3 — on mobile these tools show DIRECTLY inside the «⋯ Asboblar» sheet (no nested dropdown) */}
+        <div style={!compact ? { display: "contents" } : { display: "flex", flexWrap: "wrap", gap: 8, width: "100%" }}>
         {/* Step 5 — materials view: list the decors in use; click one to isolate it in 3D */}
         <button style={{ ...act, ...(showMaterials ? { borderColor: "#8a6d1f", background: "#f7efd8", color: "#8a6d1f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => togglePanel("materials")} type="button">▦ {matFilter ? "Material ✓" : "Materiallar"}</button>
         {/* U2.2 — inside / facade / holes view toggles moved to the Moblo left toolbar */}
@@ -1215,9 +1238,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </div>
       )}
       </div>}
-      {/* ── U2.1 — the 3D stage is now full-bleed (Moblo); chrome floats over it. The .mob-viewport class
-          carries the themed background gradient (light / dark), behind the alpha canvas. ── */}
-      <div className="mob-viewport" style={{ zIndex: 0 }}>
+      {/* ── U2.1 — the 3D stage is full-bleed (Moblo); chrome floats over it. The .mob-viewport class
+          carries the themed background gradient. NO z-index here: the canvas stays behind the chrome by
+          DOM order, but the floating panels inside (z 40-80) must escape into the root stacking context
+          so they layer ABOVE the top/bottom bars (a z-index here would trap them below the chrome). ── */}
+      <div className="mob-viewport">
         <div ref={mountRef} style={{ position: "absolute", inset: 0 }} />
         {/* Step 4b (fixture 04b-round-00) — 3D corner chips: a «＋» at each of the selected panel's 4 face
             corners; tap to round it (30mm), tap a rounded one (green, shows its radius) to square it again.
@@ -1513,7 +1538,7 @@ function TreePanel({ onClose }: { onClose: () => void }) {
   const tapPart = useKarkas((s) => s.tapPart);
   const rows = estimate(parts, plan).parts;
   return (
-    <div style={compact ? { ...treePanel, right: 0, width: "auto", zIndex: 46 } : treePanel}>
+    <div style={compact ? { ...treePanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : treePanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Detallar ({rows.length})</b>
         <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
@@ -1582,7 +1607,7 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
   }, [parts, model.features]);
   const kromkaVars = Object.entries(kromkaByVar).filter(([, mm10]) => mm10 > 0);
   return (
-    <div style={compact ? { ...specPanel, left: 0, width: "auto", zIndex: 46 } : specPanel}>
+    <div style={compact ? { ...specPanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : specPanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Спецификация</b>
         <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
@@ -1711,6 +1736,7 @@ function MobHoles() { return <svg {...MOB_ICO}><circle cx="8" cy="8" r="1.4" /><
 function MobCamera() { return <svg {...MOB_ICO}><path d="M4 8h3l2-2h6l2 2h3v11H4z" /><circle cx="12" cy="13" r="3.2" /></svg>; }
 function MobTarget() { return <svg {...MOB_ICO}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>; }
 function MobPlus() { return <svg {...MOB_ICO} width={24} height={24} strokeWidth={2.4}><path d="M12 5v14M5 12h14" /></svg>; }
+function MobPaint() { return <svg {...MOB_ICO}><rect x="4" y="3" width="12" height="8" rx="2" /><path d="M16 7h3v5a3 3 0 0 1-3 3h-2v4" /><path d="M10 15v3" /></svg>; }
 const mono: CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#5c6a61" };
 const dimField: CSSProperties = { display: "flex", alignItems: "center", gap: 2, border: "1px solid #d8d2c4", borderRadius: 7, padding: "1px 3px", background: "#fff" };
 const dimLabel: CSSProperties = { fontFamily: "system-ui", fontSize: 11, fontWeight: 700, color: "#8a6d1f", width: 12, textAlign: "center" };

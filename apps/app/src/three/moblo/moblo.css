@@ -282,13 +282,20 @@
   border-top: 2px solid transparent; padding: 0 4px;
 }
 .mob-tabbar-btn.is-active { color: var(--mob-accent); border-top-color: var(--mob-accent); background: var(--mob-accent-soft); }
+.mob-fabgroup { display: none; }
 .mob-fab {
-  display: none;
-  position: absolute; right: 16px; bottom: 132px;
-  width: 52px; height: 52px; border-radius: 16px; place-items: center;
+  display: grid; place-items: center;
+  width: 52px; height: 52px; border-radius: 16px;
   border: 0; background: var(--mob-accent); color: #fff; font-size: 24px;
-  box-shadow: 0 6px 18px rgba(47,107,255,.45); z-index: 7; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(47,107,255,.45); cursor: pointer;
 }
+.mob-fab-mini {
+  display: grid; place-items: center;
+  width: 44px; height: 44px; border-radius: 14px;
+  border: 1px solid var(--mob-border); background: var(--mob-surface); color: var(--mob-ink);
+  box-shadow: var(--mob-shadow-sm); cursor: pointer; font-size: 18px;
+}
+.mob-fab-mini.is-active { background: var(--mob-accent); border-color: var(--mob-accent); color: #fff; }
 .mob-sheet-head {
   display: none; align-items: center; justify-content: space-between;
   font-weight: 650; font-size: 15px; padding: 2px 2px 10px;
@@ -303,7 +310,8 @@
   .mob-top-left { grid-column: 1; }
   .mob-top-right { grid-column: 3; }
   .mob-tabbar { display: flex; }
-  .mob-fab { display: grid; }
+  .mob-fabgroup { display: flex; flex-direction: column; align-items: center; gap: 10px; position: absolute; right: 16px; bottom: 70px; z-index: 7; }
+  .mob-panel.is-sheet { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none; max-height: 66vh; border-radius: 16px 16px 0 0; z-index: 8; }
   .mob-doc-name { max-width: 130px; }
   .mob-lefttools { top: 64px; gap: 7px; max-height: calc(100vh - 220px); }
   .mob-lefttools .mob-round { width: 38px; height: 38px; }
@@ -326,14 +334,24 @@
  * The pre-Moblo toolbars float in this card while each cluster migrates to its Moblo zone
  * (left toolbar / right panel / bottom bar) in U2.2–U2.4; then this card is removed. */
 .mob-legacy {
-  position: absolute; top: 70px; right: 14px; left: auto;
-  width: min(520px, 66vw); max-height: calc(100vh - 190px);
+  position: absolute; bottom: 78px; left: 70px; top: auto; right: auto;
+  width: min(480px, 52vw); max-height: 34vh;
   overflow: auto; display: flex; flex-direction: column; gap: 8px;
   padding: 10px 12px;
   background: var(--mob-surface); border: 1px solid var(--mob-border);
   border-radius: var(--mob-radius); box-shadow: var(--mob-shadow);
   z-index: 5;
 }
+
+/* ── U2.3 — right ＋ panel content: mode segment · add-tool grid · material rows ── */
+.mob-modeseg { display: flex; gap: 3px; background: var(--mob-surface-2); border-radius: 9px; padding: 3px; margin-bottom: 12px; }
+.mob-modebtn { flex: 1; appearance: none; border: 0; cursor: pointer; border-radius: 7px; padding: 7px 0; font: 600 13px Inter, system-ui, sans-serif; background: transparent; color: var(--mob-muted); }
+.mob-modebtn.is-active { background: var(--mob-surface); color: var(--mob-accent); box-shadow: var(--mob-shadow-sm); }
+.mob-addgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mob-addbtn { appearance: none; cursor: pointer; border: 1px solid var(--mob-border); background: var(--mob-surface-2); color: var(--mob-ink); border-radius: 10px; padding: 10px 8px; font: 600 12.5px Inter, system-ui, sans-serif; text-align: center; }
+.mob-addbtn:hover { border-color: var(--mob-accent); color: var(--mob-accent); }
+.mob-addbtn.is-active { border-color: var(--mob-accent); background: var(--mob-accent-soft); color: var(--mob-accent); }
+.mob-hint { font-size: 12.5px; color: var(--mob-faint); line-height: 1.5; margin: 4px 2px; }
 .mob-dim { cursor: text; }
 .mob-dim-input {
   width: 56px; border: none; background: transparent;
