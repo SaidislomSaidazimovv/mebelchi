@@ -47,4 +47,28 @@ describe("E1.4 · a Run lays out end-to-end and manufactures every block", () =>
     expect(placementX(ps, "b1__side_l")).toBe(0);
     expect(placementX(ps, "b2__side_l")).toBe(24000); // block 2 moves to the new midpoint
   });
+
+  it("a shelf inside a POSITIONED run-block spans its carcass correctly (block-local edge detection)", () => {
+    // A run of two shelf cabinets; block 2 ends up at x=15000. Its shelf must span the FULL carcass
+    // interior (a whole board inset on each side), not the half-board inset shelfSpanX gives an interior
+    // divider — the bug when edges are tested with `section.box.x === block.box.x` on a positioned block.
+    const mkShelfBlock = (id: string, w: number): Block => {
+      const box = { x: 0, y: 0, z: 0, w, h: 7200, d: 5600 };
+      const root: Section = { id: `${id}_root`, box: { ...box }, dividers: [], children: [], instanceIds: [`${id}_i`], purpose: "storage" };
+      return {
+        id, name: id, box,
+        zones: [{ id: `${id}_z`, name: "Корпус", rule: "manual", root }],
+        components: [{ id: `${id}_cmp`, name: "Полка", partIds: [], role: "internal_shelf" }],
+        instances: [{ id: `${id}_i`, componentId: `${id}_cmp`, sectionId: `${id}_root`, anchor: { x: 0, y: 3600, z: 0 }, link: "linked" }],
+        lines: [], rows: [],
+      };
+    };
+    const model: StructuralModel = { id: "m", name: "m", blocks: [mkShelfBlock("b1", 6000), mkShelfBlock("b2", 6000)], parts: [] };
+    const run = resolveRun(groupBlocks(model, ["b1", "b2"], { id: "run1" }), "run1", 30000); // each 1500mm
+    const ps = solveLayout(run);
+    const shelf2 = ps.find((p) => p.id === "b2__inst_b2_i")!;
+    // block 2 at x=15000, width 15000, carcass board 160 → shelf spans [15000+160, 30000-160], width 14680.
+    expect(shelf2.x_mm10).toBe(15160);
+    expect(shelf2.w_mm10).toBe(14680);
+  });
 });

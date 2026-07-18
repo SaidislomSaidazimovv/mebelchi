@@ -322,8 +322,12 @@ function componentById(block: Block, componentId: string): Component | null {
  * (layout) so they always agree.
  */
 export function shelfSpanX(block: Block, section: Section, board: mm10): { x0: mm10; width: mm10 } {
-  const atLeftEdge = section.box.x === block.box.x;
-  const atRightEdge = section.box.x + section.box.w === block.box.x + block.box.w;
+  // Sections are BLOCK-LOCAL (0-based within the block); `block.box.x` is the block's run position,
+  // added by the layout. So the block's own edges in the section frame are 0 and `block.box.w` — NOT
+  // `block.box.x`. (Identical when the block sits at x=0, so single-block cut lists are unchanged;
+  // correct for a block positioned in a run, where box.x ≠ 0.)
+  const atLeftEdge = section.box.x === 0;
+  const atRightEdge = section.box.x + section.box.w === block.box.w;
   const li = atLeftEdge ? board : Math.round(board / 2);
   const ri = atRightEdge ? board : Math.round(board / 2);
   return { x0: li, width: section.box.w - li - ri };
@@ -334,8 +338,11 @@ export function shelfSpanX(block: Block, section: Section, board: mm10): { x0: m
  *  CENTRED on the cut → half a board in. Used by the shelf vertical distribution (equal openings even
  *  when a section is bounded by a divider) and by a vertical divider's own span. */
 export function shelfSpanY(block: Block, section: Section, board: mm10): { y0: mm10; height: mm10 } {
-  const atBottomEdge = section.box.y === block.box.y;
-  const atTopEdge = section.box.y + section.box.h === block.box.y + block.box.h;
+  // Block-local edges (see shelfSpanX): the block's bottom/top in the section frame are 0 and
+  // `block.box.h`, not `block.box.y`. Identical at y=0 (blocks are never positioned in Y), correct
+  // if they ever are.
+  const atBottomEdge = section.box.y === 0;
+  const atTopEdge = section.box.y + section.box.h === block.box.h;
   const bi = atBottomEdge ? board : Math.round(board / 2);
   const ti = atTopEdge ? board : Math.round(board / 2);
   return { y0: bi, height: section.box.h - bi - ti };
