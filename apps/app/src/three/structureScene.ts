@@ -7,7 +7,8 @@
 // entirely parallel to the kitchen Cell 3D (kitchen3d.ts) — nothing here touches that path.
 
 import type { PanelPlacement } from "../../../../engine/structure/layout.js";
-import type { PanelFeatures } from "../../../../engine/contracts/structure.js";
+import type { PanelFeatures, StructuralModel } from "../../../../engine/contracts/structure.js";
+import { leafSections } from "../../../../engine/contracts/structure.js";
 
 /** A render-ready box: centre + full size, in metres (three.js units). */
 export interface Board {
@@ -110,6 +111,31 @@ export function layoutBounds(panels: readonly PanelPlacement[]): { cx: number; c
     minZ = Math.min(minZ, p.z_mm10); maxZ = Math.max(maxZ, p.z_mm10 + p.d_mm10);
   }
   return { cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2, minY, ctrX: (minX + maxX) / 2, ctrY: (minY + maxY) / 2, ctrZ: (minZ + maxZ) / 2 };
+}
+
+/** U3.1 — the world-space box (metres, scene coords) of every leaf section (compartment), recentred
+ *  exactly like the boards. The editor drops an invisible hit-box on each so the master can TAP the
+ *  compartment he wants to add into, instead of picking a numbered «1-bo'lim / 2-bo'lim». Section boxes
+ *  are block-local (0-based); the block origin carries its run position, so world = block.box + section.box. */
+export function leafSectionBoxes(
+  model: StructuralModel,
+  panels: readonly PanelPlacement[],
+): { id: string; center: [number, number, number]; size: [number, number, number] }[] {
+  const { cx, cz, minY } = layoutBounds(panels);
+  const out: { id: string; center: [number, number, number]; size: [number, number, number] }[] = [];
+  for (const b of model.blocks) {
+    for (const z of b.zones) {
+      for (const s of leafSections(z.root)) {
+        const wx = b.box.x + s.box.x, wy = b.box.y + s.box.y, wz = b.box.z + s.box.z;
+        out.push({
+          id: s.id,
+          center: [M(wx + s.box.w / 2 - cx), M(wy + s.box.h / 2 - minY), M(wz + s.box.d / 2 - cz)],
+          size: [M(s.box.w), M(s.box.h), M(s.box.d)],
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /** Overall cabinet size in millimetres — for a dimension readout. */
