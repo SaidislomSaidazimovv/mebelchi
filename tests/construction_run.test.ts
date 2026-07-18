@@ -4,7 +4,14 @@
 // absorb), resizes each carcass, and lays them end-to-end with no gap. Blocks stay BLOCK-LOCAL (sections
 // reflow from 0) with box-origin carrying the run position — the convention solveLayout renders by.
 import { describe, it, expect } from "vitest";
-import { resolveRun, runFitStatus } from "../engine/structure/operations.js";
+import {
+  addBlockToRun,
+  groupBlocks,
+  removeBlockFromRun,
+  resolveRun,
+  runFitStatus,
+  ungroupBlocks,
+} from "../engine/structure/operations.js";
 import type { Block, Section, StructuralModel } from "../engine/contracts/structure.js";
 import type { DivisionRule } from "../engine/contracts/variables.js";
 
@@ -92,5 +99,70 @@ describe("E1 · Run — resolveRun fits a wall exactly", () => {
       expect(xs(out)).toEqual([0, w[0]!, w[0]! + w[1]!]); // always end-to-end
       expect(runFitStatus(out, "run1", wall)).toBe(wall >= 6000 ? "ok" : "over-constrained");
     }
+  });
+});
+
+/** Three loose blocks with gaps between them (widths 600 / 600 / 600 mm), NO run yet. */
+const mkLoose = (): StructuralModel => {
+  const at = (id: string, w: number, x: number): Block => {
+    const b = mkBlock(id, w);
+    return { ...b, box: { ...b.box, x } };
+  };
+  return {
+    id: "loose", name: "loose",
+    blocks: [at("b1", 6000, 0), at("b2", 6000, 9000), at("b3", 6000, 20000)], // gappy
+    parts: [],
+  };
+};
+
+describe("E1.3 · grouping operations — group / ungroup / add / remove", () => {
+  it("groupBlocks combines cabinets into a run and tiles them end-to-end (removes gaps, does NOT resize)", () => {
+    const out = groupBlocks(mkLoose(), ["b1", "b2", "b3"], { id: "run1" });
+    expect(out.runs).toHaveLength(1);
+    expect(out.runs![0]!.members.map((m) => m.blockId)).toEqual(["b1", "b2", "b3"]);
+    expect(widths(out)).toEqual([6000, 6000, 6000]); // widths UNCHANGED (no resize on group)
+    expect(xs(out)).toEqual([0, 6000, 12000]); // gaps removed, laid end-to-end from b1's position
+    expect(out.runs![0]!.length_mm10).toBe(18000); // = sum of member widths
+    expect(runFitStatus(out, "run1", 18000)).toBe("ok");
+  });
+
+  it("group (all Flex) then resolveRun redistributes to fit a wall exactly", () => {
+    const grouped = groupBlocks(mkLoose(), ["b1", "b2", "b3"], { id: "run1" });
+    const out = resolveRun(grouped, "run1", 40000); // 4m wall, 3 flex → ~equal thirds
+    expect(widths(out).reduce((a, b) => a + b, 0)).toBe(40000);
+    expect(Math.max(...widths(out)) - Math.min(...widths(out))).toBeLessThanOrEqual(1); // near-equal
+  });
+
+  it("ungroupBlocks dissolves the run; the blocks keep their positions/sizes", () => {
+    const grouped = groupBlocks(mkLoose(), ["b1", "b2", "b3"], { id: "run1" });
+    const out = ungroupBlocks(grouped, "run1");
+    expect(out.runs).toBeUndefined();
+    expect(xs(out)).toEqual(xs(grouped)); // positions unchanged by ungroup
+  });
+
+  it("addBlockToRun appends a block; the run grows and re-tiles", () => {
+    const base = groupBlocks(mkLoose(), ["b1", "b2"], { id: "run1" }); // run of 2 (length 12000)
+    const out = addBlockToRun(base, "run1", "b3");
+    expect(out.runs![0]!.members.map((m) => m.blockId)).toEqual(["b1", "b2", "b3"]);
+    expect(out.runs![0]!.length_mm10).toBe(18000); // grew by b3's 6000
+    expect(xs(out)).toEqual([0, 6000, 12000]);
+  });
+
+  it("removeBlockFromRun shrinks the run; removing the last member dissolves it", () => {
+    const run3 = groupBlocks(mkLoose(), ["b1", "b2", "b3"], { id: "run1" });
+    const two = removeBlockFromRun(run3, "run1", "b3");
+    expect(two.runs![0]!.members.map((m) => m.blockId)).toEqual(["b1", "b2"]);
+    expect(two.runs![0]!.length_mm10).toBe(12000);
+    const one = removeBlockFromRun(two, "run1", "b2");
+    const none = removeBlockFromRun(one, "run1", "b1");
+    expect(none.runs).toBeUndefined(); // last member removed → run dissolved
+  });
+
+  it("guards: <2 blocks, unknown block, and a block already in a run all throw", () => {
+    expect(() => groupBlocks(mkLoose(), ["b1"], {})).toThrow("GROUP_NEEDS_2_BLOCKS");
+    expect(() => groupBlocks(mkLoose(), ["b1", "ghost"], {})).toThrow("GROUP_BLOCK_NOT_FOUND");
+    const grouped = groupBlocks(mkLoose(), ["b1", "b2"], { id: "run1" });
+    expect(() => groupBlocks(grouped, ["b2", "b3"], { id: "run2" })).toThrow("GROUP_BLOCK_ALREADY_IN_RUN");
+    expect(() => addBlockToRun(grouped, "run1", "b1")).toThrow("ADD_BLOCK_ALREADY_IN_RUN");
   });
 });

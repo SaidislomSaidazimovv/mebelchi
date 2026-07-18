@@ -40,6 +40,7 @@ import type {
   LineId,
   Run,
   RunId,
+  RunMember,
   Scope,
   Section,
   SectionId,
@@ -1199,13 +1200,36 @@ function runMembers(model: StructuralModel, run: Run): { rule: DivisionRule; blo
     .filter((x): x is { rule: DivisionRule; block: Block } => x.block !== undefined);
 }
 
+/** Reflow a block to width `w` along `axis` (its sections re-based BLOCK-LOCAL from 0) and place its left
+ *  edge at `cursor`. The per-member primitive shared by `resolveRun` (rule-solved widths) and `layRun`
+ *  (current widths). L-corner blocks scale proportionally; plain blocks solve rule-aware. */
+function placeMemberBlock(block: Block, axis: Axis, w: mm10, cursor: mm10): Block {
+  const old = extentOf(block.box, axis);
+  const local = { ...block, box: withAxis(block.box, axis, 0, old) }; // normalise origin → block-local
+  const reflowed = block.footprint ? scaleBlockAxis(local, axis, w / old) : resolveBlockAxis(local, axis, w);
+  return { ...reflowed, box: withAxis(reflowed.box, axis, cursor, w) };
+}
+
+/** Lay a run's members end-to-end from its current left edge, each at the width `widthOf` gives it. */
+function layRun(model: StructuralModel, run: Run, widthOf: (block: Block, i: number) => mm10): StructuralModel {
+  const members = runMembers(model, run);
+  if (members.length === 0) return model;
+  let cursor = originOf(members[0]!.block.box, run.axis); // keep the run's left edge where it was
+  const placed = new Map<BlockId, Block>();
+  members.forEach(({ block }, i) => {
+    const w = widthOf(block, i);
+    placed.set(block.id, placeMemberBlock(block, run.axis, w, cursor));
+    cursor += w;
+  });
+  return { ...model, blocks: model.blocks.map((b) => placed.get(b.id) ?? b) };
+}
+
 /**
- * Re-solve a `Run` to a new wall length: distribute `newLength_mm10` across the run's member blocks via
- * the constraint solver (`resolveChain` — Fixed keeps its width, Ratio shares the pool, Flex absorbs the
- * leftover), resize each member's carcass to its solved width, and lay the members end-to-end along the
- * run axis so they tile the wall with no gap. The run's left edge stays put. Pure/immutable; no-op (same
- * ref) when the run is unknown or has no surviving members. Each block keeps its sections BLOCK-LOCAL
- * (reflowed from 0) with `box`-origin carrying the run position — the convention `solveLayout` renders by.
+ * Re-solve a `Run` to a new wall length: distribute `newLength_mm10` across the member blocks via the
+ * constraint solver (`resolveChain` — Fixed keeps its width, Ratio shares the pool, Flex absorbs the
+ * leftover), resize each member's carcass, and lay them end-to-end so they tile the wall with no gap.
+ * Works for ANY wall length — the length is a PARAMETER, not a constant. Pure/immutable; no-op (same ref)
+ * when the run is unknown or has no surviving members.
  */
 export function resolveRun(model: StructuralModel, runId: RunId, newLength_mm10: mm10): StructuralModel {
   if (!Number.isInteger(newLength_mm10) || newLength_mm10 <= 0) throw new Error("RUN_INVALID_LENGTH");
@@ -1213,29 +1237,11 @@ export function resolveRun(model: StructuralModel, runId: RunId, newLength_mm10:
   if (!run) return model; // unknown run → no-op
   const members = runMembers(model, run);
   if (members.length === 0) return model;
-
-  // 1. Solve every member's width against the wall length (star-sizing over the block-level rules).
   const zones: ChainZone[] = members.map(({ rule, block }) => ({ rule, currentSize: extentOf(block.box, run.axis) }));
   const { sizes } = resolveChain(newLength_mm10, zones);
-
-  // 2. Resize each member to its solved width (sections reflow block-local from 0), then lay them out
-  //    end-to-end from the run's current left edge.
-  let cursor = originOf(members[0]!.block.box, run.axis); // keep the run's left edge where it was
-  const resized = new Map<BlockId, Block>();
-  members.forEach(({ block }, i) => {
-    const w = sizes[i]!;
-    const old = extentOf(block.box, run.axis);
-    const local = { ...block, box: withAxis(block.box, run.axis, 0, old) }; // normalise origin → block-local
-    const reflowed = block.footprint
-      ? scaleBlockAxis(local, run.axis, w / old) // L-corner → proportional (rules are box-only)
-      : resolveBlockAxis(local, run.axis, w); // plain block → rule-aware constraint solve
-    resized.set(block.id, { ...reflowed, box: withAxis(reflowed.box, run.axis, cursor, w) });
-    cursor += w;
-  });
-
-  const blocks = model.blocks.map((b) => resized.get(b.id) ?? b);
+  const laid = layRun(model, run, (_b, i) => sizes[i]!);
   const runs = model.runs!.map((r) => (r.id === runId ? { ...r, length_mm10: newLength_mm10 } : r));
-  return { ...model, blocks, runs };
+  return { ...laid, runs };
 }
 
 /**
@@ -1255,6 +1261,80 @@ export function runFitStatus(
     currentSize: extentOf(block.box, run.axis),
   }));
   return resolveChain(length_mm10, zones).status;
+}
+
+/** Options for `groupBlocks`. */
+export interface GroupBlocksOpts {
+  readonly id?: RunId;
+  readonly name?: string;
+  /** The wall axis the blocks line up along. Default `"x"`. */
+  readonly axis?: Axis;
+  /** Per-block width rule, by blockId; any block not listed defaults to Flex. */
+  readonly rules?: Readonly<Record<BlockId, DivisionRule>>;
+}
+
+/** Every blockId already claimed by some run (a block belongs to at most one run). */
+function blocksInRuns(model: StructuralModel): Set<BlockId> {
+  return new Set((model.runs ?? []).flatMap((r) => r.members.map((m) => m.blockId)));
+}
+
+/**
+ * Combine ≥2 existing blocks into a new `Run` (the master's "make these cabinets one unit"). The members
+ * are laid end-to-end at their CURRENT widths in `blockIds` order — grouping removes gaps, it does NOT
+ * resize; `resolveRun` resizes them to a wall later. Each member takes its rule from `opts.rules` (else
+ * Flex). Throws on <2 blocks, an unknown block, or a block already in a run.
+ */
+export function groupBlocks(model: StructuralModel, blockIds: readonly BlockId[], opts: GroupBlocksOpts = {}): StructuralModel {
+  const ids = [...new Set(blockIds)];
+  if (ids.length < 2) throw new Error("GROUP_NEEDS_2_BLOCKS");
+  const byId = new Map(model.blocks.map((b) => [b.id, b] as const));
+  const claimed = blocksInRuns(model);
+  for (const id of ids) {
+    if (!byId.has(id)) throw new Error("GROUP_BLOCK_NOT_FOUND");
+    if (claimed.has(id)) throw new Error("GROUP_BLOCK_ALREADY_IN_RUN");
+  }
+  const axis = opts.axis ?? "x";
+  const members: RunMember[] = ids.map((id) => ({ blockId: id, rule: opts.rules?.[id] ?? { kind: "flex" } }));
+  const length = ids.reduce((sum, id) => sum + extentOf(byId.get(id)!.box, axis), 0);
+  const run: Run = { id: opts.id ?? `run__${ids.join("-")}`, name: opts.name ?? "Ряд", axis, members, length_mm10: length };
+  const withRun: StructuralModel = { ...model, runs: [...(model.runs ?? []), run] };
+  return layRun(withRun, run, (b) => extentOf(b.box, axis)); // tile at current widths (no resize)
+}
+
+/** Dissolve a run: its member blocks become independent again, keeping their current positions/sizes.
+ *  No-op (same ref) when the run is unknown. */
+export function ungroupBlocks(model: StructuralModel, runId: RunId): StructuralModel {
+  if (!model.runs?.some((r) => r.id === runId)) return model;
+  const runs = model.runs.filter((r) => r.id !== runId);
+  return { ...model, runs: runs.length > 0 ? runs : undefined };
+}
+
+/** Append a block to a run: it joins at the right end, tiled (not resized); the run grows by its width.
+ *  Throws on an unknown run/block or a block already in a run. */
+export function addBlockToRun(model: StructuralModel, runId: RunId, blockId: BlockId, rule?: DivisionRule): StructuralModel {
+  const run = model.runs?.find((r) => r.id === runId);
+  if (!run) throw new Error("ADD_RUN_NOT_FOUND");
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block) throw new Error("ADD_BLOCK_NOT_FOUND");
+  if (blocksInRuns(model).has(blockId)) throw new Error("ADD_BLOCK_ALREADY_IN_RUN");
+  const members: RunMember[] = [...run.members, { blockId, rule: rule ?? { kind: "flex" } }];
+  const newRun: Run = { ...run, members, length_mm10: run.length_mm10 + extentOf(block.box, run.axis) };
+  const withRun: StructuralModel = { ...model, runs: model.runs!.map((r) => (r.id === runId ? newRun : r)) };
+  return layRun(withRun, newRun, (b) => extentOf(b.box, run.axis));
+}
+
+/** Remove a block from a run: it becomes independent, the run shrinks by its width. Removing the last
+ *  member dissolves the run. No-op (same ref) when the run is unknown or the block isn't a member. */
+export function removeBlockFromRun(model: StructuralModel, runId: RunId, blockId: BlockId): StructuralModel {
+  const run = model.runs?.find((r) => r.id === runId);
+  if (!run || !run.members.some((m) => m.blockId === blockId)) return model;
+  const members = run.members.filter((m) => m.blockId !== blockId);
+  if (members.length === 0) return ungroupBlocks(model, runId);
+  const removed = model.blocks.find((b) => b.id === blockId);
+  const length = Math.max(1, run.length_mm10 - (removed ? extentOf(removed.box, run.axis) : 0));
+  const newRun: Run = { ...run, members, length_mm10: length };
+  const withRun: StructuralModel = { ...model, runs: model.runs!.map((r) => (r.id === runId ? newRun : r)) };
+  return layRun(withRun, newRun, (b) => extentOf(b.box, run.axis));
 }
 
 // ===========================================================================
