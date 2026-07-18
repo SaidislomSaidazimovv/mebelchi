@@ -11,6 +11,9 @@ packages/*/dist/
 active_tasks.md
 active_files.md
 
+# Claude Code local tooling / IDE config (user request 2026-07-18) — not app code, keep out of the repo
+.claude/
+
 # --- Non-app material: research, business, UI examples, data dumps ---
 # (kept locally; hidden from GitHub)
 MEBELCHI_INVESTMENT_MEMO.md
