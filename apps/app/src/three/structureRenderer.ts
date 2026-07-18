@@ -301,6 +301,32 @@ export function buildGhostProps(
   return g;
 }
 
+/** U3.1 — invisible (but raycastable) hit-boxes for each leaf section + a translucent highlight on the
+ *  active target. Lets the master TAP a compartment to choose where an add lands (instead of a numbered
+ *  «1-bo'lim / 2-bo'lim»). A subtle edge outline shows every compartment; the target glows. */
+export function buildSectionHitboxes(
+  boxes: readonly { id: string; center: [number, number, number]; size: [number, number, number] }[],
+  targetId: string | null,
+): THREE.Group {
+  const g = new THREE.Group();
+  for (const b of boxes) {
+    const on = b.id === targetId;
+    const geom = new THREE.BoxGeometry(Math.max(0.001, b.size[0] * 0.9), Math.max(0.001, b.size[1] * 0.9), Math.max(0.001, b.size[2] * 0.9));
+    // depthTest off + a high renderOrder → the compartment overlay reads ON TOP of the boards, so the
+    // master can see where each add lands and which one is the target (glowing), even through fronts.
+    const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color: SELECTED, transparent: true, opacity: on ? 0.18 : 0, depthTest: false, depthWrite: false }));
+    mesh.position.set(b.center[0], b.center[1], b.center[2]);
+    mesh.renderOrder = 998;
+    mesh.userData.sectionId = b.id;
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geom), new THREE.LineBasicMaterial({ color: SELECTED, transparent: true, opacity: on ? 0.95 : 0.45, depthTest: false }));
+    edges.renderOrder = 999;
+    edges.raycast = () => {}; // only the box faces are pickable
+    mesh.add(edges);
+    g.add(mesh);
+  }
+  return g;
+}
+
 /** Free the GPU resources of a structure group (call on unmount / before rebuild). */
 export function disposeStructureGroup(group: THREE.Group): void {
   group.traverse((o) => {

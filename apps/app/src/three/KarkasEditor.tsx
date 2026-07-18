@@ -19,9 +19,9 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
-import { sceneDimsMm, layoutBounds } from "./structureScene";
+import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
 import { BOARDS, EDGES, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
@@ -48,6 +48,7 @@ interface RT {
   controls: OrbitControls;
   group: THREE.Group | null;
   grid: THREE.GridHelper; // U2.1b — Moblo floor grid (re-created on theme change)
+  sectionGroup: THREE.Group | null; // U3.1 — tappable compartment hit-boxes (space/add mode)
   holeGroup: THREE.Group | null; // «Teshiklar» — drill-hole markers, toggled on/off
   kromkaGroup: THREE.Group | null; // Step 8.2 — coloured banded-edge lines, shown in Frame view
   ghostGroup: THREE.Group | null; // Step 9 — Application-view ghost props (boiler / clothes / …)
@@ -324,6 +325,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel" | "tools">(null);
   // Step 3.2 (v4 §5) — the two permanent selection modes: ◇ Part-select (edit) / ▢ Space-select (add).
   const [selMode, setSelMode] = useState<"part" | "space">("part");
+  // U3.1 — the mount-effect raycast is a stable closure, so it reads the live select-mode via this ref.
+  const selModeRef = useRef(selMode);
+  useEffect(() => { selModeRef.current = selMode; }, [selMode]);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -469,7 +473,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
     const grid = makeGrid("light"); scene3.add(grid); // U2.1b — Moblo floor grid (theme-swapped by the effect below)
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, holeGroup: null, kromkaGroup: null, ghostGroup: null, raf: 0, labels, aabb: null, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, holeGroup: null, kromkaGroup: null, ghostGroup: null, raf: 0, labels, aabb: null, framedKey: "" };
 
     const raycaster = new THREE.Raycaster();
     const ndc = (e: PointerEvent) => {
@@ -554,6 +558,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const hole = hHit?.object.userData.hole as { partId: string; opId: string; fx: number; fy: number } | undefined;
         if (hole) { useKarkas.getState().selectHole(hole); return; }
       }
+      // U3.1 — in «space» (add) mode a tap chooses the target COMPARTMENT (where the next add lands)
+      if (selModeRef.current === "space" && rt.current?.sectionGroup) {
+        const sHit = raycaster.intersectObjects(rt.current.sectionGroup.children, false)[0];
+        const sid = sHit?.object.userData.sectionId as string | undefined;
+        if (sid) { useKarkas.getState().setTarget(sid); return; }
+      }
       const g = rt.current?.group; if (!g) return;
       const hit = raycaster.intersectObjects(g.children, false)[0]; // faces only (not edge lines)
       useKarkas.getState().selectHole(null); // a panel tap clears any hole selection
@@ -593,6 +603,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       renderer.domElement.removeEventListener("pointerup", onUp);
       controls.dispose();
       if (rt.current?.grid) { rt.current.grid.geometry.dispose(); (rt.current.grid.material as THREE.Material).dispose(); }
+      if (rt.current?.sectionGroup) disposeStructureGroup(rt.current.sectionGroup);
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
       if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
       if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
@@ -615,6 +626,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     r.grid = g;
     r.scene.add(g);
   }, [theme]);
+
+  // ── U3.1 — tap-to-place: in «space» (add) mode, drop invisible hit-boxes on every compartment and
+  //    glow the active target; a tap on the 3D then chooses WHERE the next add lands. ──
+  useEffect(() => {
+    const r = rt.current;
+    if (!r) return;
+    if (r.sectionGroup) { r.scene.remove(r.sectionGroup); disposeStructureGroup(r.sectionGroup); r.sectionGroup = null; }
+    // Only while the ＋ add panel is OPEN in space mode — closing the panel/sheet clears the blue overlay.
+    if (selMode === "space" && rpanel === "add") {
+      const m = useKarkas.getState().model;
+      const boxes = leafSectionBoxes(m, solveLayout(m));
+      const grp = buildSectionHitboxes(boxes, activeTarget ?? null);
+      r.sectionGroup = grp;
+      r.scene.add(grp);
+    }
+    r.renderer.render(r.scene, r.camera);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, selMode, activeTarget, rpanel]);
 
   // ── rebuild the group + reframe when the model (scene) changes ──
   useEffect(() => {
