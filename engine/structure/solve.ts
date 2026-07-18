@@ -517,7 +517,7 @@ export function solveStructure(model: StructuralModel, thickness: ThicknessSpec 
   const t = resolveThickness(thickness);
   const parts: Part[] = [];
   for (const block of model.blocks) {
-    parts.push(...(block.footprint ? lCornerParts(block, t) : carcassParts(block, t)));
+    if (!block.bare) parts.push(...(block.footprint ? lCornerParts(block, t) : carcassParts(block, t))); // v5 — bare = no shell
     for (const line of block.lines) parts.push(dividerPart(block, line, t));
     for (const inst of block.instances) parts.push(...instanceParts(block, inst, t));
     for (const fp of block.freeParts ?? []) parts.push(freePartToPart(block, fp)); // v5 — free assembly boards

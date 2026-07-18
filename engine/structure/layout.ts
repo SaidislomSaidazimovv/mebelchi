@@ -421,7 +421,7 @@ export function solveLayout(model: StructuralModel, thickness: ThicknessSpec = {
   // rendered box matches the cut list (thin ХДФ back, 18mm МДФ facade, 32mm doubled shelf/door…).
   const out: PanelPlacement[] = [];
   for (const block of model.blocks) {
-    out.push(...(block.footprint ? lCornerLayout(block, t) : carcass(block, t)));
+    if (!block.bare) out.push(...(block.footprint ? lCornerLayout(block, t) : carcass(block, t))); // v5 — bare = no shell
     for (const line of block.lines) out.push(dividerPlacement(block, line, t));
     for (const inst of block.instances) {
       const drawer = drawerBoxPlacement(block, inst, t); // E: drawer box (5 panels) — was missing → drawers were invisible

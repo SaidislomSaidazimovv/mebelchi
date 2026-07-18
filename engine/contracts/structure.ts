@@ -461,9 +461,16 @@ export interface Block {
   /**
    * Freely-placed boards for arbitrary (non-carcass) furniture — a table top + legs, a chair, etc. (v5).
    * Optional/additive: absent = a pure carcass block (nothing regresses). Emitted + rendered ALONGSIDE the
-   * carcass unless the block is marked bare (E3.2).
+   * carcass unless the block is `bare`.
    */
   readonly freeParts?: readonly FreePart[];
+  /**
+   * A BARE block has no carcass shell — the solver emits NO sides/top/bottom/back for it (v5, free
+   * assembly). A table is a bare block whose whole body is `freeParts` (a top + legs). Optional/additive:
+   * absent/false = a normal carcass cabinet. Its `box` still defines the block's extent (for a run / room
+   * placement); dividers/instances/free parts inside it still solve.
+   */
+  readonly bare?: boolean;
 }
 
 // ---------------------------------------------------------------------------

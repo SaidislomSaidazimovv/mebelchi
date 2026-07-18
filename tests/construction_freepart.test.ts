@@ -56,3 +56,35 @@ describe("E3.1 · FreePart — a freely-placed board emits + renders", () => {
     expect(parts).toHaveLength(5); // just the carcass
   });
 });
+
+/** A table: a BARE block (no carcass) whose whole body is free parts — a top + four legs. */
+const mkTable = (): StructuralModel => {
+  const box = { x: 0, y: 0, z: 0, w: 12000, h: 7200, d: 6000 };
+  const top: FreePart = { id: "top", name: "Столешница", role: "top", thicknessAxis: "y", box: { x: 0, y: 6800, z: 0, w: 12000, h: 400, d: 6000 } };
+  const leg = (id: string, x: number, z: number): FreePart => ({ id, name: "Нога", role: "leg", thicknessAxis: "x", box: { x, y: 0, z, w: 500, h: 6800, d: 500 } });
+  return {
+    id: "t", name: "Стол",
+    blocks: [{
+      id: "b", name: "b", box, bare: true,
+      zones: [{ id: "z", name: "Корпус", rule: "manual", root: { id: "root", box: { ...box }, dividers: [], children: [], instanceIds: [], purpose: null } }],
+      components: [], instances: [], lines: [], rows: [],
+      freeParts: [top, leg("l1", 0, 0), leg("l2", 11500, 0), leg("l3", 0, 5500), leg("l4", 11500, 5500)],
+    }],
+    parts: [],
+  };
+};
+
+describe("E3.2 · bare block — a table has NO carcass, just its free parts", () => {
+  it("a bare table emits only its 5 free boards (a top + 4 legs), no carcass shell", () => {
+    const parts = solveStructure(mkTable());
+    expect(parts).toHaveLength(5); // top + 4 legs — NO sides/top/bottom/back
+    expect(parts.every((p) => p.id.startsWith("b__free_"))).toBe(true);
+    expect(parts.filter((p) => p.id === "b__side_l" || p.id === "b__back")).toHaveLength(0);
+  });
+
+  it("the table renders its 5 boards and nothing else", () => {
+    const ps = solveLayout(mkTable());
+    expect(ps).toHaveLength(5);
+    expect(ps.map((p) => p.id).sort()).toEqual(["b__free_l1", "b__free_l2", "b__free_l3", "b__free_l4", "b__free_top"]);
+  });
+});
