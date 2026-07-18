@@ -86,6 +86,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // U2 — Moblo shell state: theme (light default, explicit dark toggle) + the active top-bar tab.
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [tab, setTab] = useState<MobTab>("build");
+  const [toolsOpen, setToolsOpen] = useState(false); // mobile: the add-tools slide-up sheet
   const scene = useKarkas((s) => s.scene);
   const selectedId = useKarkas((s) => s.selectedId);
   const tapPart = useKarkas((s) => s.tapPart);
@@ -438,7 +439,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(mount.clientWidth || 320, mount.clientHeight || 480);
     renderer.domElement.style.display = "block";
@@ -777,6 +778,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [insideView, renderMode, noFacade]);
 
+  // ── U2.2 — camera recenter (F3 framing on demand) + screenshot (PNG download) ──
+  const recenter = () => {
+    const r = rt.current;
+    if (!r) return;
+    const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
+    const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
+    r.controls.target.copy(ctr);
+    r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z + dist * 0.95);
+    r.camera.lookAt(ctr);
+    r.controls.update();
+    r.framedKey = ""; // let the next bounds change reframe again
+  };
+  const screenshot = () => {
+    const r = rt.current;
+    if (!r) return;
+    r.renderer.render(r.scene, r.camera);
+    const a = document.createElement("a");
+    a.href = r.renderer.domElement.toDataURL("image/png");
+    a.download = "karkas.png";
+    a.click();
+  };
   const dims = sceneDimsMm(scene);
   return (
     <div className="mob-root" data-theme={theme}>
@@ -836,7 +858,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               )}
             </div>
           ) : <span className="mob-sel">Butun mebel</span>}
-          <button className="mob-project-btn" type="button" onClick={addToProject}>{editingBlockId ? "💾 Yangilash" : fromCabinet ? "＋ Nusxa" : "＋ Loyihaga"}</button>
+          <button className="mob-project-btn" type="button" onClick={addToProject} title={editingBlockId ? "Yangilash" : "Loyihaga qo'shish"}>{compact ? (editingBlockId ? "💾" : "＋") : (editingBlockId ? "💾 Yangilash" : fromCabinet ? "＋ Nusxa" : "＋ Loyihaga")}</button>
         </div>
       )}
 
@@ -847,10 +869,44 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <span>Bu bo'lim keyingi qadamda ulanadi.</span>
         </div>
       )}
+
+      {/* ── U2.2 — Moblo left mini-toolbar: undo/redo · render mode · view toggles · screenshot · recenter ── */}
+      {tab === "build" && (
+        <div className="mob-lefttools">
+          <button className="mob-round" title="Ortga (undo)" aria-label="Ortga" type="button" disabled={!canUndo} onClick={() => undo()}><MobUndo /></button>
+          <button className="mob-round" title="Oldinga (redo)" aria-label="Oldinga" type="button" disabled={!canRedo} onClick={() => redo()}><MobRedo /></button>
+          <div style={popWrap}>
+            <button className={"mob-round" + (renderMode !== "realistic" ? " is-active" : "")} title="Ko'rinish rejimi" aria-label="Ko'rinish rejimi" type="button" onClick={(e) => { e.stopPropagation(); setMenu(menu === "mode" ? null : "mode"); }}><MobCube /></button>
+            {menu === "mode" && (
+              <div style={{ ...popover, left: "calc(100% + 8px)", top: 0 }}>
+                {([["realistic", "Realistik"], ["wireframe", "Karkas"], ["xray", "Rentgen"], ["shaded", "Soya"]] as const).map(([m, label]) => (
+                  <button key={m} style={{ ...popItem, ...(renderMode === m ? { background: "#dce9f0", color: "#1f5570", fontWeight: 700 } : {}) }} onClick={() => { setRenderMode(m); setMenu(null); }} type="button">{renderMode === m ? "✓ " : ""}{label}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className={"mob-round" + (insideView ? " is-active" : "")} title="Ichini ko'rish" aria-label="Ichini ko'rish" type="button" onClick={() => setInsideView((v) => !v)}><MobInside /></button>
+          <button className={"mob-round" + (noFacade ? " is-active" : "")} title="Fasadsiz" aria-label="Fasadsiz" type="button" onClick={() => setNoFacade((v) => !v)}><MobFacade /></button>
+          <button className={"mob-round" + (showHoles ? " is-active" : "")} title="Teshiklar" aria-label="Teshiklar" type="button" onClick={() => setShowHoles((v) => !v)}><MobHoles /></button>
+          <button className="mob-round" title="Skrinshot" aria-label="Skrinshot" type="button" onClick={screenshot}><MobCamera /></button>
+          <button className="mob-round" title="Markazga qaytar" aria-label="Markazga qaytar" type="button" onClick={recenter}><MobTarget /></button>
+        </div>
+      )}
+
+      {/* ── mobile bottom tab bar (CSS-hidden on desktop, which uses the top tabs) ── */}
+      <nav className="mob-tabbar" role="tablist" aria-label="Rejim">
+        {MOB_TABS.map((t) => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id} className={"mob-tabbar-btn" + (tab === t.id ? " is-active" : "")} onClick={() => setTab(t.id)} type="button">{t.label}</button>
+        ))}
+      </nav>
+      {/* ── mobile ＋ FAB → toggles the add-tools sheet ── */}
+      {tab === "build" && compact && (
+        <button className="mob-fab" type="button" onClick={() => setToolsOpen((o) => !o)} aria-label="Asboblar">{toolsOpen ? "×" : <MobPlus />}</button>
+      )}
       {/* Step 3.3a (v4 §5 readout law) — the selection's dimensions in a FIXED top-centre strip, never
           hidden by the hand. Updates live during a drag/resize (later pieces). 2 axes only (face w×h). */}
       {selectedId && selPart && (
-        <div style={{ position: "fixed", ...(compact ? { bottom: 78 } : { top: 70 }), left: "50%", transform: "translateX(-50%)", zIndex: 60, background: "rgba(31,85,112,0.94)", color: "#fff", borderRadius: 9, padding: "5px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 2px 10px rgba(0,0,0,0.22)", display: "flex", gap: 11, alignItems: "center", pointerEvents: precise ? "auto" : "none", whiteSpace: "nowrap", maxWidth: "94vw", overflowX: "auto" }}>
+        <div style={{ position: "fixed", top: compact ? 64 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 60, background: "rgba(31,85,112,0.94)", color: "#fff", borderRadius: 9, padding: "5px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 2px 10px rgba(0,0,0,0.22)", display: "flex", gap: 11, alignItems: "center", pointerEvents: precise ? "auto" : "none", whiteSpace: "nowrap", maxWidth: "94vw", overflowX: "auto" }}>
           <span>{selComp?.name ?? "Bo'lak"}</span>
           <span style={{ opacity: 0.5 }}>│</span>
           <span style={{ fontFamily: "monospace" }}>{Math.round(selPart.length_mm10 / 10)} × {Math.round(selPart.width_mm10 / 10)} mm</span>
@@ -908,8 +964,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* Step 4 (v4 §4, fixture 04-shelf-ratios) — the ratio pill-row editor for the active divided
           section: one pill per zone (Ratio weight / Fixed mm / Flex ↔), edit a value → all zones reflow
           together; the chip cycles the rule; «＋» splits the last zone. Appears when a divider/zone is active. */}
-      {zoneRow && (
-        <div style={{ position: "fixed", bottom: 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(238,240,243,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
+      {zoneRow && (selectedId || showDivide) && (
+        <div style={{ position: "fixed", bottom: compact ? 122 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(238,240,243,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
           {zoneRow.zones.map((z, i) => (
             <Fragment key={z.id}>
               {i > 0 && <div style={{ width: 3, height: 34, borderRadius: 2, background: "#9aa6b2" }} />}
@@ -928,7 +984,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* Step 6 (fixture 06-kromka-mode) — the K-variable pill row (paint metaphor): pick a jiyak, then
           tap the edge balls. «✕ Yo'q» strips the band. */}
       {showKromka && (
-        <div style={{ position: "fixed", bottom: 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(255,255,255,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", maxWidth: "92vw" }}>
+        <div style={{ position: "fixed", bottom: compact ? 122 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(255,255,255,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", maxWidth: "92vw" }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#555", marginRight: 2 }}>Jiyak:</span>
           {EDGES.map((e) => (
             <button key={e.id} type="button" onClick={() => setActiveKromka(e.id)} title={e.name}
@@ -942,8 +998,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </div>
       )}
       {/* ── U2.1 — the pre-Moblo editing tools float in this transitional card until U2.2–U2.4 move
-          each cluster into its Moblo zone (left toolbar / right panel / bottom sheets); then it goes. ── */}
-      {tab === "build" && <div className="mob-legacy">
+          each cluster into its Moblo zone. On desktop it floats at the right; on mobile it's a slide-up
+          sheet toggled by the ＋ FAB (Moblo pattern), so the small screen stays uncluttered. ── */}
+      {tab === "build" && (!compact || toolsOpen) && <div className={"mob-legacy" + (compact ? " is-sheet" : "")}>
+        <div className="mob-sheet-head"><span>Asboblar</span><button type="button" className="mob-x" onClick={() => setToolsOpen(false)} aria-label="Yopish">×</button></div>
       {/* Phase 4 — edit toolbar. It stays WRAP (never overflow-clip, else the ＋Polka/＋Eshik/🎨 popovers get
           cut off); on compact the «⋯ Ko'proq» menu removes the 10 secondary tools so it stays short. */}
       <div style={editbar}>
@@ -987,24 +1045,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button style={{ ...act, ...(showKromka ? { borderColor: "#00a961", background: "#cdeedd" } : {}) }} onClick={() => togglePanel("kromka")} type="button">▤ Jiyak…</button>
         )}
         </>)}
-        <button style={{ ...act, opacity: canUndo ? 1 : 0.4 }} onClick={() => undo()} disabled={!canUndo} type="button">↺ Ortga</button>
-        <button style={{ ...act, opacity: canRedo ? 1 : 0.4 }} onClick={() => redo()} disabled={!canRedo} type="button" title="Oldinga (redo)">↻ Oldinga</button>
-        {/* #7 — imos Visual Styles: a proper dropdown (matches the ＋Polka / ＋Eshik menus) */}
-        <div style={{ ...popWrap, ...(compact ? {} : { marginLeft: "auto" }) }}>
-          <button style={{ ...act, ...(menu === "mode" ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : { borderColor: "#7aa0b8", color: "#1f5570" }) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "mode" ? null : "mode"); }} type="button" title="Ko'rinish rejimi">
-            🎨 {renderMode === "realistic" ? "Realistik" : renderMode === "wireframe" ? "Karkas" : renderMode === "xray" ? "Rentgen" : "Soya"} ▾
-          </button>
-          {menu === "mode" && (
-            <div style={popover}>
-              {([["realistic", "Realistik", "To'liq, rangli"], ["wireframe", "Karkas", "Frame — zoomда o'lcham"], ["xray", "Rentgen", "Yarim-shaffof"], ["shaded", "Soya", "Bir xil kulrang"]] as const).map(([m, label, sub]) => (
-                <button key={m} style={{ ...popItem, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, minWidth: 168, ...(renderMode === m ? { background: "#dce9f0", color: "#1f5570", fontWeight: 700 } : {}) }} onClick={() => { setRenderMode(m); setMenu(null); }} type="button">
-                  <span>{renderMode === m ? "✓ " : ""}{label}</span>
-                  <span style={{ fontSize: 11, color: "#8a8577", fontWeight: 400 }}>{sub}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* U2.2 — undo/redo + render-mode moved to the Moblo left toolbar */}
         {/* Compact toolbar (mobile/tablet): the view/action cluster collapses into a «⋯ Ko'proq» dropdown */}
         {compact && (
           <button style={{ ...act, ...(menu === "tools" ? { borderColor: "#2f6f8f", background: "#dce9f0", color: "#1f5570" } : {}) }} onClick={(e) => { e.stopPropagation(); setMenu(menu === "tools" ? null : "tools"); }} type="button">⋯ Ko'proq</button>
@@ -1012,12 +1053,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <div style={!compact ? { display: "contents" } : (menu === "tools" ? { position: "fixed", right: 8, top: 108, zIndex: 70, display: "flex", flexDirection: "column", gap: 6, background: "#fff", borderRadius: 12, boxShadow: "0 8px 28px rgba(0,0,0,0.22)", padding: 10, maxHeight: "72vh", overflowY: "auto", minWidth: 196 } : { display: "none" })}>
         {/* Step 5 — materials view: list the decors in use; click one to isolate it in 3D */}
         <button style={{ ...act, ...(showMaterials ? { borderColor: "#8a6d1f", background: "#f7efd8", color: "#8a6d1f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => togglePanel("materials")} type="button">▦ {matFilter ? "Material ✓" : "Materiallar"}</button>
-        <button style={{ ...act, ...(insideView ? { borderColor: "#2f8f5b", background: "#dcefe3", color: "#1f6b45" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setInsideView((v) => !v)} type="button">👁 {insideView ? "Ichi ✓" : "Ichini ko'rish"}</button>
-        {/* Step 8 — No-facade: hide the fronts entirely (not just fade) */}
-        <button style={{ ...act, ...(noFacade ? { borderColor: "#a2571f", background: "#f2e0cd", color: "#7a3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setNoFacade((v) => !v)} type="button" title="Fasadsiz ko'rinish">▢ {noFacade ? "Fasadsiz ✓" : "Fasadsiz"}</button>
+        {/* U2.2 — inside / facade / holes view toggles moved to the Moblo left toolbar */}
         {/* Step 9 — Application view: show what goes inside (boiler / clothes / dishes) */}
         <button style={{ ...act, ...(appView ? { borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => togglePanel("app")} type="button" title="Ichidagini ko'rsatish (kotyol, kiyim…)">🛋 {appView ? "Ichida ✓" : "Ichida nima"}</button>
-        <button style={{ ...act, ...(showHoles ? { borderColor: "#1f6f86", background: "#dcecf2", color: "#13485a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => setShowHoles((v) => !v)} type="button" title="Teshiklarni ko'rsatish (shtok, petlya)">🕳 {showHoles ? "Teshik ✓" : "Teshiklar"}</button>
+        {/* (holes toggle → Moblo left toolbar, U2.2) */}
         {/* Step 7 — Birikma (joints) mode: the JointProfile editor; turning it on shows the drilled holes */}
         <button style={{ ...act, ...(showJoints ? { borderColor: "#8a5a1f", background: "#f2e3cd", color: "#6b3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => { if (activePanel !== "joints") setShowHoles(true); togglePanel("joints"); }} type="button" title="Birikma profili (System-32 teshiklar)">⚙ Birikma</button>
         <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => togglePanel("tree")} type="button">☰ Detallar</button>
@@ -1662,6 +1701,16 @@ function MobMenu() { return <svg {...MOB_ICO}><path d="M4 7h16M4 12h16M4 17h16" 
 function MobPencil() { return <svg {...MOB_ICO} width={14} height={14}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>; }
 function MobMoon() { return <svg {...MOB_ICO}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>; }
 function MobSun() { return <svg {...MOB_ICO}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>; }
+/* U2.2 — left-toolbar icons */
+function MobUndo() { return <svg {...MOB_ICO}><path d="M9 7 4 12l5 5" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" /></svg>; }
+function MobRedo() { return <svg {...MOB_ICO}><path d="M15 7l5 5-5 5" /><path d="M4 18v-2a4 4 0 0 1 4-4h12" /></svg>; }
+function MobCube() { return <svg {...MOB_ICO}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" /></svg>; }
+function MobInside() { return <svg {...MOB_ICO}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>; }
+function MobFacade() { return <svg {...MOB_ICO}><rect x="4" y="4" width="16" height="16" rx="2" strokeDasharray="3 3" /><path d="M9 9h6v6H9z" /></svg>; }
+function MobHoles() { return <svg {...MOB_ICO}><circle cx="8" cy="8" r="1.4" /><circle cx="16" cy="8" r="1.4" /><circle cx="8" cy="16" r="1.4" /><circle cx="16" cy="16" r="1.4" /></svg>; }
+function MobCamera() { return <svg {...MOB_ICO}><path d="M4 8h3l2-2h6l2 2h3v11H4z" /><circle cx="12" cy="13" r="3.2" /></svg>; }
+function MobTarget() { return <svg {...MOB_ICO}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>; }
+function MobPlus() { return <svg {...MOB_ICO} width={24} height={24} strokeWidth={2.4}><path d="M12 5v14M5 12h14" /></svg>; }
 const mono: CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#5c6a61" };
 const dimField: CSSProperties = { display: "flex", alignItems: "center", gap: 2, border: "1px solid #d8d2c4", borderRadius: 7, padding: "1px 3px", background: "#fff" };
 const dimLabel: CSSProperties = { fontFamily: "system-ui", fontSize: 11, fontWeight: 700, color: "#8a6d1f", width: 12, textAlign: "center" };

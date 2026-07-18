@@ -133,10 +133,12 @@
 /* ── left mini-toolbar ── */
 .mob-lefttools {
   position: absolute;
-  left: 14px; bottom: 92px;
-  display: flex; flex-direction: column; gap: 10px;
-  z-index: 5;
+  left: 14px; top: 72px;
+  max-height: calc(100vh - 168px);
+  display: flex; flex-direction: column; gap: 9px;
+  z-index: 6;
 }
+.mob-lefttools .mob-round { width: 42px; height: 42px; }
 
 /* ── right rail (add / material) ── */
 .mob-rightrail {
@@ -267,21 +269,65 @@
 }
 
 /* ── responsive: phones ── */
+/* ── mobile-only chrome: bottom tab bar · tools FAB · sheet header (hidden on desktop) ── */
+.mob-tabbar {
+  display: none;
+  position: absolute; left: 0; right: 0; bottom: 0; height: 56px;
+  background: var(--mob-surface); border-top: 1px solid var(--mob-border); z-index: 6;
+}
+.mob-tabbar-btn {
+  flex: 1; appearance: none; border: 0; background: transparent; cursor: pointer;
+  color: var(--mob-muted); font: 600 12.5px Inter, system-ui, sans-serif;
+  display: flex; align-items: center; justify-content: center;
+  border-top: 2px solid transparent; padding: 0 4px;
+}
+.mob-tabbar-btn.is-active { color: var(--mob-accent); border-top-color: var(--mob-accent); background: var(--mob-accent-soft); }
+.mob-fab {
+  display: none;
+  position: absolute; right: 16px; bottom: 132px;
+  width: 52px; height: 52px; border-radius: 16px; place-items: center;
+  border: 0; background: var(--mob-accent); color: #fff; font-size: 24px;
+  box-shadow: 0 6px 18px rgba(47,107,255,.45); z-index: 7; cursor: pointer;
+}
+.mob-sheet-head {
+  display: none; align-items: center; justify-content: space-between;
+  font-weight: 650; font-size: 15px; padding: 2px 2px 10px;
+  position: sticky; top: 0; background: var(--mob-surface);
+}
+
+/* ── responsive: phones / narrow — Moblo-style: minimal top bar, tabs at the bottom, tools in a sheet ── */
 @media (max-width: 720px) {
-  .mob-tab { padding: 7px 11px; font-size: 12.5px; }
-  .mob-doc-name { max-width: 90px; }
-  .mob-panel { left: 14px; right: 14px; width: auto; top: auto; height: 46%; bottom: 88px; }
-  .mob-rightrail { top: auto; bottom: 152px; transform: none; }
-  .mob-bottombar { gap: 10px; }
-  .mob-legacy { width: calc(100% - 24px); max-height: 42vh; }
+  .mob-tabs { display: none; }               /* the 4 tabs move to the bottom nav */
+  /* with the (centre) tabs hidden, pin the clusters to their columns so the right one doesn't
+     auto-shift into the middle and collide with the centred document name */
+  .mob-top-left { grid-column: 1; }
+  .mob-top-right { grid-column: 3; }
+  .mob-tabbar { display: flex; }
+  .mob-fab { display: grid; }
+  .mob-doc-name { max-width: 130px; }
+  .mob-lefttools { top: 64px; gap: 7px; max-height: calc(100vh - 220px); }
+  .mob-lefttools .mob-round { width: 38px; height: 38px; }
+  .mob-bottombar { left: 8px; right: 8px; bottom: 66px; transform: none; max-width: none; justify-content: space-between; }
+  .mob-legacy.is-sheet {
+    left: 0; right: 0; bottom: 0; top: auto; width: auto;
+    max-height: 62vh; border-radius: 16px 16px 0 0; padding: 12px 14px 18px; z-index: 7;
+  }
+  .mob-sheet-head { display: flex; }
+  /* fill the empty top-bar centre with the document name; keep it narrow so it never reaches the
+     home (left) or theme/menu (right) clusters. The selection readout sits just below it. */
+  .mob-doc { position: absolute; left: 50%; top: 11px; transform: translateX(-50%); max-width: min(140px, 34vw); }
+  /* selection name + actions live in the top readout on mobile → drop them from the bottom bar so it fits */
+  .mob-bottombar > .mob-divider,
+  .mob-bottombar > .mob-sel-wrap,
+  .mob-bottombar > .mob-sel { display: none; }
 }
 
 /* ── Phase U2.1 — transitional legacy tools + bottom-bar dims + tab note ──
  * The pre-Moblo toolbars float in this card while each cluster migrates to its Moblo zone
  * (left toolbar / right panel / bottom bar) in U2.2–U2.4; then this card is removed. */
 .mob-legacy {
-  position: absolute; top: 70px; left: 12px;
-  width: min(560px, 62vw); max-height: calc(100vh - 190px);
+  position: absolute; top: 70px; right: 14px; left: auto;
+  width: min(520px, 66vw); max-height: calc(100vh - 190px);
   overflow: auto; display: flex; flex-direction: column; gap: 8px;
   padding: 10px 12px;
   background: var(--mob-surface); border: 1px solid var(--mob-border);
