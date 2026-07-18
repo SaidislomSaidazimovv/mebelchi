@@ -1,0 +1,326 @@
+/* moblo.css — the Moblo-style shell design system (Phase U1 skeleton).
+ * Scoped under .mob-root so nothing leaks into the kitchen app. Light default + dark-ready.
+ * Reference: the 31-screenshot teardown (App Store + moblo3d.app). Blue accent, light grid stage,
+ * floating overlays over a full-bleed 3D viewport. */
+
+.mob-root {
+  --mob-accent: #2f6bff;
+  --mob-accent-soft: #e7efff;
+  --mob-bg-a: #f3f6fa;
+  --mob-bg-b: #e4e9f0;
+  --mob-surface: #ffffff;
+  --mob-surface-2: #f6f8fb;
+  --mob-border: #e2e7ef;
+  --mob-ink: #18202e;
+  --mob-muted: #626d7e;
+  --mob-faint: #97a1b2;
+  --mob-shadow: 0 1px 2px rgba(18,26,42,.05), 0 8px 26px rgba(18,26,42,.10);
+  --mob-shadow-sm: 0 1px 3px rgba(18,26,42,.10);
+  --ax-x: #e5484d;  /* eni  — X */
+  --ax-y: #30a46c;  /* bo'y — Y */
+  --ax-z: #2f6bff;  /* chuq — Z */
+  --mob-radius: 15px;
+
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  color: var(--mob-ink);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--mob-bg-b);
+  z-index: 1;
+}
+
+/* Dark = EXPLICIT toggle only (light is the default, regardless of OS preference). */
+.mob-root[data-theme="dark"] {
+  --mob-accent: #5b8bff;
+  --mob-accent-soft: #1a2740;
+  --mob-bg-a: #161b23;
+  --mob-bg-b: #0d1117;
+  --mob-surface: #1a202b;
+  --mob-surface-2: #212936;
+  --mob-border: #2b3442;
+  --mob-ink: #e9edf4;
+  --mob-muted: #9aa4b4;
+  --mob-faint: #6a7486;
+  --mob-shadow: 0 1px 2px rgba(0,0,0,.35), 0 10px 30px rgba(0,0,0,.45);
+  --mob-shadow-sm: 0 1px 3px rgba(0,0,0,.4);
+}
+
+.mob-root *,
+.mob-root *::before,
+.mob-root *::after { box-sizing: border-box; }
+
+/* ── full-bleed 3D stage ── */
+.mob-viewport {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  background:
+    radial-gradient(120% 120% at 50% 18%, var(--mob-bg-a) 0%, var(--mob-bg-b) 100%);
+}
+
+/* ── top bar (floating, transparent) ── */
+.mob-topbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 60px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  pointer-events: none;   /* let orbit through gaps; children re-enable */
+  z-index: 6;
+}
+.mob-topbar > * { pointer-events: auto; }
+.mob-top-left { display: flex; align-items: center; gap: 10px; justify-self: start; min-width: 0; }
+.mob-top-right { justify-self: end; }
+
+.mob-doc {
+  display: flex; align-items: center; gap: 7px;
+  height: 38px; padding: 0 12px;
+  background: var(--mob-surface);
+  border: 1px solid var(--mob-border);
+  border-radius: 999px;
+  box-shadow: var(--mob-shadow-sm);
+  min-width: 0;
+}
+.mob-doc-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mob-doc svg { color: var(--mob-faint); flex: none; }
+
+.mob-tabs {
+  justify-self: center;
+  display: flex; gap: 3px;
+  padding: 4px;
+  background: var(--mob-surface);
+  border: 1px solid var(--mob-border);
+  border-radius: 999px;
+  box-shadow: var(--mob-shadow-sm);
+  max-width: 100%;
+}
+.mob-tab {
+  appearance: none; border: 0; cursor: pointer;
+  padding: 7px 15px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mob-muted);
+  font: 600 13.5px/1 Inter, system-ui, sans-serif;
+  white-space: nowrap;
+  transition: background .14s, color .14s;
+}
+.mob-tab:hover { color: var(--mob-ink); }
+.mob-tab.is-active { background: var(--mob-accent); color: #fff; box-shadow: 0 2px 8px rgba(47,107,255,.35); }
+
+/* ── round icon buttons ── */
+.mob-iconbtn, .mob-round {
+  appearance: none; cursor: pointer;
+  display: grid; place-items: center;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--mob-surface);
+  border: 1px solid var(--mob-border);
+  color: var(--mob-ink);
+  box-shadow: var(--mob-shadow-sm);
+  transition: transform .1s, background .14s, color .14s, border-color .14s;
+}
+.mob-round { width: 44px; height: 44px; }
+.mob-iconbtn:hover, .mob-round:hover:not(:disabled) { border-color: var(--mob-accent); color: var(--mob-accent); }
+.mob-round:active:not(:disabled) { transform: scale(.94); }
+.mob-round:disabled { color: var(--mob-faint); cursor: default; }
+.mob-round.is-active { background: var(--mob-accent); border-color: var(--mob-accent); color: #fff; }
+
+/* ── left mini-toolbar ── */
+.mob-lefttools {
+  position: absolute;
+  left: 14px; bottom: 92px;
+  display: flex; flex-direction: column; gap: 10px;
+  z-index: 5;
+}
+
+/* ── right rail (add / material) ── */
+.mob-rightrail {
+  position: absolute;
+  right: 14px; top: 50%;
+  transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 10px;
+  z-index: 5;
+}
+.mob-hex {
+  appearance: none; cursor: pointer;
+  display: grid; place-items: center;
+  width: 48px; height: 48px;
+  border-radius: 16px;
+  background: var(--mob-accent);
+  border: 0; color: #fff;
+  box-shadow: 0 4px 14px rgba(47,107,255,.42);
+  transition: transform .1s, filter .14s;
+}
+.mob-hex:hover { filter: brightness(1.06); }
+.mob-hex:active { transform: scale(.94); }
+.mob-hex.is-active { background: var(--mob-ink); box-shadow: var(--mob-shadow); }
+
+/* ── right panel (add / material scaffold) ── */
+.mob-panel {
+  position: absolute;
+  right: 14px; top: 72px; bottom: 92px;
+  width: 288px; max-width: calc(100% - 28px);
+  display: flex; flex-direction: column;
+  background: var(--mob-surface);
+  border: 1px solid var(--mob-border);
+  border-radius: var(--mob-radius);
+  box-shadow: var(--mob-shadow);
+  overflow: hidden;
+  z-index: 6;
+}
+.mob-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--mob-border);
+  font-size: 15px; font-weight: 650;
+}
+.mob-x {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  font-size: 22px; line-height: 1; color: var(--mob-faint); padding: 2px 4px;
+}
+.mob-x:hover { color: var(--mob-ink); }
+.mob-panel-body { padding: 14px 16px; overflow: auto; }
+.mob-panel-note {
+  font-size: 12px; color: var(--mob-faint);
+  background: var(--mob-surface-2); border: 1px dashed var(--mob-border);
+  border-radius: 8px; padding: 8px 10px; margin-bottom: 14px;
+}
+.mob-prim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mob-prim {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 16px 8px;
+  border: 1px solid var(--mob-border); border-radius: 12px;
+  background: var(--mob-surface-2); color: var(--mob-muted);
+  font-size: 12.5px; font-weight: 600;
+  cursor: not-allowed; opacity: .72;
+}
+.mob-prim svg { color: var(--mob-faint); }
+.mob-swatch-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--mob-border); }
+.mob-swatch-row:last-child { border-bottom: 0; }
+.mob-swatch { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(0,0,0,.08); flex: none; box-shadow: inset 0 -6px 10px rgba(0,0,0,.12); }
+.mob-swatch-name { font-size: 13.5px; font-weight: 600; }
+.mob-swatch-sub { font-size: 11.5px; color: var(--mob-faint); }
+
+/* ── bottom contextual bar ── */
+.mob-bottombar {
+  position: absolute;
+  bottom: 16px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 14px;
+  max-width: calc(100% - 28px);
+  padding: 8px 10px 8px 12px;
+  background: var(--mob-surface);
+  border: 1px solid var(--mob-border);
+  border-radius: 16px;
+  box-shadow: var(--mob-shadow);
+  z-index: 5;
+}
+.mob-modes { display: flex; gap: 4px; }
+.mob-mode {
+  appearance: none; cursor: pointer;
+  display: grid; place-items: center;
+  width: 36px; height: 36px; border-radius: 10px;
+  border: 1px solid transparent; background: transparent; color: var(--mob-muted);
+}
+.mob-mode.is-active { background: var(--mob-accent-soft); color: var(--mob-accent); }
+.mob-mode:disabled { color: var(--mob-faint); cursor: default; }
+.mob-divider { width: 1px; align-self: stretch; background: var(--mob-border); margin: 2px 0; }
+.mob-dims { display: flex; align-items: center; gap: 12px; font-variant-numeric: tabular-nums; }
+.mob-dim { display: inline-flex; align-items: center; gap: 6px; font: 600 14px ui-monospace, "Cascadia Code", monospace; }
+.mob-dim .dot { width: 8px; height: 8px; border-radius: 2px; }
+.mob-sel {
+  font-size: 12px; color: var(--mob-muted);
+  padding-left: 12px; border-left: 1px solid var(--mob-border);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px;
+}
+
+/* ── non-viewport tab screens (Elements / Notes / AR) ── */
+.mob-screen {
+  position: absolute;
+  inset: 60px 0 0 0;
+  overflow: auto;
+  background: var(--mob-surface-2);
+  z-index: 4;
+}
+.mob-screen-inner {
+  max-width: 720px; margin: 0 auto; padding: 40px 24px 64px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px;
+}
+.mob-screen-glyph {
+  width: 64px; height: 64px; border-radius: 18px;
+  display: grid; place-items: center;
+  background: var(--mob-accent-soft); color: var(--mob-accent);
+  margin-bottom: 6px;
+}
+.mob-screen h2 { margin: 0; font-size: 22px; letter-spacing: -.01em; }
+.mob-screen p { margin: 0; color: var(--mob-muted); font-size: 14.5px; max-width: 46ch; line-height: 1.6; }
+.mob-tag {
+  margin-top: 6px;
+  font: 600 11px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--mob-accent); background: var(--mob-accent-soft);
+  padding: 4px 10px; border-radius: 999px;
+}
+
+/* ── responsive: phones ── */
+@media (max-width: 720px) {
+  .mob-tab { padding: 7px 11px; font-size: 12.5px; }
+  .mob-doc-name { max-width: 90px; }
+  .mob-panel { left: 14px; right: 14px; width: auto; top: auto; height: 46%; bottom: 88px; }
+  .mob-rightrail { top: auto; bottom: 152px; transform: none; }
+  .mob-bottombar { gap: 10px; }
+  .mob-legacy { width: calc(100% - 24px); max-height: 42vh; }
+}
+
+/* ── Phase U2.1 — transitional legacy tools + bottom-bar dims + tab note ──
+ * The pre-Moblo toolbars float in this card while each cluster migrates to its Moblo zone
+ * (left toolbar / right panel / bottom bar) in U2.2–U2.4; then this card is removed. */
+.mob-legacy {
+  position: absolute; top: 70px; left: 12px;
+  width: min(560px, 62vw); max-height: calc(100vh - 190px);
+  overflow: auto; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px;
+  background: var(--mob-surface); border: 1px solid var(--mob-border);
+  border-radius: var(--mob-radius); box-shadow: var(--mob-shadow);
+  z-index: 5;
+}
+.mob-dim { cursor: text; }
+.mob-dim-input {
+  width: 56px; border: none; background: transparent;
+  color: var(--mob-ink); font: 600 14px ui-monospace, "Cascadia Code", monospace;
+  font-variant-numeric: tabular-nums; text-align: left; padding: 2px 0;
+}
+.mob-dim-input:focus { outline: none; color: var(--mob-accent); }
+.mob-unit {
+  appearance: none; cursor: pointer; margin-left: 2px;
+  border: 1px solid var(--mob-border); background: var(--mob-surface-2);
+  color: var(--mob-muted); border-radius: 7px; padding: 4px 8px;
+  font: 700 11px ui-monospace, monospace;
+}
+.mob-unit:hover { color: var(--mob-accent); border-color: var(--mob-accent); }
+.mob-sel-wrap { display: inline-flex; align-items: center; gap: 4px; position: relative; }
+.mob-sel-menu {
+  appearance: none; cursor: pointer; border: 0; background: transparent;
+  color: var(--mob-faint); font-size: 16px; line-height: 1; padding: 2px 4px;
+}
+.mob-sel-menu:hover { color: var(--mob-ink); }
+.mob-project-btn {
+  appearance: none; cursor: pointer;
+  border: 1px solid var(--mob-accent); background: var(--mob-accent); color: #fff;
+  border-radius: 11px; padding: 8px 14px; font: 650 13px Inter, system-ui, sans-serif;
+  white-space: nowrap; box-shadow: 0 2px 8px rgba(47,107,255,.32);
+}
+.mob-project-btn:hover { filter: brightness(1.05); }
+.mob-note {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  background: var(--mob-surface); border: 1px solid var(--mob-border);
+  border-radius: var(--mob-radius); box-shadow: var(--mob-shadow);
+  padding: 22px 28px; z-index: 4; max-width: 80vw;
+}
+.mob-note b { font-size: 16px; color: var(--mob-ink); }
+.mob-note span { font-size: 13px; color: var(--mob-muted); }
