@@ -8,12 +8,16 @@
 import type {
   Block,
   Component,
+  FreeAxisAnchor,
+  FreePart,
+  FreePartAnchor,
   Instance,
   Line,
   Section,
   StructuralModel,
   Zone,
 } from "../contracts/structure.js";
+import { resolveFreePartBox } from "./operations.js";
 
 const W = 6000; // 600 mm
 const H = 7200; // 720 mm
@@ -163,4 +167,52 @@ export function buildLCornerModel(): StructuralModel {
   };
 
   return { id: "demo_l", name: "Г-демо", blocks: [block], parts: [] };
+}
+
+/**
+ * A parametric TABLE (v5, free assembly) — a BARE block (no carcass) built from free boards: a top + four
+ * corner legs. The master types the outer size; every board's box is computed. Millimetres in, mm10 out.
+ * Fresh objects each call. This is the first "any furniture" template — a chair / shelf-unit follows the
+ * same shape (a bare block + positioned free parts).
+ */
+export function buildTable(
+  w_mm: number,
+  h_mm: number,
+  d_mm: number,
+  opts: { topThickness_mm10?: number; legSize_mm10?: number; legInset_mm10?: number } = {},
+): StructuralModel {
+  const W = Math.max(1, Math.round(w_mm)) * 10;
+  const H = Math.max(1, Math.round(h_mm)) * 10;
+  const D = Math.max(1, Math.round(d_mm)) * 10;
+  const topT = opts.topThickness_mm10 ?? 400; // 40mm top
+  const legSz = opts.legSize_mm10 ?? 500; // 50mm square legs
+  const inset = opts.legInset_mm10 ?? 0; // legs at the corners by default
+
+  const box = { x: 0, y: 0, z: 0, w: W, h: H, d: D };
+  // Edge anchors (the "table law"): the top SPANS the block; each leg is a fixed-size post pinned to a
+  // corner, standing from the floor to under the top. So the table reflows on resize (resizeBlock*).
+  const lo = (o: number) => ({ ref: "lo", offset_mm10: o } as const);
+  const hi = (o: number) => ({ ref: "hi", offset_mm10: o } as const);
+  const span: FreeAxisAnchor = { start: lo(0), end: hi(0) };
+  const colLo: FreeAxisAnchor = { start: lo(inset), end: lo(inset + legSz) }; // left / front column
+  const colHi: FreeAxisAnchor = { start: hi(inset + legSz), end: hi(inset) }; // right / back column
+  const mkFree = (id: string, name: string, role: FreePart["role"], thicknessAxis: FreePart["thicknessAxis"], anchor: FreePartAnchor): FreePart =>
+    ({ id, name, role, thicknessAxis, anchor, box: resolveFreePartBox(anchor, box) });
+
+  const top = mkFree("top", "Столешница", "top", "y", { x: span, y: { start: hi(topT), end: hi(0) }, z: span });
+  const legY: FreeAxisAnchor = { start: lo(0), end: hi(topT) }; // floor → under the top
+  const legs: FreePart[] = [
+    mkFree("leg_fl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colLo }),
+    mkFree("leg_fr", "Ножка", "leg", "x", { x: colHi, y: legY, z: colLo }),
+    mkFree("leg_bl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colHi }),
+    mkFree("leg_br", "Ножка", "leg", "x", { x: colHi, y: legY, z: colHi }),
+  ];
+  const root: Section = { id: "sec_root", box: { ...box }, dividers: [], children: [], instanceIds: [], purpose: null };
+  const block: Block = {
+    id: "tbl", name: "Стол", box, bare: true,
+    zones: [{ id: "z_body", name: "Корпус", rule: "manual", root }],
+    components: [], instances: [], lines: [], rows: [],
+    freeParts: [top, ...legs],
+  };
+  return { id: "table", name: `Стол ${Math.round(w_mm)}×${Math.round(h_mm)}×${Math.round(d_mm)}`, blocks: [block], parts: [] };
 }

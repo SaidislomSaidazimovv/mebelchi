@@ -36,6 +36,7 @@ export type LineId = string;
 export type LineGroupId = string;
 export type SectionId = string;
 export type RowId = string;
+export type RunId = string;
 export type ComponentId = string;
 export type InstanceId = string;
 
@@ -348,6 +349,32 @@ export interface Instance {
    * step-back values are carried for the advanced multi-body cut geometry (L3, not yet rendered).
    */
   readonly junction?: Junction3D;
+  /**
+   * Nested content inside THIS drawer's clear inner volume (drawer-in-drawer, v5, CONSTRUCTION_FRAME_v4
+   * §4 "a sled … can host another Space with its own inner sled"). Only meaningful when this instance's
+   * component is a drawer. Recursive: an inner instance may itself be a drawer carrying its own
+   * `interior`. Optional/additive — absent = a plain drawer (nothing regresses).
+   */
+  readonly interior?: DrawerInterior;
+  /**
+   * Slide state of a drawer (v5), 0 = shut … 1 = fully pulled out. Only the 3D LAYOUT reads it — it
+   * slides the drawer box (and everything nested inside it) forward by `open × travel` so the master can
+   * open a drawer to see / reach its contents; the manufacturing parts never change. Absent or 0 = shut.
+   */
+  readonly open?: number;
+}
+
+/**
+ * The interior of a drawer: the reusable component definitions and their placements that live inside its
+ * clear inner volume — the same shape as a mini-block, so the solver fills a drawer body exactly as it
+ * fills a carcass. An inner drawer here can carry its own `interior`, giving arbitrary drawer-in-drawer
+ * nesting. (v5.) The clear volume itself is NOT stored — it is thickness-dependent (it subtracts the
+ * drawer's boards), so the solver computes it fresh from the parent each solve (`drawerInteriorBox`),
+ * never drifting from the board thickness in force.
+ */
+export interface DrawerInterior {
+  readonly components: readonly Component[];
+  readonly instances: readonly Instance[];
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +421,62 @@ export interface LCornerFootprint {
   readonly legB: LegSpec;
 }
 
+// ---------------------------------------------------------------------------
+// FreePart (v5) — a freely-placed board for arbitrary furniture (table / chair)
+// ---------------------------------------------------------------------------
+
+/** What a free-placed board IS — drives its material/price, not a carcass position. Open-ended set for
+ *  free assembly (a table top, a leg-panel, an apron rail, a stretcher, a generic panel). */
+export type FreePartRole = "top" | "leg" | "rail" | "stretcher" | "panel" | "shelf" | "back";
+
+/** One edge of a free part on an axis, pinned to the block's LOW (`x=0`) or HIGH (`x=extent`) face at a
+ *  fixed `offset_mm10` inside it. This is what makes the "table law" work for free parts: on a block
+ *  resize the edge re-resolves against the new extent — a leg pinned `hi` stays inset from the right. */
+export interface FreeEdge {
+  readonly ref: "lo" | "hi";
+  readonly offset_mm10: mm10;
+}
+
+/** A free part's extent on one axis = its start & end edges. `{lo,0}..{hi,0}` spans the block; `{lo,0}..
+ *  {lo,S}` is a fixed size pinned to the low face; `{hi,S}..{hi,0}` a fixed size pinned to the high face. */
+export interface FreeAxisAnchor {
+  readonly start: FreeEdge;
+  readonly end: FreeEdge;
+}
+
+/** How a free part reflows when its block resizes — per-axis edge anchors (v5). When present, the solver
+ *  chain / resize re-derives the part's `box` from the block's box, so a table's top spans and its legs
+ *  stay in the corners as the master pulls the outer size. */
+export interface FreePartAnchor {
+  readonly x: FreeAxisAnchor;
+  readonly y: FreeAxisAnchor;
+  readonly z: FreeAxisAnchor;
+}
+
+/**
+ * A board placed FREELY in the block by an explicit box — the primitive of "build any furniture", not a
+ * panel derived from a divided carcass. So a table = a bare block (no carcass shell) + a `top` FreePart +
+ * four `leg` FreeParts, each positioned by its own box. `thicknessAxis` says which of the box's three
+ * dimensions is the board thickness; the other two are the cut length × width. Block-local mm10. (v5.)
+ */
+export interface FreePart {
+  readonly id: string;
+  readonly name: string;
+  readonly role: FreePartRole;
+  /** Block-local position + full 3-D size of the board. */
+  readonly box: Box3D;
+  /** Which box dimension is the board's thickness (the face = the other two). */
+  readonly thicknessAxis: Axis;
+  /** Optional per-part decor override (opaque catalog key), like a Component's `material`. */
+  readonly material?: string;
+  /**
+   * How the board reflows when its block resizes (v5, the "table law" for free parts). Absent = the box
+   * is static (a hand-placed board that stays put). Present = `box` is re-derived from the block's box on
+   * resize, so a top spans and legs hold the corners. `box` and `anchor` must agree at build time.
+   */
+  readonly anchor?: FreePartAnchor;
+}
+
 export interface Block {
   readonly id: BlockId;
   readonly name: string;
@@ -405,6 +488,55 @@ export interface Block {
   readonly rows: readonly Row[];
   /** L-corner footprint (blocker #1). Absent = a plain rectangular block (`box`). */
   readonly footprint?: LCornerFootprint;
+  /**
+   * Freely-placed boards for arbitrary (non-carcass) furniture — a table top + legs, a chair, etc. (v5).
+   * Optional/additive: absent = a pure carcass block (nothing regresses). Emitted + rendered ALONGSIDE the
+   * carcass unless the block is `bare`.
+   */
+  readonly freeParts?: readonly FreePart[];
+  /**
+   * A BARE block has no carcass shell — the solver emits NO sides/top/bottom/back for it (v5, free
+   * assembly). A table is a bare block whose whole body is `freeParts` (a top + legs). Optional/additive:
+   * absent/false = a normal carcass cabinet. Its `box` still defines the block's extent (for a run / room
+   * placement); dividers/instances/free parts inside it still solve.
+   */
+  readonly bare?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Run (Ряд блоков) — a wall-run of blocks that fits & resizes as ONE unit (v5)
+// ---------------------------------------------------------------------------
+
+/**
+ * One member of a `Run`: which block, and how its width behaves when the run is
+ * resized to fit a wall. The rule is the same §4 `DivisionRule` applied at BLOCK
+ * level — Fixed keeps its mm, Ratio shares the pool by weight, Flex absorbs the
+ * leftover, Locked keeps the block's current width.
+ */
+export interface RunMember {
+  readonly blockId: BlockId;
+  readonly rule: DivisionRule;
+}
+
+/**
+ * A run of blocks lined up along one wall axis — the master's "combine several
+ * cabinets into ONE unit that fits the wall exactly". The founder's Building-mode
+ * "table law" (CONSTRUCTION_FRAME_v4 §2) applied at cabinet-run level: resizing the
+ * run re-solves every member's width through the constraint solver (`resolveChain`)
+ * — Fixed cabinets keep their size, Flex/Ratio absorb the change — so the members
+ * always tile `length_mm10` with no gap, and each block is repositioned end-to-end
+ * along the run. Optional/additive on the model: absent = the pre-v5 world of
+ * independent blocks placed by hand.
+ */
+export interface Run {
+  readonly id: RunId;
+  readonly name: string;
+  /** The wall axis the member blocks line up along (`"x"` for a standard run). */
+  readonly axis: Axis;
+  /** Member blocks in run order (left→right along `axis`), each with its width rule. */
+  readonly members: readonly RunMember[];
+  /** The total run length (wall length) the members tile, mm10. */
+  readonly length_mm10: mm10;
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +553,12 @@ export interface StructuralModel {
   readonly id: string;
   readonly name: string;
   readonly blocks: readonly Block[];
+  /**
+   * Wall-runs grouping blocks into resize-as-one units (v5, §2 table law at run level). Optional/
+   * additive: absent = the pre-v5 world where every block stands alone. A block may belong to at most
+   * one run; blocks not in any run keep their independent placement. `resolveRun` re-solves a run.
+   */
+  readonly runs?: readonly Run[];
   /** The flat manufacturing leaves (Деталь), shared with the Project. */
   readonly parts: readonly Part[];
   /**

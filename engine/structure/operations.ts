@@ -33,11 +33,18 @@ import type {
   Box3D,
   Component,
   ComponentId,
+  DrawerInterior,
+  FreeEdge,
+  FreePart,
+  FreePartAnchor,
   Instance,
   InstanceId,
   Junction3D,
   Line,
   LineId,
+  Run,
+  RunId,
+  RunMember,
   Scope,
   Section,
   SectionId,
@@ -1153,7 +1160,11 @@ function resizeBlockAxis(
   const resized = block.footprint
     ? scaleBlockAxis(block, axis, newExtent_mm10 / old) // L-corner → proportional (rules are box-only)
     : resolveBlockAxis(block, axis, newExtent_mm10); // plain block → rule-aware constraint solve
-  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? resized : b)) };
+  // v5 — reflow anchored free parts to the resized block (the "table law": a top spans, legs hold corners).
+  const reflowed = resized.freeParts?.some((fp) => fp.anchor)
+    ? { ...resized, freeParts: resized.freeParts.map((fp) => (fp.anchor ? { ...fp, box: resolveFreePartBox(fp.anchor, resized.box) } : fp)) }
+    : resized;
+  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? reflowed : b)) };
 }
 
 /** Structure-level DEPTH edit (blocker #3, v3 Piece 1): set a block's depth; panels reflow. */
@@ -1183,6 +1194,219 @@ export function resizeBlockHeight(
   newHeight_mm10: mm10,
 ): StructuralModel {
   return resizeBlockAxis(model, blockId, "y", newHeight_mm10);
+}
+
+// ===========================================================================
+// Run (v5) — resize a wall-run of blocks so its members tile the wall exactly
+// ===========================================================================
+
+/** Members of `run` whose block still exists, paired with the live block, in run order. */
+function runMembers(model: StructuralModel, run: Run): { rule: DivisionRule; block: Block }[] {
+  const byId = new Map(model.blocks.map((b) => [b.id, b] as const));
+  return run.members
+    .map((m) => ({ rule: m.rule, block: byId.get(m.blockId) }))
+    .filter((x): x is { rule: DivisionRule; block: Block } => x.block !== undefined);
+}
+
+/** Reflow a block to width `w` along `axis` (its sections re-based BLOCK-LOCAL from 0) and place its left
+ *  edge at `cursor`. The per-member primitive shared by `resolveRun` (rule-solved widths) and `layRun`
+ *  (current widths). L-corner blocks scale proportionally; plain blocks solve rule-aware. */
+function placeMemberBlock(block: Block, axis: Axis, w: mm10, cursor: mm10): Block {
+  const old = extentOf(block.box, axis);
+  const local = { ...block, box: withAxis(block.box, axis, 0, old) }; // normalise origin → block-local
+  const reflowed = block.footprint ? scaleBlockAxis(local, axis, w / old) : resolveBlockAxis(local, axis, w);
+  return { ...reflowed, box: withAxis(reflowed.box, axis, cursor, w) };
+}
+
+/** Lay a run's members end-to-end from its current left edge, each at the width `widthOf` gives it. */
+function layRun(model: StructuralModel, run: Run, widthOf: (block: Block, i: number) => mm10): StructuralModel {
+  const members = runMembers(model, run);
+  if (members.length === 0) return model;
+  let cursor = originOf(members[0]!.block.box, run.axis); // keep the run's left edge where it was
+  const placed = new Map<BlockId, Block>();
+  members.forEach(({ block }, i) => {
+    const w = widthOf(block, i);
+    placed.set(block.id, placeMemberBlock(block, run.axis, w, cursor));
+    cursor += w;
+  });
+  return { ...model, blocks: model.blocks.map((b) => placed.get(b.id) ?? b) };
+}
+
+/**
+ * Re-solve a `Run` to a new wall length: distribute `newLength_mm10` across the member blocks via the
+ * constraint solver (`resolveChain` — Fixed keeps its width, Ratio shares the pool, Flex absorbs the
+ * leftover), resize each member's carcass, and lay them end-to-end so they tile the wall with no gap.
+ * Works for ANY wall length — the length is a PARAMETER, not a constant. Pure/immutable; no-op (same ref)
+ * when the run is unknown or has no surviving members.
+ */
+export function resolveRun(model: StructuralModel, runId: RunId, newLength_mm10: mm10): StructuralModel {
+  if (!Number.isInteger(newLength_mm10) || newLength_mm10 <= 0) throw new Error("RUN_INVALID_LENGTH");
+  const run = model.runs?.find((r) => r.id === runId);
+  if (!run) return model; // unknown run → no-op
+  const members = runMembers(model, run);
+  if (members.length === 0) return model;
+  const zones: ChainZone[] = members.map(({ rule, block }) => ({ rule, currentSize: extentOf(block.box, run.axis) }));
+  const { sizes } = resolveChain(newLength_mm10, zones);
+  const laid = layRun(model, run, (_b, i) => sizes[i]!);
+  const runs = model.runs!.map((r) => (r.id === runId ? { ...r, length_mm10: newLength_mm10 } : r));
+  return { ...laid, runs };
+}
+
+/**
+ * The fit status of a run at a given wall length (drives the amber warning, like `checkConstraints`):
+ * "ok" tiles exactly, "over-constrained" = Fixed/Locked members exceed the wall, "no-absorb" = leftover
+ * space with no flexible member to take it, "unknown" = no such run.
+ */
+export function runFitStatus(
+  model: StructuralModel,
+  runId: RunId,
+  length_mm10: mm10,
+): "ok" | "over-constrained" | "no-absorb" | "unknown" {
+  const run = model.runs?.find((r) => r.id === runId);
+  if (!run) return "unknown";
+  const zones: ChainZone[] = runMembers(model, run).map(({ rule, block }) => ({
+    rule,
+    currentSize: extentOf(block.box, run.axis),
+  }));
+  return resolveChain(length_mm10, zones).status;
+}
+
+/** Options for `groupBlocks`. */
+export interface GroupBlocksOpts {
+  readonly id?: RunId;
+  readonly name?: string;
+  /** The wall axis the blocks line up along. Default `"x"`. */
+  readonly axis?: Axis;
+  /** Per-block width rule, by blockId; any block not listed defaults to Flex. */
+  readonly rules?: Readonly<Record<BlockId, DivisionRule>>;
+}
+
+/** Every blockId already claimed by some run (a block belongs to at most one run). */
+function blocksInRuns(model: StructuralModel): Set<BlockId> {
+  return new Set((model.runs ?? []).flatMap((r) => r.members.map((m) => m.blockId)));
+}
+
+/**
+ * Combine ≥2 existing blocks into a new `Run` (the master's "make these cabinets one unit"). The members
+ * are laid end-to-end at their CURRENT widths in `blockIds` order — grouping removes gaps, it does NOT
+ * resize; `resolveRun` resizes them to a wall later. Each member takes its rule from `opts.rules` (else
+ * Flex). Throws on <2 blocks, an unknown block, or a block already in a run.
+ */
+export function groupBlocks(model: StructuralModel, blockIds: readonly BlockId[], opts: GroupBlocksOpts = {}): StructuralModel {
+  const ids = [...new Set(blockIds)];
+  if (ids.length < 2) throw new Error("GROUP_NEEDS_2_BLOCKS");
+  const byId = new Map(model.blocks.map((b) => [b.id, b] as const));
+  const claimed = blocksInRuns(model);
+  for (const id of ids) {
+    if (!byId.has(id)) throw new Error("GROUP_BLOCK_NOT_FOUND");
+    if (claimed.has(id)) throw new Error("GROUP_BLOCK_ALREADY_IN_RUN");
+  }
+  const axis = opts.axis ?? "x";
+  const members: RunMember[] = ids.map((id) => ({ blockId: id, rule: opts.rules?.[id] ?? { kind: "flex" } }));
+  const length = ids.reduce((sum, id) => sum + extentOf(byId.get(id)!.box, axis), 0);
+  const run: Run = { id: opts.id ?? `run__${ids.join("-")}`, name: opts.name ?? "Ряд", axis, members, length_mm10: length };
+  const withRun: StructuralModel = { ...model, runs: [...(model.runs ?? []), run] };
+  return layRun(withRun, run, (b) => extentOf(b.box, axis)); // tile at current widths (no resize)
+}
+
+/** Dissolve a run: its member blocks become independent again, keeping their current positions/sizes.
+ *  No-op (same ref) when the run is unknown. */
+export function ungroupBlocks(model: StructuralModel, runId: RunId): StructuralModel {
+  if (!model.runs?.some((r) => r.id === runId)) return model;
+  const runs = model.runs.filter((r) => r.id !== runId);
+  return { ...model, runs: runs.length > 0 ? runs : undefined };
+}
+
+/** Append a block to a run: it joins at the right end, tiled (not resized); the run grows by its width.
+ *  Throws on an unknown run/block or a block already in a run. */
+export function addBlockToRun(model: StructuralModel, runId: RunId, blockId: BlockId, rule?: DivisionRule): StructuralModel {
+  const run = model.runs?.find((r) => r.id === runId);
+  if (!run) throw new Error("ADD_RUN_NOT_FOUND");
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block) throw new Error("ADD_BLOCK_NOT_FOUND");
+  if (blocksInRuns(model).has(blockId)) throw new Error("ADD_BLOCK_ALREADY_IN_RUN");
+  const members: RunMember[] = [...run.members, { blockId, rule: rule ?? { kind: "flex" } }];
+  const newRun: Run = { ...run, members, length_mm10: run.length_mm10 + extentOf(block.box, run.axis) };
+  const withRun: StructuralModel = { ...model, runs: model.runs!.map((r) => (r.id === runId ? newRun : r)) };
+  return layRun(withRun, newRun, (b) => extentOf(b.box, run.axis));
+}
+
+/** Remove a block from a run: it becomes independent, the run shrinks by its width. Removing the last
+ *  member dissolves the run. No-op (same ref) when the run is unknown or the block isn't a member. */
+export function removeBlockFromRun(model: StructuralModel, runId: RunId, blockId: BlockId): StructuralModel {
+  const run = model.runs?.find((r) => r.id === runId);
+  if (!run || !run.members.some((m) => m.blockId === blockId)) return model;
+  const members = run.members.filter((m) => m.blockId !== blockId);
+  if (members.length === 0) return ungroupBlocks(model, runId);
+  const removed = model.blocks.find((b) => b.id === blockId);
+  const length = Math.max(1, run.length_mm10 - (removed ? extentOf(removed.box, run.axis) : 0));
+  const newRun: Run = { ...run, members, length_mm10: length };
+  const withRun: StructuralModel = { ...model, runs: model.runs!.map((r) => (r.id === runId ? newRun : r)) };
+  return layRun(withRun, newRun, (b) => extentOf(b.box, run.axis));
+}
+
+/**
+ * Put a drawer INSIDE a top-level drawer's clear inner volume — the master's "drawer in a drawer" (v5,
+ * CONSTRUCTION_FRAME_v4 §4). Appends a fresh drawer component + instance to the outer drawer's `interior`
+ * (creating it if absent). The clear inner box is computed by the solver (never stored), so nothing here
+ * needs a thickness. Pure/immutable. Throws if the outer instance is missing or is not a drawer.
+ * (Nesting into an ALREADY-nested drawer is a follow-up — this reaches the block's own instances.)
+ */
+export function nestDrawer(model: StructuralModel, outerInstanceId: InstanceId, name = "Ящик внутр"): StructuralModel {
+  for (const block of model.blocks) {
+    const outer = block.instances.find((i) => i.id === outerInstanceId);
+    if (!outer) continue;
+    const comp = block.components.find((c) => c.id === outer.componentId);
+    if (!comp?.drawer) throw new Error("NEST_NOT_A_DRAWER");
+    const innerId = `${outerInstanceId}__nd${(outer.interior?.instances.length ?? 0) + 1}`;
+    const innerComp: Component = { id: `cmp_${innerId}`, name, partIds: [], role: null, drawer: true };
+    const innerInst: Instance = { id: innerId, componentId: innerComp.id, sectionId: outer.sectionId, anchor: { x: 0, y: 0, z: 0 }, link: "linked" };
+    const interior: DrawerInterior = outer.interior
+      ? { components: [...outer.interior.components, innerComp], instances: [...outer.interior.instances, innerInst] }
+      : { components: [innerComp], instances: [innerInst] };
+    const instances = block.instances.map((i) => (i.id === outerInstanceId ? { ...outer, interior } : i));
+    return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? { ...b, instances } : b)) };
+  }
+  throw new Error("NEST_OUTER_NOT_FOUND");
+}
+
+/** Resolve one anchored edge against a block extent: `lo` → the offset, `hi` → extent − offset. */
+function resolveFreeEdge(e: FreeEdge, extent: mm10): mm10 {
+  return e.ref === "lo" ? e.offset_mm10 : extent - e.offset_mm10;
+}
+
+/**
+ * Re-derive a free part's block-local `Box3D` from its `anchor` and the block's box (v5, the free-part
+ * "table law"). Each axis' start/end edges resolve against that axis' extent, giving the board's origin +
+ * size — so a top spans and legs hold the corners as the block resizes. Pure.
+ */
+export function resolveFreePartBox(anchor: FreePartAnchor, box: Box3D): Box3D {
+  const axis = (a: { start: FreeEdge; end: FreeEdge }, extent: mm10) => {
+    const o = resolveFreeEdge(a.start, extent);
+    return { o, size: resolveFreeEdge(a.end, extent) - o };
+  };
+  const x = axis(anchor.x, box.w), y = axis(anchor.y, box.h), z = axis(anchor.z, box.d);
+  return { x: x.o, y: y.o, z: z.o, w: x.size, h: y.size, d: z.size };
+}
+
+/**
+ * Add a freely-placed board to a block (v5, free assembly) — the master drops a top / a leg / a panel at
+ * an explicit box. Pure/immutable. Throws on an unknown block or a duplicate free-part id within it.
+ */
+export function addFreePart(model: StructuralModel, blockId: BlockId, fp: FreePart): StructuralModel {
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block) throw new Error("ADD_FREEPART_BLOCK_NOT_FOUND");
+  if ((block.freeParts ?? []).some((f) => f.id === fp.id)) throw new Error("ADD_FREEPART_DUPLICATE_ID");
+  const freeParts = [...(block.freeParts ?? []), fp];
+  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? { ...b, freeParts } : b)) };
+}
+
+/** Remove a free board from a block by id. No-op (same ref) when the block or the free part is missing. */
+export function removeFreePart(model: StructuralModel, blockId: BlockId, freePartId: string): StructuralModel {
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block || !(block.freeParts ?? []).some((f) => f.id === freePartId)) return model;
+  const freeParts = (block.freeParts ?? []).filter((f) => f.id !== freePartId);
+  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? { ...b, freeParts } : b)) };
 }
 
 // ===========================================================================

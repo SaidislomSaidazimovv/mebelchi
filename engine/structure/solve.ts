@@ -23,7 +23,10 @@ import type { Grain, Part, mm10 } from "../contracts/types.js";
 import {
   leafSections,
   type Block,
+  type Box3D,
   type Component,
+  type DrawerInterior,
+  type FreePart,
   type Instance,
   type Line,
   type Section,
@@ -322,8 +325,12 @@ function componentById(block: Block, componentId: string): Component | null {
  * (layout) so they always agree.
  */
 export function shelfSpanX(block: Block, section: Section, board: mm10): { x0: mm10; width: mm10 } {
-  const atLeftEdge = section.box.x === block.box.x;
-  const atRightEdge = section.box.x + section.box.w === block.box.x + block.box.w;
+  // Sections are BLOCK-LOCAL (0-based within the block); `block.box.x` is the block's run position,
+  // added by the layout. So the block's own edges in the section frame are 0 and `block.box.w` — NOT
+  // `block.box.x`. (Identical when the block sits at x=0, so single-block cut lists are unchanged;
+  // correct for a block positioned in a run, where box.x ≠ 0.)
+  const atLeftEdge = section.box.x === 0;
+  const atRightEdge = section.box.x + section.box.w === block.box.w;
   const li = atLeftEdge ? board : Math.round(board / 2);
   const ri = atRightEdge ? board : Math.round(board / 2);
   return { x0: li, width: section.box.w - li - ri };
@@ -334,8 +341,11 @@ export function shelfSpanX(block: Block, section: Section, board: mm10): { x0: m
  *  CENTRED on the cut → half a board in. Used by the shelf vertical distribution (equal openings even
  *  when a section is bounded by a divider) and by a vertical divider's own span. */
 export function shelfSpanY(block: Block, section: Section, board: mm10): { y0: mm10; height: mm10 } {
-  const atBottomEdge = section.box.y === block.box.y;
-  const atTopEdge = section.box.y + section.box.h === block.box.y + block.box.h;
+  // Block-local edges (see shelfSpanX): the block's bottom/top in the section frame are 0 and
+  // `block.box.h`, not `block.box.y`. Identical at y=0 (blocks are never positioned in Y), correct
+  // if they ever are.
+  const atBottomEdge = section.box.y === 0;
+  const atTopEdge = section.box.y + section.box.h === block.box.h;
   const bi = atBottomEdge ? board : Math.round(board / 2);
   const ti = atTopEdge ? board : Math.round(board / 2);
   return { y0: bi, height: section.box.h - bi - ti };
@@ -347,28 +357,76 @@ const DRAWER_SLIDE_CLEAR_MM10 = 130;
 /** A drawer placement → its 5-panel box: facade front + two carcass sides + carcass back + thin
  *  bottom, sized to the section less the runner clearance. Part ids share the instance base so the
  *  editor's resolveInstance still selects the whole drawer. */
-function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
-  const idBase = `${block.id}__inst_${inst.id}`;
-  const box = section.box;
-  // The drawer body spans the CLEAR interior (between the carcass sides / dividers) less a runner
-  // clearance each side. Using shelfSpanX (not box.w) subtracts the bounding board — a full board at a
-  // carcass side, half at a divider. The old `box.w − 2·clear` forgot the sides entirely, so the box
-  // came out 2 boards (32mm) too wide and collided with the carcass. (Height + depth already inset.)
-  const outerW = shelfSpanX(block, section, t.carcass).width - 2 * DRAWER_SLIDE_CLEAR_MM10;
-  const innerW = outerW - 2 * t.carcass; // between the two box sides
-  const sideH = box.h - 2 * t.carcass; // box side height within the opening
-  // The box body sits BEHIND the facade with a small back clearance, so its depth is the section
-  // depth minus the facade board minus one carcass board — NOT the full section depth. Cutting the
-  // sides/bottom at box.d over-cuts them by ~32mm so a real drawer side would foul the facade / hang
-  // past the back. Must match layout.ts's drawerBoxPlacement `boxD = s.d − facade − carcass`.
-  const bodyD = box.d - t.facade - t.carcass;
+/** A drawer's 5-panel box (facade front + two sides + back + thin bottom) filling `box` through a clear
+ *  opening of width `openingW`. Shared by a TOP-LEVEL drawer (opening = carcass clear span) and a NESTED
+ *  one (opening = the parent interior's full width, no carcass). Part ids share `idBase` so the editor
+ *  still selects the whole drawer. Height + depth inset the same way in both cases. */
+function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: ResolvedT): Part[] {
+  const c = t.carcass, fa = t.facade, bk = t.back;
+  const outerW = openingW - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width inside the runner clearance
+  const innerW = outerW - 2 * c; // between the two box sides
+  const sideH = box.h - 2 * c; // box side height within the opening
+  const bodyD = box.d - fa - c; // depth behind the facade, small back clearance (matches drawerBoxPlacement)
   return [
-    panel(`${idBase}__front`, "Ящик · фасад", box.h, box.w, allBand(), t.facade, "facade"),
-    panel(`${idBase}__side_l`, "Ящик · бок Л", bodyD, sideH, frontBand(), t.carcass, "carcass_side"),
-    panel(`${idBase}__side_r`, "Ящик · бок П", bodyD, sideH, frontBand(), t.carcass, "carcass_side"),
-    panel(`${idBase}__back`, "Ящик · задняя", innerW, sideH, frontBand(), t.carcass, "carcass_side"),
-    panel(`${idBase}__bottom`, "Ящик · дно", innerW, bodyD, [0, 0, 0, 0], t.back, "carcass_back"),
+    panel(`${idBase}__front`, "Ящик · фасад", box.h, box.w, allBand(), fa, "facade"),
+    panel(`${idBase}__side_l`, "Ящик · бок Л", bodyD, sideH, frontBand(), c, "carcass_side"),
+    panel(`${idBase}__side_r`, "Ящик · бок П", bodyD, sideH, frontBand(), c, "carcass_side"),
+    panel(`${idBase}__back`, "Ящик · задняя", innerW, sideH, frontBand(), c, "carcass_side"),
+    panel(`${idBase}__bottom`, "Ящик · дно", innerW, bodyD, [0, 0, 0, 0], bk, "carcass_back"),
   ];
+}
+
+/** A TOP-LEVEL drawer in a carcass section: the opening is the clear span between the carcass sides /
+ *  dividers (shelfSpanX subtracts a full board at a wall, half at a divider). */
+function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
+  const openingW = shelfSpanX(block, section, t.carcass).width;
+  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, section.box, openingW, t);
+}
+
+/** Parts for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the parent's
+ *  clear inner `box` freestanding (opening = the box's full width, no carcass) and recurses into its own
+ *  interior — whose clear box is computed fresh from this one — giving arbitrary nesting depth. The clear
+ *  box is computed (never stored), so it always matches the board thickness in force. Non-drawer interior
+ *  content is out of scope for now. */
+function drawerInteriorParts(idBase: string, box: Box3D, interior: DrawerInterior, t: ResolvedT): Part[] {
+  const out: Part[] = [];
+  const byId = new Map(interior.components.map((c) => [c.id, c] as const));
+  for (const inst of interior.instances) {
+    const comp = byId.get(inst.componentId);
+    if (!comp?.drawer) continue;
+    const innerBase = `${idBase}__in_${inst.id}`;
+    out.push(...drawerBoxFromBox(innerBase, box, box.w, t)); // fills the parent's clear volume
+    if (inst.interior) out.push(...drawerInteriorParts(innerBase, drawerInteriorFromBox(box, 0, box.w, t), inst.interior, t));
+  }
+  return out;
+}
+
+/**
+ * The clear inner volume (block-local `Box3D`) of a drawer that fills `box` through a clear opening of
+ * width `openingW` starting at `openingX0` — the space a NESTED drawer (or any content) sits in: between
+ * the two box sides, above the bottom board, behind the facade, in front of the back board. Shared by
+ * top-level drawers (opening = the carcass clear span) and nested ones (opening = the parent interior's
+ * full width, no carcass). Matches drawerBoxParts / drawerBoxPlacement exactly.
+ */
+export function drawerInteriorFromBox(box: Box3D, openingX0: mm10, openingW: mm10, t: ResolvedT): Box3D {
+  const c = t.carcass, bk = t.back, fa = t.facade;
+  const innerW = openingW - 2 * DRAWER_SLIDE_CLEAR_MM10 - 2 * c; // between the two box sides
+  const bodyD = box.d - fa - c; // body depth behind the facade
+  return {
+    x: box.x + openingX0 + DRAWER_SLIDE_CLEAR_MM10 + c, // inner-left face
+    y: box.y + c + bk, // above the drawer bottom
+    z: box.z + fa, // behind the facade
+    w: innerW,
+    h: box.h - 2 * c - bk, // side height less the bottom board
+    d: bodyD - c, // body depth less the back board
+  };
+}
+
+/** The clear inner volume of a TOP-LEVEL drawer in `section` (opening = the carcass clear span). This is
+ *  what a nested drawer's `interior.box` is set to. Pure. */
+export function drawerInteriorBox(block: Block, section: Section, t: ResolvedT): Box3D {
+  const span = shelfSpanX(block, section, t.carcass);
+  return drawerInteriorFromBox(section.box, span.x0, span.width, t);
 }
 
 /** One placed instance → its content panel(s), sized from the section it sits in.
@@ -383,7 +441,12 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   // glass panes are never a board decor → don't stamp the override onto them (F1)
   const stampMat = (ps: Part[]): Part[] => (mat ? ps.map((p) => (p.role === "glass" ? p : { ...p, materialId: mat })) : ps);
   // A drawer is a whole box (its own multi-panel build), independent of a single-panel role.
-  if (component.drawer) return stampMat(drawerBoxParts(block, inst, section, t));
+  if (component.drawer) {
+    const box = stampMat(drawerBoxParts(block, inst, section, t));
+    // v5 — drawer-in-drawer: fill this drawer's clear inner volume (computed) with its nested content.
+    if (!inst.interior) return box;
+    return [...box, ...drawerInteriorParts(`${block.id}__inst_${inst.id}`, drawerInteriorBox(block, section, t), inst.interior, t)];
+  }
   // A sliding accessory (motion, e.g. a pull-out rack — role null) is a single shelf-like board spanning
   // the opening; it was RENDERED (motionPlacement) but never emitted here, so it was missing from the cut
   // list. Emit the matching board (untagged → the pin-drilling pass skips it, since it rides runners not
@@ -435,13 +498,29 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
  * Feed the result to `solveFull` / `solveAndExportSWJ008` (it slots in exactly where
  * hand-authored parts used to).
  */
+/**
+ * A freely-placed board → its cut `Part` (v5, free assembly). The thickness is the box dimension along
+ * `thicknessAxis`; the other two are the cut length × width. Banded on all edges (a visible furniture
+ * board); carries the free part's decor override. Untagged role → no carcass drilling (it rides no pins).
+ */
+export function freePartToPart(block: Block, fp: FreePart): Part {
+  const { w, h, d } = fp.box;
+  const [length, width, thickness] =
+    fp.thicknessAxis === "x" ? [h, d, w]
+      : fp.thicknessAxis === "y" ? [w, d, h]
+        : [w, h, d]; // "z"
+  const p = panel(`${block.id}__free_${fp.id}`, fp.name, length, width, allBand(), thickness);
+  return fp.material ? { ...p, materialId: fp.material } : p;
+}
+
 export function solveStructure(model: StructuralModel, thickness: ThicknessSpec = {}): Part[] {
   const t = resolveThickness(thickness);
   const parts: Part[] = [];
   for (const block of model.blocks) {
-    parts.push(...(block.footprint ? lCornerParts(block, t) : carcassParts(block, t)));
+    if (!block.bare) parts.push(...(block.footprint ? lCornerParts(block, t) : carcassParts(block, t))); // v5 — bare = no shell
     for (const line of block.lines) parts.push(dividerPart(block, line, t));
     for (const inst of block.instances) parts.push(...instanceParts(block, inst, t));
+    for (const fp of block.freeParts ?? []) parts.push(freePartToPart(block, fp)); // v5 — free assembly boards
   }
   return parts;
 }
