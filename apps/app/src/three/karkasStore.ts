@@ -5,13 +5,13 @@
 // call the engine's PURE immutable operations (divideSection / addInstance) and re-derive.
 
 import { create } from "zustand";
-import type { StructuralModel, Component, Block, Instance } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Component, Block, Instance, FreePart } from "../../../../engine/contracts/structure.js";
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -149,6 +149,11 @@ interface KarkasState extends Derived {
    *  «Qayerga» picker; falls back to the first leaf. */
   targetId: string | null;
   setTarget: (id: string) => void;
+  /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
+  addFreeBoard: () => void;
+  moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
+  snapFreePart: (fpId: string) => void;
+  removeFreeBoard: (fpId: string) => void;
   past: StructuralModel[];
   /** Step 12 (#15) — the redo forward stack; a fresh edit clears it. */
   future: StructuralModel[];
@@ -281,6 +286,24 @@ interface ProjectFile {
   lockedQuote?: { total: number; date: string } | null;
 }
 
+/** U3.2c — snap a free board's box (block-local mm10) so any face within `thr` of a compartment face
+ *  (a wall / shelf / floor / front / back) clicks flush to it. Magnetic placement, evaluated per axis. */
+type XBox = { x: number; y: number; z: number; w: number; h: number; d: number };
+function snapFreeBox(box: XBox, secBoxes: readonly XBox[], thr: number): { x: number; y: number; z: number } {
+  const snap = (lo: number, size: number, cands: number[]): number => {
+    const hi = lo + size;
+    let best = lo, bestD = thr;
+    for (const c of cands) {
+      if (Math.abs(c - lo) < bestD) { best = c; bestD = Math.abs(c - lo); }
+      if (Math.abs(c - hi) < bestD) { best = c - size; bestD = Math.abs(c - hi); }
+    }
+    return best;
+  };
+  const xs: number[] = [], ys: number[] = [], zs: number[] = [];
+  for (const s of secBoxes) { xs.push(s.x, s.x + s.w); ys.push(s.y, s.y + s.h); zs.push(s.z, s.z + s.d); }
+  return { x: snap(box.x, box.w, xs), y: snap(box.y, box.h, ys), z: snap(box.z, box.d, zs) };
+}
+
 export const useKarkas = create<KarkasState>((set, get) => {
   // push the current model onto the undo stack, then swap in + re-derive the next one. Structural
   // edits clear the selection (the tapped part id may be gone); property edits keep it (keepSel).
@@ -309,6 +332,68 @@ export const useKarkas = create<KarkasState>((set, get) => {
     selectedId: null,
     targetId: null,
     setTarget: (id) => set({ targetId: id }),
+    // U3.2 — free assembly: a board that lives OUTSIDE the carcass sections, placed by its own box and
+    // draggable anywhere (Moblo free-primitive). The engine already cuts + renders block.freeParts.
+    addFreeBoard: () => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block) return;
+      const bx = block.box;
+      const w = Math.min(4000, Math.round(bx.w * 0.55)); // mm10
+      const d = Math.min(3000, Math.round(bx.d * 0.6));
+      const fp: FreePart = {
+        id: `free_${Date.now().toString(36)}`,
+        name: "Erkin taxta",
+        role: "shelf",
+        thicknessAxis: "y", // horizontal board (thickness along Y)
+        // float it just ABOVE the carcass top, centred — clearly visible so the master grabs and drags it
+        // down into place (U3.2b) instead of it hiding among the existing shelves.
+        box: { x: Math.round((bx.w - w) / 2), y: bx.h + 1000, z: Math.round((bx.d - d) / 2), w, h: 160, d },
+      };
+      apply(addFreePartOp(s.model, block.id, fp));
+      set({ selectedId: `${block.id}__free_${fp.id}` }); // select it so it highlights (and, in U3.2b, drags)
+    },
+    moveFreePart: (fpId, delta, first) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block || !block.freeParts) return;
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: { ...f.box, x: f.box.x + delta.x, y: f.box.y + delta.y, z: f.box.z + delta.z } })),
+        })),
+      };
+      // `first` opens ONE undo step; later drag frames just replace it, so a drag isn't 100 undo entries.
+      if (first) set((st) => ({ ...derive(model, st.plan), past: [...st.past.slice(-49), st.model], future: [] }));
+      else set((st) => ({ ...derive(model, st.plan) }));
+    },
+    // U3.2c — on drop, snap the board flush to any nearby compartment face (magnet). Part of the same
+    // drag undo step (a plain set, no new past entry), so one drag = one undo.
+    snapFreePart: (fpId) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const fp = block.freeParts.find((f) => f.id === fpId);
+      if (!fp) return;
+      const secBoxes: XBox[] = [];
+      for (const z of block.zones) for (const sec of leafSections(z.root)) secBoxes.push(sec.box);
+      const snapped = snapFreeBox(fp.box, secBoxes, 400); // 400 mm10 = 40 mm pull
+      if (snapped.x === fp.box.x && snapped.y === fp.box.y && snapped.z === fp.box.z) return; // already flush
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: { ...f.box, x: snapped.x, y: snapped.y, z: snapped.z } })),
+        })),
+      };
+      set((st) => ({ ...derive(model, st.plan) }));
+    },
+    removeFreeBoard: (fpId) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (block) apply(removeFreePartOp(s.model, block.id, fpId));
+    },
     past: [],
     future: [],
     plan: DEFAULT_PLAN,

@@ -94,6 +94,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const tapPart = useKarkas((s) => s.tapPart);
   const setModel = useKarkas((s) => s.setModel);
   const add = useKarkas((s) => s.add);
+  const addFreeBoard = useKarkas((s) => s.addFreeBoard);
   const divide = useKarkas((s) => s.divide);
   const undo = useKarkas((s) => s.undo);
   const canUndo = useKarkas((s) => s.past.length > 0);
@@ -486,6 +487,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     let drag:
       | { kind: "line"; lineId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; last: number; first: boolean }
       | { kind: "resize"; dim: "w" | "h" | "d"; axis: "x" | "y" | "z"; sign: number; plane: THREE.Plane; startWorld: number; startExtent: number; first: boolean }
+      | { kind: "freemove"; fpId: string; plane: THREE.Plane; last: THREE.Vector3; first: boolean }
       | null = null;
     const alongAxis = (e: PointerEvent, axis: "x" | "y" | "z", plane: THREE.Plane): number | null => {
       raycaster.setFromCamera(ndc(e), camera);
@@ -504,7 +506,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (hit && pid && pid === st.selectedId) {
         const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
         const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, hit.point);
-        if (pid.includes("__div_")) {
+        if (pid.includes("__free_")) {
+          // (U3.2b) a free board → drag it anywhere in the camera-facing plane (Moblo free-assembly)
+          drag = { kind: "freemove", fpId: pid.slice(pid.indexOf("__free_") + "__free_".length), plane, last: hit.point.clone(), first: true };
+          controls.enabled = false;
+        } else if (pid.includes("__div_")) {
           // (3.3b) a divider → move the dividing line, rule-aware reflow of the two zones it splits
           const lineId = pid.slice(pid.indexOf("__div_") + "__div_".length);
           const line = st.model.blocks[0]?.lines.find((l) => l.id === lineId);
@@ -532,6 +538,22 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const onMove = (e: PointerEvent) => {
       if (!drag) return;
+      // (U3.2b) free board — move it in the camera plane; snap to 5 mm (Shift = 1 mm), one undo step per drag
+      if (drag.kind === "freemove") {
+        raycaster.setFromCamera(ndc(e), camera);
+        const pt = new THREE.Vector3();
+        if (!raycaster.ray.intersectPlane(drag.plane, pt)) return;
+        const stepF = e.shiftKey ? 10 : 50; // mm10
+        const sx = Math.round(Math.round((pt.x - drag.last.x) * 10000) / stepF) * stepF;
+        const sy = Math.round(Math.round((pt.y - drag.last.y) * 10000) / stepF) * stepF;
+        const sz = Math.round(Math.round((pt.z - drag.last.z) * 10000) / stepF) * stepF;
+        if (sx || sy || sz) {
+          useKarkas.getState().moveFreePart(drag.fpId, { x: sx, y: sy, z: sz }, drag.first);
+          drag.first = false;
+          drag.last.set(drag.last.x + sx / 10000, drag.last.y + sy / 10000, drag.last.z + sz / 10000);
+        }
+        return;
+      }
       const cur = alongAxis(e, drag.axis, drag.plane);
       if (cur == null) return;
       // (3.3d) magnetic snap — quantise to a 5 mm grid so drags land on round sizes; hold Shift → fine 1 mm
@@ -548,7 +570,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       }
     };
     const onUp = (e: PointerEvent) => {
-      if (drag) { drag = null; controls.enabled = true; return; } // finished a divider move / block resize
+      if (drag) { if (drag.kind === "freemove") useKarkas.getState().snapFreePart(drag.fpId); drag = null; controls.enabled = true; return; } // finished a move / resize (free board snaps to a face)
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return; // a camera orbit, not a tap
       raycaster.setFromCamera(ndc(e), camera);
       // Step 7c — a tap on a drill marker selects that individual hole (markers sit proud of the face)
@@ -957,6 +979,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     <button className="mob-addbtn" type="button" onClick={() => add("drawer")}>＋ Yashik</button>
                     <button className="mob-addbtn" type="button" onClick={() => add("divider")}>＋ Razdelitel</button>
                     <button className={"mob-addbtn" + (showDivide ? " is-active" : "")} type="button" onClick={() => togglePanel("divide")}>⊟ Bo'lish</button>
+                    <button className="mob-addbtn" type="button" onClick={() => addFreeBoard()} style={{ gridColumn: "1 / -1", borderStyle: "dashed" }}>🪵 Erkin taxta (istalgan joyga)</button>
                   </div>
                 ) : (
                   <p className="mob-hint">Bir taxtani tanlang — so'ng burchak, o'yiq yoki jiyak qo'shing.</p>
