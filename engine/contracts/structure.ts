@@ -421,6 +421,32 @@ export interface LCornerFootprint {
   readonly legB: LegSpec;
 }
 
+// ---------------------------------------------------------------------------
+// FreePart (v5) — a freely-placed board for arbitrary furniture (table / chair)
+// ---------------------------------------------------------------------------
+
+/** What a free-placed board IS — drives its material/price, not a carcass position. Open-ended set for
+ *  free assembly (a table top, a leg-panel, an apron rail, a stretcher, a generic panel). */
+export type FreePartRole = "top" | "leg" | "rail" | "stretcher" | "panel" | "shelf" | "back";
+
+/**
+ * A board placed FREELY in the block by an explicit box — the primitive of "build any furniture", not a
+ * panel derived from a divided carcass. So a table = a bare block (no carcass shell) + a `top` FreePart +
+ * four `leg` FreeParts, each positioned by its own box. `thicknessAxis` says which of the box's three
+ * dimensions is the board thickness; the other two are the cut length × width. Block-local mm10. (v5.)
+ */
+export interface FreePart {
+  readonly id: string;
+  readonly name: string;
+  readonly role: FreePartRole;
+  /** Block-local position + full 3-D size of the board. */
+  readonly box: Box3D;
+  /** Which box dimension is the board's thickness (the face = the other two). */
+  readonly thicknessAxis: Axis;
+  /** Optional per-part decor override (opaque catalog key), like a Component's `material`. */
+  readonly material?: string;
+}
+
 export interface Block {
   readonly id: BlockId;
   readonly name: string;
@@ -432,6 +458,12 @@ export interface Block {
   readonly rows: readonly Row[];
   /** L-corner footprint (blocker #1). Absent = a plain rectangular block (`box`). */
   readonly footprint?: LCornerFootprint;
+  /**
+   * Freely-placed boards for arbitrary (non-carcass) furniture — a table top + legs, a chair, etc. (v5).
+   * Optional/additive: absent = a pure carcass block (nothing regresses). Emitted + rendered ALONGSIDE the
+   * carcass unless the block is marked bare (E3.2).
+   */
+  readonly freeParts?: readonly FreePart[];
 }
 
 // ---------------------------------------------------------------------------

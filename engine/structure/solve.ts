@@ -26,6 +26,7 @@ import {
   type Box3D,
   type Component,
   type DrawerInterior,
+  type FreePart,
   type Instance,
   type Line,
   type Section,
@@ -497,6 +498,21 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
  * Feed the result to `solveFull` / `solveAndExportSWJ008` (it slots in exactly where
  * hand-authored parts used to).
  */
+/**
+ * A freely-placed board → its cut `Part` (v5, free assembly). The thickness is the box dimension along
+ * `thicknessAxis`; the other two are the cut length × width. Banded on all edges (a visible furniture
+ * board); carries the free part's decor override. Untagged role → no carcass drilling (it rides no pins).
+ */
+export function freePartToPart(block: Block, fp: FreePart): Part {
+  const { w, h, d } = fp.box;
+  const [length, width, thickness] =
+    fp.thicknessAxis === "x" ? [h, d, w]
+      : fp.thicknessAxis === "y" ? [w, d, h]
+        : [w, h, d]; // "z"
+  const p = panel(`${block.id}__free_${fp.id}`, fp.name, length, width, allBand(), thickness);
+  return fp.material ? { ...p, materialId: fp.material } : p;
+}
+
 export function solveStructure(model: StructuralModel, thickness: ThicknessSpec = {}): Part[] {
   const t = resolveThickness(thickness);
   const parts: Part[] = [];
@@ -504,6 +520,7 @@ export function solveStructure(model: StructuralModel, thickness: ThicknessSpec 
     parts.push(...(block.footprint ? lCornerParts(block, t) : carcassParts(block, t)));
     for (const line of block.lines) parts.push(dividerPart(block, line, t));
     for (const inst of block.instances) parts.push(...instanceParts(block, inst, t));
+    for (const fp of block.freeParts ?? []) parts.push(freePartToPart(block, fp)); // v5 — free assembly boards
   }
   return parts;
 }

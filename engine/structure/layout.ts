@@ -12,6 +12,7 @@ import type {
   Block,
   Component,
   DrawerInterior,
+  FreePart,
   Instance,
   Junction3D,
   Line,
@@ -404,6 +405,13 @@ function applyJunction(p: PanelPlacement, j: Junction3D): PanelPlacement {
   return j.shadowGap_z_mm10 ? { ...p, z_mm10: p.z_mm10 - j.shadowGap_z_mm10 } : p;
 }
 
+/** A freely-placed board → its viewport placement: its own block-local box, lifted to world by the block
+ *  origin (v5, free assembly). Ids match freePartToPart so a tapped free board maps 1:1 to its part. */
+function freePartPlacement(block: Block, fp: FreePart): PanelPlacement {
+  const b = fp.box;
+  return place(`${block.id}__free_${fp.id}`, fp.name, block.box.x + b.x, block.box.y + b.y, block.box.z + b.z, b.w, b.h, b.d);
+}
+
 /**
  * Positioned panels for the 3D viewport. Same panels (and ids) as `solveStructure`, but
  * each carries its place in the cabinet so the editor can render the assembled box.
@@ -424,6 +432,7 @@ export function solveLayout(model: StructuralModel, thickness: ThicknessSpec = {
       const lip = shelfLipPlacement(block, inst, t);
       for (const p of lip ? [...placements, lip] : placements) out.push(inst.junction ? applyJunction(p, inst.junction) : p);
     }
+    for (const fp of block.freeParts ?? []) out.push(freePartPlacement(block, fp)); // v5 — free assembly boards
   }
   return out;
 }
