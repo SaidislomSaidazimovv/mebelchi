@@ -8,6 +8,7 @@
 import type {
   Block,
   Component,
+  FreePart,
   Instance,
   Line,
   Section,
@@ -163,4 +164,44 @@ export function buildLCornerModel(): StructuralModel {
   };
 
   return { id: "demo_l", name: "Г-демо", blocks: [block], parts: [] };
+}
+
+/**
+ * A parametric TABLE (v5, free assembly) — a BARE block (no carcass) built from free boards: a top + four
+ * corner legs. The master types the outer size; every board's box is computed. Millimetres in, mm10 out.
+ * Fresh objects each call. This is the first "any furniture" template — a chair / shelf-unit follows the
+ * same shape (a bare block + positioned free parts).
+ */
+export function buildTable(
+  w_mm: number,
+  h_mm: number,
+  d_mm: number,
+  opts: { topThickness_mm10?: number; legSize_mm10?: number; legInset_mm10?: number } = {},
+): StructuralModel {
+  const W = Math.max(1, Math.round(w_mm)) * 10;
+  const H = Math.max(1, Math.round(h_mm)) * 10;
+  const D = Math.max(1, Math.round(d_mm)) * 10;
+  const topT = opts.topThickness_mm10 ?? 400; // 40mm top
+  const legSz = opts.legSize_mm10 ?? 500; // 50mm square legs
+  const inset = opts.legInset_mm10 ?? 0; // legs at the corners by default
+  const legH = Math.max(1, H - topT); // legs stand under the top
+
+  const top: FreePart = { id: "top", name: "Столешница", role: "top", thicknessAxis: "y", box: { x: 0, y: legH, z: 0, w: W, h: topT, d: D } };
+  const leg = (id: string, x: number, z: number): FreePart => ({ id, name: "Ножка", role: "leg", thicknessAxis: "x", box: { x, y: 0, z, w: legSz, h: legH, d: legSz } });
+  const legs: FreePart[] = [
+    leg("leg_fl", inset, inset),
+    leg("leg_fr", W - legSz - inset, inset),
+    leg("leg_bl", inset, D - legSz - inset),
+    leg("leg_br", W - legSz - inset, D - legSz - inset),
+  ];
+
+  const box = { x: 0, y: 0, z: 0, w: W, h: H, d: D };
+  const root: Section = { id: "sec_root", box: { ...box }, dividers: [], children: [], instanceIds: [], purpose: null };
+  const block: Block = {
+    id: "tbl", name: "Стол", box, bare: true,
+    zones: [{ id: "z_body", name: "Корпус", rule: "manual", root }],
+    components: [], instances: [], lines: [], rows: [],
+    freeParts: [top, ...legs],
+  };
+  return { id: "table", name: `Стол ${Math.round(w_mm)}×${Math.round(h_mm)}×${Math.round(d_mm)}`, blocks: [block], parts: [] };
 }

@@ -4,6 +4,8 @@
 import { describe, it, expect } from "vitest";
 import { solveStructure } from "../engine/structure/solve.js";
 import { solveLayout } from "../engine/structure/layout.js";
+import { addFreePart, removeFreePart } from "../engine/structure/operations.js";
+import { buildTable } from "../engine/structure/demoModel.js";
 import type { FreePart, StructuralModel } from "../engine/contracts/structure.js";
 
 const mkBlockWithFree = (freeParts: FreePart[]): StructuralModel => {
@@ -86,5 +88,40 @@ describe("E3.2 · bare block — a table has NO carcass, just its free parts", (
     const ps = solveLayout(mkTable());
     expect(ps).toHaveLength(5);
     expect(ps.map((p) => p.id).sort()).toEqual(["b__free_l1", "b__free_l2", "b__free_l3", "b__free_l4", "b__free_top"]);
+  });
+});
+
+describe("E3.3 · buildTable + addFreePart / removeFreePart", () => {
+  it("buildTable(1200×720×600) makes a bare table: a top + four corner legs, cut correctly", () => {
+    const parts = solveStructure(buildTable(1200, 720, 600));
+    expect(parts).toHaveLength(5); // no carcass
+    const top = parts.find((p) => p.id === "tbl__free_top")!;
+    expect([top.length_mm10, top.width_mm10, top.thickness_mm10]).toEqual([12000, 6000, 400]); // 1200×600×40
+    const leg = parts.find((p) => p.id === "tbl__free_leg_fl")!;
+    expect([leg.length_mm10, leg.width_mm10, leg.thickness_mm10]).toEqual([6800, 500, 500]); // height 680mm, 50×50 post
+  });
+
+  it("the legs sit at the four corners and the top rides on them", () => {
+    const ps = solveLayout(buildTable(1200, 720, 600));
+    const at = (id: string) => { const p = ps.find((q) => q.id === id)!; return [p.x_mm10, p.y_mm10, p.z_mm10]; };
+    expect(at("tbl__free_leg_fl")).toEqual([0, 0, 0]);
+    expect(at("tbl__free_leg_br")).toEqual([11500, 0, 5500]); // W−legSz , 0 , D−legSz
+    expect(at("tbl__free_top")).toEqual([0, 6800, 0]); // sits on top of the 680mm legs
+  });
+
+  it("addFreePart adds a board (e.g. an apron rail); removeFreePart drops one", () => {
+    const rail: FreePart = { id: "rail", name: "Царга", role: "rail", thicknessAxis: "z", box: { x: 0, y: 6200, z: 0, w: 12000, h: 600, d: 200 } };
+    const added = addFreePart(buildTable(1200, 720, 600), "tbl", rail);
+    expect(solveStructure(added)).toHaveLength(6); // 5 + the rail
+    const removed = removeFreePart(added, "tbl", "leg_fl");
+    expect(solveStructure(removed)).toHaveLength(5); // 6 − one leg
+  });
+
+  it("guards: unknown block and duplicate free-part id throw; removing a missing one is a no-op", () => {
+    const t = buildTable(1200, 720, 600);
+    const dup: FreePart = { id: "top", name: "x", role: "top", thicknessAxis: "y", box: { x: 0, y: 0, z: 0, w: 1, h: 1, d: 1 } };
+    expect(() => addFreePart(t, "ghost", dup)).toThrow("ADD_FREEPART_BLOCK_NOT_FOUND");
+    expect(() => addFreePart(t, "tbl", dup)).toThrow("ADD_FREEPART_DUPLICATE_ID");
+    expect(removeFreePart(t, "tbl", "nope")).toBe(t); // no-op, same ref
   });
 });

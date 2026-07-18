@@ -34,6 +34,7 @@ import type {
   Component,
   ComponentId,
   DrawerInterior,
+  FreePart,
   Instance,
   InstanceId,
   Junction3D,
@@ -1361,6 +1362,26 @@ export function nestDrawer(model: StructuralModel, outerInstanceId: InstanceId, 
     return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? { ...b, instances } : b)) };
   }
   throw new Error("NEST_OUTER_NOT_FOUND");
+}
+
+/**
+ * Add a freely-placed board to a block (v5, free assembly) — the master drops a top / a leg / a panel at
+ * an explicit box. Pure/immutable. Throws on an unknown block or a duplicate free-part id within it.
+ */
+export function addFreePart(model: StructuralModel, blockId: BlockId, fp: FreePart): StructuralModel {
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block) throw new Error("ADD_FREEPART_BLOCK_NOT_FOUND");
+  if ((block.freeParts ?? []).some((f) => f.id === fp.id)) throw new Error("ADD_FREEPART_DUPLICATE_ID");
+  const freeParts = [...(block.freeParts ?? []), fp];
+  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? { ...b, freeParts } : b)) };
+}
+
+/** Remove a free board from a block by id. No-op (same ref) when the block or the free part is missing. */
+export function removeFreePart(model: StructuralModel, blockId: BlockId, freePartId: string): StructuralModel {
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block || !(block.freeParts ?? []).some((f) => f.id === freePartId)) return model;
+  const freeParts = (block.freeParts ?? []).filter((f) => f.id !== freePartId);
+  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? { ...b, freeParts } : b)) };
 }
 
 // ===========================================================================
