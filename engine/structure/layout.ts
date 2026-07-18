@@ -11,6 +11,7 @@
 import type {
   Block,
   Component,
+  DrawerInterior,
   Instance,
   Junction3D,
   Line,
@@ -260,32 +261,62 @@ const DRAWER_SLIDE_CLEAR_MM10 = 130;
 /** A drawer placement → the 5-panel box (facade front + 2 sides + back + bottom) laid into its
  *  section, matching the ids + geometry `drawerBoxParts` emits in solve.ts so the 3D shows the drawer
  *  and its parts colour correctly. Was MISSING — drawers were counted in the cut list but invisible. */
-function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement[] | null {
-  const section = sectionById(block, inst.sectionId);
-  const component = componentById(block, inst.componentId);
-  if (!section || !component || !component.drawer) return null;
-  const s = section.box;
-  const x0 = block.box.x + s.x, y0 = block.box.y + s.y, z0 = block.box.z + s.z;
-  const idBase = `${block.id}__inst_${inst.id}`;
+/** Place a drawer's 5-panel box into a WORLD-space `box` through a clear opening of width `openingW`
+ *  starting at `openingX0`. Shared by a top-level drawer (opening = the carcass clear span) and a nested
+ *  one (opening = the box's full width, no carcass). Mirrors solve.ts's drawerBoxFromBox exactly. */
+function drawerBoxPlaceInto(
+  idBase: string,
+  box: { x: mm10; y: mm10; z: mm10; w: mm10; h: mm10; d: mm10 },
+  openingX0: mm10,
+  openingW: mm10,
+  t: ResolvedT,
+): PanelPlacement[] {
   const c = t.carcass, bk = t.back, fa = t.facade; // box walls = carcass, bottom = thin back, facade = МДФ
-  // Body sits inside the CLEAR interior (past the carcass side / divider face) less a runner clearance
-  // each side — matching solve.ts's drawerBoxParts. Old code measured from the section-box edge, so it
-  // ignored the bounding board and overhung the carcass by 2 boards.
-  const span = shelfSpanX(block, section, c);
-  const bodyX = x0 + span.x0 + DRAWER_SLIDE_CLEAR_MM10; // carcass inner face + left runner clearance
-  const bodyW = span.width - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width between the runners
+  const bodyX = box.x + openingX0 + DRAWER_SLIDE_CLEAR_MM10; // opening inner face + left runner clearance
+  const bodyW = openingW - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width between the runners
   const innerW = bodyW - 2 * c; // between the two box sides
-  const bodyY = y0 + c; // above the bottom clearance
-  const sideH = s.h - 2 * c; // box side height within the opening
-  const boxZ = z0 + fa; // behind the front facade (its own thickness)
-  const boxD = s.d - fa - c; // body depth (behind the facade, small back clearance)
+  const bodyY = box.y + c; // above the bottom clearance
+  const sideH = box.h - 2 * c; // box side height within the opening
+  const boxZ = box.z + fa; // behind the front facade (its own thickness)
+  const boxD = box.d - fa - c; // body depth (behind the facade, small back clearance)
   return [
-    place(`${idBase}__front`, "Ящик · фасад", x0, y0, z0, s.w, s.h, fa), // full front opening
+    place(`${idBase}__front`, "Ящик · фасад", box.x, box.y, box.z, box.w, box.h, fa), // full front opening
     place(`${idBase}__side_l`, "Ящик · бок Л", bodyX, bodyY, boxZ, c, sideH, boxD),
     place(`${idBase}__side_r`, "Ящик · бок П", bodyX + bodyW - c, bodyY, boxZ, c, sideH, boxD),
     place(`${idBase}__back`, "Ящик · задняя", bodyX + c, bodyY, boxZ + boxD - c, innerW, sideH, c),
     place(`${idBase}__bottom`, "Ящик · дно", bodyX + c, bodyY, boxZ, innerW, bk, boxD),
   ];
+}
+
+/** Placements for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the
+ *  interior clear box (block-local → world via the block origin) freestanding, recursing into its own
+ *  interior. Non-drawer interior content is out of scope for now. */
+function drawerInteriorPlacements(idBase: string, block: Block, interior: DrawerInterior, t: ResolvedT): PanelPlacement[] {
+  const out: PanelPlacement[] = [];
+  const byId = new Map(interior.components.map((c) => [c.id, c] as const));
+  for (const inst of interior.instances) {
+    const comp = byId.get(inst.componentId);
+    if (!comp?.drawer) continue;
+    const innerBase = `${idBase}__in_${inst.id}`;
+    const b = interior.box;
+    const world = { x: block.box.x + b.x, y: block.box.y + b.y, z: block.box.z + b.z, w: b.w, h: b.h, d: b.d };
+    out.push(...drawerBoxPlaceInto(innerBase, world, 0, b.w, t));
+    if (inst.interior) out.push(...drawerInteriorPlacements(innerBase, block, inst.interior, t));
+  }
+  return out;
+}
+
+function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement[] | null {
+  const section = sectionById(block, inst.sectionId);
+  const component = componentById(block, inst.componentId);
+  if (!section || !component || !component.drawer) return null;
+  const s = section.box;
+  const world = { x: block.box.x + s.x, y: block.box.y + s.y, z: block.box.z + s.z, w: s.w, h: s.h, d: s.d };
+  const span = shelfSpanX(block, section, t.carcass);
+  const idBase = `${block.id}__inst_${inst.id}`;
+  const out = drawerBoxPlaceInto(idBase, world, span.x0, span.width, t);
+  if (inst.interior) out.push(...drawerInteriorPlacements(idBase, block, inst.interior, t)); // drawer-in-drawer
+  return out;
 }
 
 /**

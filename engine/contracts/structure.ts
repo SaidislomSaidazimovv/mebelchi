@@ -349,6 +349,26 @@ export interface Instance {
    * step-back values are carried for the advanced multi-body cut geometry (L3, not yet rendered).
    */
   readonly junction?: Junction3D;
+  /**
+   * Nested content inside THIS drawer's clear inner volume (drawer-in-drawer, v5, CONSTRUCTION_FRAME_v4
+   * §4 "a sled … can host another Space with its own inner sled"). Only meaningful when this instance's
+   * component is a drawer. Recursive: an inner instance may itself be a drawer carrying its own
+   * `interior`. Optional/additive — absent = a plain drawer (nothing regresses).
+   */
+  readonly interior?: DrawerInterior;
+}
+
+/**
+ * The interior of a drawer: its clear inner volume (a block-local `Box3D`) plus the reusable component
+ * definitions and their placements that live inside it — the same shape as a mini-block, so the solver
+ * fills a drawer body exactly as it fills a carcass. An inner drawer here can carry its own `interior`,
+ * giving arbitrary drawer-in-drawer nesting. (v5.)
+ */
+export interface DrawerInterior {
+  /** The clear inner volume the content sits in, in the block-local mm10 frame. */
+  readonly box: Box3D;
+  readonly components: readonly Component[];
+  readonly instances: readonly Instance[];
 }
 
 // ---------------------------------------------------------------------------
