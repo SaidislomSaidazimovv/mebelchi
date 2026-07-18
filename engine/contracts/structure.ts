@@ -359,14 +359,14 @@ export interface Instance {
 }
 
 /**
- * The interior of a drawer: its clear inner volume (a block-local `Box3D`) plus the reusable component
- * definitions and their placements that live inside it — the same shape as a mini-block, so the solver
- * fills a drawer body exactly as it fills a carcass. An inner drawer here can carry its own `interior`,
- * giving arbitrary drawer-in-drawer nesting. (v5.)
+ * The interior of a drawer: the reusable component definitions and their placements that live inside its
+ * clear inner volume — the same shape as a mini-block, so the solver fills a drawer body exactly as it
+ * fills a carcass. An inner drawer here can carry its own `interior`, giving arbitrary drawer-in-drawer
+ * nesting. (v5.) The clear volume itself is NOT stored — it is thickness-dependent (it subtracts the
+ * drawer's boards), so the solver computes it fresh from the parent each solve (`drawerInteriorBox`),
+ * never drifting from the board thickness in force.
  */
 export interface DrawerInterior {
-  /** The clear inner volume the content sits in, in the block-local mm10 frame. */
-  readonly box: Box3D;
   readonly components: readonly Component[];
   readonly instances: readonly Instance[];
 }

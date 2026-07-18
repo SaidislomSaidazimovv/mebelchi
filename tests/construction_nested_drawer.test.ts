@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { drawerInteriorBox, resolveThickness } from "../engine/structure/solve.js";
 import { solveLayout } from "../engine/structure/layout.js";
+import { nestDrawer } from "../engine/structure/operations.js";
 import { solveModelToParts } from "../engine/cnc.js";
 import type { Block, Component, DrawerInterior, Instance, Section, StructuralModel } from "../engine/contracts/structure.js";
 
@@ -62,26 +63,19 @@ describe("E2.1 · drawerInteriorBox — a drawer's clear inner volume", () => {
   });
 });
 
-/** An inner drawer nested inside `outerInstId`'s drawer, sized to fill the given interior box. */
+/** A drawer nested inside the given interior — no stored box (the solver computes the clear volume). */
 const nestInDrawer = (interior: DrawerInterior, innerId: string): DrawerInterior => ({
-  ...interior,
   components: [...interior.components, { id: `cmp_${innerId}`, name: "Ящик внутр", partIds: [], role: null, drawer: true }],
-  instances: [...interior.instances, { id: innerId, componentId: `cmp_${innerId}`, sectionId: "", anchor: { x: 0, y: 0, z: 0 }, link: "linked" }],
+  instances: [...interior.instances, { id: innerId, componentId: `cmp_${innerId}`, sectionId: "sec", anchor: { x: 0, y: 0, z: 0 }, link: "linked" }],
 });
 
 /** The demo drawer with a nested drawer inside (and optionally a drawer inside THAT). */
 const mkNested = (depth: 1 | 2): StructuralModel => {
-  const { model, block, section } = mkDrawer();
-  const t = resolveThickness({});
-  const innerBox = drawerInteriorBox(block, section, t);
-  let interior: DrawerInterior = nestInDrawer({ box: innerBox, components: [], instances: [] }, "in1");
+  const { model, block } = mkDrawer();
+  let interior: DrawerInterior = nestInDrawer({ components: [], instances: [] }, "in1");
   if (depth === 2) {
-    // The level-2 drawer nests inside the level-1 drawer's own interior.
-    const lvl2Box = { ...innerBox, x: innerBox.x + 500, y: innerBox.y + 500, w: innerBox.w - 1000, h: innerBox.h - 1000, d: innerBox.d - 1000 };
-    interior = {
-      ...interior,
-      instances: [{ ...interior.instances[0]!, interior: nestInDrawer({ box: lvl2Box, components: [], instances: [] }, "in2") }],
-    };
+    // The level-2 drawer nests inside the level-1 drawer's own interior; its clear box is solved, not set.
+    interior = { ...interior, instances: [{ ...interior.instances[0]!, interior: nestInDrawer({ components: [], instances: [] }, "in2") }] };
   }
   const outer = { ...block.instances[0]!, interior };
   return { ...model, blocks: [{ ...block, instances: [outer] }] };
@@ -119,5 +113,23 @@ describe("E2.3 · nested drawer RENDERS inside the outer drawer", () => {
     const outerFront = ps.find((p) => p.id === "b__inst_d1__front")!;
     expect(innerFront.x_mm10).toBeGreaterThan(outerFront.x_mm10);
     expect(innerFront.x_mm10 + innerFront.w_mm10).toBeLessThan(outerFront.x_mm10 + outerFront.w_mm10);
+  });
+});
+
+describe("E2.4 · nestDrawer op — create a drawer-in-drawer without hand-built geometry", () => {
+  it("nestDrawer adds a working nested drawer (no stored box; the solver sizes it)", () => {
+    const out = nestDrawer(mkDrawer().model, "d1");
+    const parts = solveModelToParts(out);
+    expect(parts).toHaveLength(15); // 5 carcass + 5 outer + 5 nested
+    expect(parts.find((p) => p.id === "b__inst_d1__in_d1__nd1__front")).toBeDefined();
+  });
+
+  it("nestDrawer twice appends a second nested drawer", () => {
+    const out = nestDrawer(nestDrawer(mkDrawer().model, "d1"), "d1");
+    expect(solveModelToParts(out)).toHaveLength(20); // 5 carcass + 5 outer + 5 + 5
+  });
+
+  it("guards: unknown outer instance throws", () => {
+    expect(() => nestDrawer(mkDrawer().model, "ghost")).toThrow("NEST_OUTER_NOT_FOUND");
   });
 });

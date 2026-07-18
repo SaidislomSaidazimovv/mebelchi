@@ -24,6 +24,8 @@ import type { mm10 } from "../contracts/types.js";
 import {
   BOARD_MM10,
   CORNER_FILLER_W,
+  drawerInteriorBox,
+  drawerInteriorFromBox,
   GLASS_MM10,
   GLAZED_FRAME_W,
   GLAZED_MUNTIN_W,
@@ -289,19 +291,17 @@ function drawerBoxPlaceInto(
 }
 
 /** Placements for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the
- *  interior clear box (block-local → world via the block origin) freestanding, recursing into its own
- *  interior. Non-drawer interior content is out of scope for now. */
-function drawerInteriorPlacements(idBase: string, block: Block, interior: DrawerInterior, t: ResolvedT): PanelPlacement[] {
+ *  parent's clear inner `box` (WORLD space) freestanding, recursing into its own interior — whose clear
+ *  box is computed fresh from this one. Non-drawer interior content is out of scope for now. */
+function drawerInteriorPlacements(idBase: string, box: Box6, interior: DrawerInterior, t: ResolvedT): PanelPlacement[] {
   const out: PanelPlacement[] = [];
   const byId = new Map(interior.components.map((c) => [c.id, c] as const));
   for (const inst of interior.instances) {
     const comp = byId.get(inst.componentId);
     if (!comp?.drawer) continue;
     const innerBase = `${idBase}__in_${inst.id}`;
-    const b = interior.box;
-    const world = { x: block.box.x + b.x, y: block.box.y + b.y, z: block.box.z + b.z, w: b.w, h: b.h, d: b.d };
-    out.push(...drawerBoxPlaceInto(innerBase, world, 0, b.w, t));
-    if (inst.interior) out.push(...drawerInteriorPlacements(innerBase, block, inst.interior, t));
+    out.push(...drawerBoxPlaceInto(innerBase, box, 0, box.w, t)); // fills the parent's clear volume
+    if (inst.interior) out.push(...drawerInteriorPlacements(innerBase, drawerInteriorFromBox(box, 0, box.w, t), inst.interior, t));
   }
   return out;
 }
@@ -315,7 +315,11 @@ function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPl
   const span = shelfSpanX(block, section, t.carcass);
   const idBase = `${block.id}__inst_${inst.id}`;
   const out = drawerBoxPlaceInto(idBase, world, span.x0, span.width, t);
-  if (inst.interior) out.push(...drawerInteriorPlacements(idBase, block, inst.interior, t)); // drawer-in-drawer
+  if (inst.interior) {
+    // The drawer's clear inner volume is block-local; lift it to world by the block origin, then recurse.
+    const b = drawerInteriorBox(block, section, t);
+    out.push(...drawerInteriorPlacements(idBase, { x: block.box.x + b.x, y: block.box.y + b.y, z: block.box.z + b.z, w: b.w, h: b.h, d: b.d }, inst.interior, t));
+  }
   return out;
 }
 

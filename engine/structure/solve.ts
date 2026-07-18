@@ -382,18 +382,20 @@ function drawerBoxParts(block: Block, inst: Instance, section: Section, t: Resol
   return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, section.box, openingW, t);
 }
 
-/** Parts for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the interior
- *  clear box freestanding (opening = the box's full width, no carcass) and recurses into its own
- *  interior, giving arbitrary nesting depth. Non-drawer interior content is out of scope for now. */
-function drawerInteriorParts(idBase: string, interior: DrawerInterior, t: ResolvedT): Part[] {
+/** Parts for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the parent's
+ *  clear inner `box` freestanding (opening = the box's full width, no carcass) and recurses into its own
+ *  interior — whose clear box is computed fresh from this one — giving arbitrary nesting depth. The clear
+ *  box is computed (never stored), so it always matches the board thickness in force. Non-drawer interior
+ *  content is out of scope for now. */
+function drawerInteriorParts(idBase: string, box: Box3D, interior: DrawerInterior, t: ResolvedT): Part[] {
   const out: Part[] = [];
   const byId = new Map(interior.components.map((c) => [c.id, c] as const));
   for (const inst of interior.instances) {
     const comp = byId.get(inst.componentId);
     if (!comp?.drawer) continue;
     const innerBase = `${idBase}__in_${inst.id}`;
-    out.push(...drawerBoxFromBox(innerBase, interior.box, interior.box.w, t));
-    if (inst.interior) out.push(...drawerInteriorParts(innerBase, inst.interior, t));
+    out.push(...drawerBoxFromBox(innerBase, box, box.w, t)); // fills the parent's clear volume
+    if (inst.interior) out.push(...drawerInteriorParts(innerBase, drawerInteriorFromBox(box, 0, box.w, t), inst.interior, t));
   }
   return out;
 }
@@ -440,8 +442,9 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   // A drawer is a whole box (its own multi-panel build), independent of a single-panel role.
   if (component.drawer) {
     const box = stampMat(drawerBoxParts(block, inst, section, t));
-    // v5 — drawer-in-drawer: fill this drawer's clear inner volume with its nested content, recursively.
-    return inst.interior ? [...box, ...drawerInteriorParts(`${block.id}__inst_${inst.id}`, inst.interior, t)] : box;
+    // v5 — drawer-in-drawer: fill this drawer's clear inner volume (computed) with its nested content.
+    if (!inst.interior) return box;
+    return [...box, ...drawerInteriorParts(`${block.id}__inst_${inst.id}`, drawerInteriorBox(block, section, t), inst.interior, t)];
   }
   // A sliding accessory (motion, e.g. a pull-out rack — role null) is a single shelf-like board spanning
   // the opening; it was RENDERED (motionPlacement) but never emitted here, so it was missing from the cut

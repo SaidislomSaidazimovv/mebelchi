@@ -33,6 +33,7 @@ import type {
   Box3D,
   Component,
   ComponentId,
+  DrawerInterior,
   Instance,
   InstanceId,
   Junction3D,
@@ -1335,6 +1336,31 @@ export function removeBlockFromRun(model: StructuralModel, runId: RunId, blockId
   const newRun: Run = { ...run, members, length_mm10: length };
   const withRun: StructuralModel = { ...model, runs: model.runs!.map((r) => (r.id === runId ? newRun : r)) };
   return layRun(withRun, newRun, (b) => extentOf(b.box, run.axis));
+}
+
+/**
+ * Put a drawer INSIDE a top-level drawer's clear inner volume — the master's "drawer in a drawer" (v5,
+ * CONSTRUCTION_FRAME_v4 §4). Appends a fresh drawer component + instance to the outer drawer's `interior`
+ * (creating it if absent). The clear inner box is computed by the solver (never stored), so nothing here
+ * needs a thickness. Pure/immutable. Throws if the outer instance is missing or is not a drawer.
+ * (Nesting into an ALREADY-nested drawer is a follow-up — this reaches the block's own instances.)
+ */
+export function nestDrawer(model: StructuralModel, outerInstanceId: InstanceId, name = "Ящик внутр"): StructuralModel {
+  for (const block of model.blocks) {
+    const outer = block.instances.find((i) => i.id === outerInstanceId);
+    if (!outer) continue;
+    const comp = block.components.find((c) => c.id === outer.componentId);
+    if (!comp?.drawer) throw new Error("NEST_NOT_A_DRAWER");
+    const innerId = `${outerInstanceId}__nd${(outer.interior?.instances.length ?? 0) + 1}`;
+    const innerComp: Component = { id: `cmp_${innerId}`, name, partIds: [], role: null, drawer: true };
+    const innerInst: Instance = { id: innerId, componentId: innerComp.id, sectionId: outer.sectionId, anchor: { x: 0, y: 0, z: 0 }, link: "linked" };
+    const interior: DrawerInterior = outer.interior
+      ? { components: [...outer.interior.components, innerComp], instances: [...outer.interior.instances, innerInst] }
+      : { components: [innerComp], instances: [innerInst] };
+    const instances = block.instances.map((i) => (i.id === outerInstanceId ? { ...outer, interior } : i));
+    return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? { ...b, instances } : b)) };
+  }
+  throw new Error("NEST_OUTER_NOT_FOUND");
 }
 
 // ===========================================================================
