@@ -356,6 +356,12 @@ export interface Instance {
    * `interior`. Optional/additive — absent = a plain drawer (nothing regresses).
    */
   readonly interior?: DrawerInterior;
+  /**
+   * Slide state of a drawer (v5), 0 = shut … 1 = fully pulled out. Only the 3D LAYOUT reads it — it
+   * slides the drawer box (and everything nested inside it) forward by `open × travel` so the master can
+   * open a drawer to see / reach its contents; the manufacturing parts never change. Absent or 0 = shut.
+   */
+  readonly open?: number;
 }
 
 /**

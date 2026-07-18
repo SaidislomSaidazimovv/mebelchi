@@ -133,3 +133,49 @@ describe("E2.4 · nestDrawer op — create a drawer-in-drawer without hand-built
     expect(() => nestDrawer(mkDrawer().model, "ghost")).toThrow("NEST_OUTER_NOT_FOUND");
   });
 });
+
+describe("E2.5 · drawer slide — open state (layout only)", () => {
+  const openInst = (m: StructuralModel, open: number): StructuralModel => ({
+    ...m,
+    blocks: [{ ...m.blocks[0]!, instances: [{ ...m.blocks[0]!.instances[0]!, open }] }],
+  });
+
+  it("an open drawer slides forward by open × travel (body depth); a shut one is unchanged", () => {
+    const { model } = mkDrawer();
+    const t = resolveThickness({});
+    const travel = 5600 - t.facade - t.carcass; // section depth − facade − carcass
+    const shut = solveLayout(model).find((p) => p.id === "b__inst_d1__front")!;
+    const open = solveLayout(openInst(model, 1)).find((p) => p.id === "b__inst_d1__front")!;
+    expect(open.z_mm10 - shut.z_mm10).toBe(travel); // fully out
+    const half = solveLayout(openInst(model, 0.5)).find((p) => p.id === "b__inst_d1__front")!;
+    expect(half.z_mm10 - shut.z_mm10).toBe(Math.round(travel / 2)); // half out
+  });
+
+  it("open is LAYOUT-ONLY — the manufacturing parts never change", () => {
+    const { model } = mkDrawer();
+    expect(solveModelToParts(openInst(model, 1))).toEqual(solveModelToParts(model));
+  });
+
+  it("a nested drawer slides WITH its parent, and its own open composes on top", () => {
+    const base = nestDrawer(mkDrawer().model, "d1"); // outer d1 + nested d1__nd1
+    const nid = "b__inst_d1__in_d1__nd1__front";
+    const t = resolveThickness({});
+    const outerTravel = 5600 - t.facade - t.carcass; // 5280
+    const innerBox = drawerInteriorBox(mkDrawer().block, mkDrawer().section, t);
+    const innerTravel = innerBox.d - t.facade - t.carcass;
+
+    const shutZ = solveLayout(base).find((p) => p.id === nid)!.z_mm10;
+    // Outer opens → the nested box moves with it by the outer travel.
+    const outerOpen = solveLayout(openInst(base, 1)).find((p) => p.id === nid)!.z_mm10;
+    expect(outerOpen - shutZ).toBe(outerTravel);
+    // Outer AND nested open → the shifts compose (nested moves by both).
+    const both: StructuralModel = {
+      ...base,
+      blocks: [{ ...base.blocks[0]!, instances: [{
+        ...base.blocks[0]!.instances[0]!, open: 1,
+        interior: { ...base.blocks[0]!.instances[0]!.interior!, instances: [{ ...base.blocks[0]!.instances[0]!.interior!.instances[0]!, open: 1 }] },
+      }] }],
+    };
+    expect(solveLayout(both).find((p) => p.id === nid)!.z_mm10 - shutZ).toBe(outerTravel + innerTravel);
+  });
+});
