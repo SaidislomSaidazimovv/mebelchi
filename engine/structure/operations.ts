@@ -38,6 +38,8 @@ import type {
   Junction3D,
   Line,
   LineId,
+  Run,
+  RunId,
   Scope,
   Section,
   SectionId,
@@ -1183,6 +1185,76 @@ export function resizeBlockHeight(
   newHeight_mm10: mm10,
 ): StructuralModel {
   return resizeBlockAxis(model, blockId, "y", newHeight_mm10);
+}
+
+// ===========================================================================
+// Run (v5) — resize a wall-run of blocks so its members tile the wall exactly
+// ===========================================================================
+
+/** Members of `run` whose block still exists, paired with the live block, in run order. */
+function runMembers(model: StructuralModel, run: Run): { rule: DivisionRule; block: Block }[] {
+  const byId = new Map(model.blocks.map((b) => [b.id, b] as const));
+  return run.members
+    .map((m) => ({ rule: m.rule, block: byId.get(m.blockId) }))
+    .filter((x): x is { rule: DivisionRule; block: Block } => x.block !== undefined);
+}
+
+/**
+ * Re-solve a `Run` to a new wall length: distribute `newLength_mm10` across the run's member blocks via
+ * the constraint solver (`resolveChain` — Fixed keeps its width, Ratio shares the pool, Flex absorbs the
+ * leftover), resize each member's carcass to its solved width, and lay the members end-to-end along the
+ * run axis so they tile the wall with no gap. The run's left edge stays put. Pure/immutable; no-op (same
+ * ref) when the run is unknown or has no surviving members. Each block keeps its sections BLOCK-LOCAL
+ * (reflowed from 0) with `box`-origin carrying the run position — the convention `solveLayout` renders by.
+ */
+export function resolveRun(model: StructuralModel, runId: RunId, newLength_mm10: mm10): StructuralModel {
+  if (!Number.isInteger(newLength_mm10) || newLength_mm10 <= 0) throw new Error("RUN_INVALID_LENGTH");
+  const run = model.runs?.find((r) => r.id === runId);
+  if (!run) return model; // unknown run → no-op
+  const members = runMembers(model, run);
+  if (members.length === 0) return model;
+
+  // 1. Solve every member's width against the wall length (star-sizing over the block-level rules).
+  const zones: ChainZone[] = members.map(({ rule, block }) => ({ rule, currentSize: extentOf(block.box, run.axis) }));
+  const { sizes } = resolveChain(newLength_mm10, zones);
+
+  // 2. Resize each member to its solved width (sections reflow block-local from 0), then lay them out
+  //    end-to-end from the run's current left edge.
+  let cursor = originOf(members[0]!.block.box, run.axis); // keep the run's left edge where it was
+  const resized = new Map<BlockId, Block>();
+  members.forEach(({ block }, i) => {
+    const w = sizes[i]!;
+    const old = extentOf(block.box, run.axis);
+    const local = { ...block, box: withAxis(block.box, run.axis, 0, old) }; // normalise origin → block-local
+    const reflowed = block.footprint
+      ? scaleBlockAxis(local, run.axis, w / old) // L-corner → proportional (rules are box-only)
+      : resolveBlockAxis(local, run.axis, w); // plain block → rule-aware constraint solve
+    resized.set(block.id, { ...reflowed, box: withAxis(reflowed.box, run.axis, cursor, w) });
+    cursor += w;
+  });
+
+  const blocks = model.blocks.map((b) => resized.get(b.id) ?? b);
+  const runs = model.runs!.map((r) => (r.id === runId ? { ...r, length_mm10: newLength_mm10 } : r));
+  return { ...model, blocks, runs };
+}
+
+/**
+ * The fit status of a run at a given wall length (drives the amber warning, like `checkConstraints`):
+ * "ok" tiles exactly, "over-constrained" = Fixed/Locked members exceed the wall, "no-absorb" = leftover
+ * space with no flexible member to take it, "unknown" = no such run.
+ */
+export function runFitStatus(
+  model: StructuralModel,
+  runId: RunId,
+  length_mm10: mm10,
+): "ok" | "over-constrained" | "no-absorb" | "unknown" {
+  const run = model.runs?.find((r) => r.id === runId);
+  if (!run) return "unknown";
+  const zones: ChainZone[] = runMembers(model, run).map(({ rule, block }) => ({
+    rule,
+    currentSize: extentOf(block.box, run.axis),
+  }));
+  return resolveChain(length_mm10, zones).status;
 }
 
 // ===========================================================================

@@ -36,6 +36,7 @@ export type LineId = string;
 export type LineGroupId = string;
 export type SectionId = string;
 export type RowId = string;
+export type RunId = string;
 export type ComponentId = string;
 export type InstanceId = string;
 
@@ -408,6 +409,42 @@ export interface Block {
 }
 
 // ---------------------------------------------------------------------------
+// Run (Ряд блоков) — a wall-run of blocks that fits & resizes as ONE unit (v5)
+// ---------------------------------------------------------------------------
+
+/**
+ * One member of a `Run`: which block, and how its width behaves when the run is
+ * resized to fit a wall. The rule is the same §4 `DivisionRule` applied at BLOCK
+ * level — Fixed keeps its mm, Ratio shares the pool by weight, Flex absorbs the
+ * leftover, Locked keeps the block's current width.
+ */
+export interface RunMember {
+  readonly blockId: BlockId;
+  readonly rule: DivisionRule;
+}
+
+/**
+ * A run of blocks lined up along one wall axis — the master's "combine several
+ * cabinets into ONE unit that fits the wall exactly". The founder's Building-mode
+ * "table law" (CONSTRUCTION_FRAME_v4 §2) applied at cabinet-run level: resizing the
+ * run re-solves every member's width through the constraint solver (`resolveChain`)
+ * — Fixed cabinets keep their size, Flex/Ratio absorb the change — so the members
+ * always tile `length_mm10` with no gap, and each block is repositioned end-to-end
+ * along the run. Optional/additive on the model: absent = the pre-v5 world of
+ * independent blocks placed by hand.
+ */
+export interface Run {
+  readonly id: RunId;
+  readonly name: string;
+  /** The wall axis the member blocks line up along (`"x"` for a standard run). */
+  readonly axis: Axis;
+  /** Member blocks in run order (left→right along `axis`), each with its width rule. */
+  readonly members: readonly RunMember[];
+  /** The total run length (wall length) the members tile, mm10. */
+  readonly length_mm10: mm10;
+}
+
+// ---------------------------------------------------------------------------
 // StructuralModel — the top container (overlay on the manufacturing Project)
 // ---------------------------------------------------------------------------
 
@@ -421,6 +458,12 @@ export interface StructuralModel {
   readonly id: string;
   readonly name: string;
   readonly blocks: readonly Block[];
+  /**
+   * Wall-runs grouping blocks into resize-as-one units (v5, §2 table law at run level). Optional/
+   * additive: absent = the pre-v5 world where every block stands alone. A block may belong to at most
+   * one run; blocks not in any run keep their independent placement. `resolveRun` re-solves a run.
+   */
+  readonly runs?: readonly Run[];
   /** The flat manufacturing leaves (Деталь), shared with the Project. */
   readonly parts: readonly Part[];
   /**
