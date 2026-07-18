@@ -429,6 +429,30 @@ export interface LCornerFootprint {
  *  free assembly (a table top, a leg-panel, an apron rail, a stretcher, a generic panel). */
 export type FreePartRole = "top" | "leg" | "rail" | "stretcher" | "panel" | "shelf" | "back";
 
+/** One edge of a free part on an axis, pinned to the block's LOW (`x=0`) or HIGH (`x=extent`) face at a
+ *  fixed `offset_mm10` inside it. This is what makes the "table law" work for free parts: on a block
+ *  resize the edge re-resolves against the new extent — a leg pinned `hi` stays inset from the right. */
+export interface FreeEdge {
+  readonly ref: "lo" | "hi";
+  readonly offset_mm10: mm10;
+}
+
+/** A free part's extent on one axis = its start & end edges. `{lo,0}..{hi,0}` spans the block; `{lo,0}..
+ *  {lo,S}` is a fixed size pinned to the low face; `{hi,S}..{hi,0}` a fixed size pinned to the high face. */
+export interface FreeAxisAnchor {
+  readonly start: FreeEdge;
+  readonly end: FreeEdge;
+}
+
+/** How a free part reflows when its block resizes — per-axis edge anchors (v5). When present, the solver
+ *  chain / resize re-derives the part's `box` from the block's box, so a table's top spans and its legs
+ *  stay in the corners as the master pulls the outer size. */
+export interface FreePartAnchor {
+  readonly x: FreeAxisAnchor;
+  readonly y: FreeAxisAnchor;
+  readonly z: FreeAxisAnchor;
+}
+
 /**
  * A board placed FREELY in the block by an explicit box — the primitive of "build any furniture", not a
  * panel derived from a divided carcass. So a table = a bare block (no carcass shell) + a `top` FreePart +
@@ -445,6 +469,12 @@ export interface FreePart {
   readonly thicknessAxis: Axis;
   /** Optional per-part decor override (opaque catalog key), like a Component's `material`. */
   readonly material?: string;
+  /**
+   * How the board reflows when its block resizes (v5, the "table law" for free parts). Absent = the box
+   * is static (a hand-placed board that stays put). Present = `box` is re-derived from the block's box on
+   * resize, so a top spans and legs hold the corners. `box` and `anchor` must agree at build time.
+   */
+  readonly anchor?: FreePartAnchor;
 }
 
 export interface Block {

@@ -34,7 +34,9 @@ import type {
   Component,
   ComponentId,
   DrawerInterior,
+  FreeEdge,
   FreePart,
+  FreePartAnchor,
   Instance,
   InstanceId,
   Junction3D,
@@ -1158,7 +1160,11 @@ function resizeBlockAxis(
   const resized = block.footprint
     ? scaleBlockAxis(block, axis, newExtent_mm10 / old) // L-corner → proportional (rules are box-only)
     : resolveBlockAxis(block, axis, newExtent_mm10); // plain block → rule-aware constraint solve
-  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? resized : b)) };
+  // v5 — reflow anchored free parts to the resized block (the "table law": a top spans, legs hold corners).
+  const reflowed = resized.freeParts?.some((fp) => fp.anchor)
+    ? { ...resized, freeParts: resized.freeParts.map((fp) => (fp.anchor ? { ...fp, box: resolveFreePartBox(fp.anchor, resized.box) } : fp)) }
+    : resized;
+  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? reflowed : b)) };
 }
 
 /** Structure-level DEPTH edit (blocker #3, v3 Piece 1): set a block's depth; panels reflow. */
@@ -1362,6 +1368,25 @@ export function nestDrawer(model: StructuralModel, outerInstanceId: InstanceId, 
     return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? { ...b, instances } : b)) };
   }
   throw new Error("NEST_OUTER_NOT_FOUND");
+}
+
+/** Resolve one anchored edge against a block extent: `lo` → the offset, `hi` → extent − offset. */
+function resolveFreeEdge(e: FreeEdge, extent: mm10): mm10 {
+  return e.ref === "lo" ? e.offset_mm10 : extent - e.offset_mm10;
+}
+
+/**
+ * Re-derive a free part's block-local `Box3D` from its `anchor` and the block's box (v5, the free-part
+ * "table law"). Each axis' start/end edges resolve against that axis' extent, giving the board's origin +
+ * size — so a top spans and legs hold the corners as the block resizes. Pure.
+ */
+export function resolveFreePartBox(anchor: FreePartAnchor, box: Box3D): Box3D {
+  const axis = (a: { start: FreeEdge; end: FreeEdge }, extent: mm10) => {
+    const o = resolveFreeEdge(a.start, extent);
+    return { o, size: resolveFreeEdge(a.end, extent) - o };
+  };
+  const x = axis(anchor.x, box.w), y = axis(anchor.y, box.h), z = axis(anchor.z, box.d);
+  return { x: x.o, y: y.o, z: z.o, w: x.size, h: y.size, d: z.size };
 }
 
 /**

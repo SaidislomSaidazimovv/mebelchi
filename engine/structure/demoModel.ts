@@ -8,13 +8,16 @@
 import type {
   Block,
   Component,
+  FreeAxisAnchor,
   FreePart,
+  FreePartAnchor,
   Instance,
   Line,
   Section,
   StructuralModel,
   Zone,
 } from "../contracts/structure.js";
+import { resolveFreePartBox } from "./operations.js";
 
 const W = 6000; // 600 mm
 const H = 7200; // 720 mm
@@ -184,18 +187,26 @@ export function buildTable(
   const topT = opts.topThickness_mm10 ?? 400; // 40mm top
   const legSz = opts.legSize_mm10 ?? 500; // 50mm square legs
   const inset = opts.legInset_mm10 ?? 0; // legs at the corners by default
-  const legH = Math.max(1, H - topT); // legs stand under the top
-
-  const top: FreePart = { id: "top", name: "Столешница", role: "top", thicknessAxis: "y", box: { x: 0, y: legH, z: 0, w: W, h: topT, d: D } };
-  const leg = (id: string, x: number, z: number): FreePart => ({ id, name: "Ножка", role: "leg", thicknessAxis: "x", box: { x, y: 0, z, w: legSz, h: legH, d: legSz } });
-  const legs: FreePart[] = [
-    leg("leg_fl", inset, inset),
-    leg("leg_fr", W - legSz - inset, inset),
-    leg("leg_bl", inset, D - legSz - inset),
-    leg("leg_br", W - legSz - inset, D - legSz - inset),
-  ];
 
   const box = { x: 0, y: 0, z: 0, w: W, h: H, d: D };
+  // Edge anchors (the "table law"): the top SPANS the block; each leg is a fixed-size post pinned to a
+  // corner, standing from the floor to under the top. So the table reflows on resize (resizeBlock*).
+  const lo = (o: number) => ({ ref: "lo", offset_mm10: o } as const);
+  const hi = (o: number) => ({ ref: "hi", offset_mm10: o } as const);
+  const span: FreeAxisAnchor = { start: lo(0), end: hi(0) };
+  const colLo: FreeAxisAnchor = { start: lo(inset), end: lo(inset + legSz) }; // left / front column
+  const colHi: FreeAxisAnchor = { start: hi(inset + legSz), end: hi(inset) }; // right / back column
+  const mkFree = (id: string, name: string, role: FreePart["role"], thicknessAxis: FreePart["thicknessAxis"], anchor: FreePartAnchor): FreePart =>
+    ({ id, name, role, thicknessAxis, anchor, box: resolveFreePartBox(anchor, box) });
+
+  const top = mkFree("top", "Столешница", "top", "y", { x: span, y: { start: hi(topT), end: hi(0) }, z: span });
+  const legY: FreeAxisAnchor = { start: lo(0), end: hi(topT) }; // floor → under the top
+  const legs: FreePart[] = [
+    mkFree("leg_fl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colLo }),
+    mkFree("leg_fr", "Ножка", "leg", "x", { x: colHi, y: legY, z: colLo }),
+    mkFree("leg_bl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colHi }),
+    mkFree("leg_br", "Ножка", "leg", "x", { x: colHi, y: legY, z: colHi }),
+  ];
   const root: Section = { id: "sec_root", box: { ...box }, dividers: [], children: [], instanceIds: [], purpose: null };
   const block: Block = {
     id: "tbl", name: "Стол", box, bare: true,

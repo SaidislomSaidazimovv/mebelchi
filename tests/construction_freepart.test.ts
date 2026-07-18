@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { solveStructure } from "../engine/structure/solve.js";
 import { solveLayout } from "../engine/structure/layout.js";
-import { addFreePart, removeFreePart } from "../engine/structure/operations.js";
+import { addFreePart, removeFreePart, resizeBlockHeight, resizeBlockWidth, resolveFreePartBox } from "../engine/structure/operations.js";
 import { buildTable } from "../engine/structure/demoModel.js";
 import type { FreePart, StructuralModel } from "../engine/contracts/structure.js";
 
@@ -123,5 +123,33 @@ describe("E3.3 · buildTable + addFreePart / removeFreePart", () => {
     expect(() => addFreePart(t, "ghost", dup)).toThrow("ADD_FREEPART_BLOCK_NOT_FOUND");
     expect(() => addFreePart(t, "tbl", dup)).toThrow("ADD_FREEPART_DUPLICATE_ID");
     expect(removeFreePart(t, "tbl", "nope")).toBe(t); // no-op, same ref
+  });
+});
+
+describe("E3.4 · free-part anchors reflow on block resize (the table law)", () => {
+  const fpBox = (m: StructuralModel, id: string) => m.blocks[0]!.freeParts!.find((f) => f.id === id)!.box;
+
+  it("resolveFreePartBox spans and corner-pins correctly", () => {
+    const box = { x: 0, y: 0, z: 0, w: 10000, h: 8000, d: 6000 };
+    const top = resolveFreePartBox({
+      x: { start: { ref: "lo", offset_mm10: 0 }, end: { ref: "hi", offset_mm10: 0 } }, // span W
+      y: { start: { ref: "hi", offset_mm10: 400 }, end: { ref: "hi", offset_mm10: 0 } }, // top slab 400
+      z: { start: { ref: "lo", offset_mm10: 0 }, end: { ref: "hi", offset_mm10: 0 } }, // span D
+    }, box);
+    expect(top).toEqual({ x: 0, y: 7600, z: 0, w: 10000, h: 400, d: 6000 });
+  });
+
+  it("resizing a table's WIDTH spans the top and moves the right legs to the new corner", () => {
+    const wide = resizeBlockWidth(buildTable(1200, 720, 600), "tbl", 20000); // 2000mm wide
+    expect(fpBox(wide, "top").w).toBe(20000); // the top spans the new width
+    expect(fpBox(wide, "leg_fl").x).toBe(0); // left legs stay put
+    expect(fpBox(wide, "leg_fr").x).toBe(19500); // right legs = W − legSz
+    expect(solveStructure(wide).find((p) => p.id === "tbl__free_top")!.length_mm10).toBe(20000); // the cut grows too
+  });
+
+  it("resizing HEIGHT re-lengths the legs and lifts the top", () => {
+    const tall = resizeBlockHeight(buildTable(1200, 720, 600), "tbl", 8000); // 800mm tall
+    expect(fpBox(tall, "top").y).toBe(7600); // top rides at H − topThickness
+    expect(fpBox(tall, "leg_fl").h).toBe(7600); // legs grow floor → under the top
   });
 });
