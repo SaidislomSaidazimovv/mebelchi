@@ -339,6 +339,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // U3.1 — the mount-effect raycast is a stable closure, so it reads the live select-mode via this ref.
   const selModeRef = useRef(selMode);
   useEffect(() => { selModeRef.current = selMode; }, [selMode]);
+  // U2.4 — the RAF loop reads the active tab via this ref, to hide the 3D dim labels off the «Yig'ish» tab.
+  const tabRef = useRef(tab);
+  useEffect(() => { tabRef.current = tab; }, [tab]);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -608,7 +611,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const tmp = new THREE.Vector3();
     const positionLabels = () => {
       const r = rt.current;
-      if (!r?.labels || !r.aabb || r.aabb.isEmpty()) return;
+      if (!r?.labels) return;
+      // Off the «Yig'ish» tab the 3D stage is covered — hide the W/H/D dim labels so they don't linger.
+      if (tabRef.current !== "build" || !r.aabb || r.aabb.isEmpty()) {
+        r.labels.w.style.display = "none"; r.labels.h.style.display = "none"; r.labels.d.style.display = "none";
+        return;
+      }
       const { min, max } = r.aabb;
       const w = renderer.domElement.clientWidth || 1;
       const h = renderer.domElement.clientHeight || 1;
@@ -929,11 +937,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
-      {/* ── the other tabs are wired in U2.4; for now a note over the stage ── */}
-      {tab !== "build" && (
+      {/* ── U2.4 — Detallar tab = the full parts list / spec (cut list · materials · price · export) ── */}
+      {tab === "parts" && (
+        <>
+          <div style={{ position: "absolute", inset: "60px 0 0 0", background: "var(--mob-surface-2)", zIndex: 3 }} />
+          <SpecPanel variant="tab" onClose={() => setTab("build")} />
+        </>
+      )}
+      {/* ── Chizma tab = the technical drawing (print / PDF) ── */}
+      {tab === "drawing" && (
+        <div className="mob-screen"><div className="mob-screen-inner">
+          <div className="mob-screen-glyph">📐</div>
+          <h2>Chizma</h2>
+          <p>Blokning texnik chizmasi — old / plan / kesim ko'rinishlari, o'lchamlar bilan.</p>
+          <button type="button" className="mob-project-btn" style={{ padding: "10px 18px" }} onClick={printDrawing}>📐 Chizmani ochish</button>
+        </div></div>
+      )}
+      {/* ── AR tab — native camera placement (deferred) ── */}
+      {tab === "ar" && (
         <div className="mob-note">
-          <b>{tab === "parts" ? "Detallar ro'yxati" : tab === "drawing" ? "Chizma" : "AR — xonada ko'rish"}</b>
-          <span>Bu bo'lim keyingi qadamda ulanadi.</span>
+          <b>AR — xonada ko'rish</b>
+          <span>Mebelni telefon kamerasi orqali xonaga qo'yish. Mobil qurilmada — keyingi qadam.</span>
         </div>
       )}
 
@@ -1656,7 +1680,7 @@ function MatSelect({ label, slot }: { label: string; slot: keyof Omit<MaterialPl
 }
 
 /** Right-hand «Спецификация» drawer — material picker + cut list + material-plan price totals. */
-function SpecPanel({ onClose }: { onClose: () => void }) {
+function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant?: "side" | "tab" }) {
   const { compact } = useViewport();
   const parts = useKarkas((s) => s.parts);
   const plan = useKarkas((s) => s.plan);
@@ -1687,7 +1711,9 @@ function SpecPanel({ onClose }: { onClose: () => void }) {
   }, [parts, model.features]);
   const kromkaVars = Object.entries(kromkaByVar).filter(([, mm10]) => mm10 > 0);
   return (
-    <div style={compact ? { ...specPanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : specPanel}>
+    <div style={variant === "tab"
+      ? { position: "absolute", top: 62, bottom: 0, left: "50%", transform: "translateX(-50%)", width: "min(680px, 100%)", background: "#fbfaf6", display: "flex", flexDirection: "column", overflow: "auto", zIndex: 4 }
+      : compact ? { ...specPanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : specPanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Спецификация</b>
         <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
