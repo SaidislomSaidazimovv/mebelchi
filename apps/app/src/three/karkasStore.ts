@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -202,6 +202,8 @@ interface KarkasState extends Derived {
   add: (kind: AddKind, opts?: AddOpts) => void;
   /** Delete the selected instance (shelf / door / drawer). No-op if a carcass panel is selected. */
   remove: () => void;
+  /** E2 — nest a drawer inside the selected drawer (drawer-in-drawer). No-op if the selection isn't a drawer. */
+  nestDrawerInSelected: () => void;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
   selectedComponent: () => Component | null;
   /** The solved parts belonging to the selected instance (for the info card's material colour bar). */
@@ -332,6 +334,16 @@ function clampFreeBox(box: XBox, B: XBox): XBox {
     w: c(box.w, 30, B.w * 3), h: c(box.h, 30, B.h * 3), d: c(box.d, 30, B.d * 3),
     x: c(box.x, -B.w, B.w * 2), y: c(box.y, -B.h, B.h * 2), z: c(box.z, -B.d, B.d * 2),
   };
+}
+
+/** B (multi-block) — the block that owns a part id (`${blockId}__…`) = the "active" block being edited.
+ *  Falls back to the first block when nothing is selected or the id is unknown, so single-block behaviour
+ *  is unchanged. Lets the dims bar / resize / free-board ops follow whichever cabinet the usta is in. */
+export function blockOfPart(model: StructuralModel, partId: string | null | undefined): Block | undefined {
+  if (!partId) return model.blocks[0];
+  const sep = partId.indexOf("__");
+  const bid = sep < 0 ? partId : partId.slice(0, sep);
+  return model.blocks.find((b) => b.id === bid) ?? model.blocks[0];
 }
 
 export const useKarkas = create<KarkasState>((set, get) => {
@@ -642,6 +654,15 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
       if (r) apply(removeInstance(s.model, r.inst.id));
     },
+    // E2 — «Ichki yashik»: nest a fresh drawer inside the selected top-level drawer's interior (drawer-in-
+    // drawer). resolveInstance gives the outer instance id; nestDrawer throws if it isn't a drawer → caught.
+    // keepSel so the outer drawer stays selected → the usta can nest several in a row.
+    nestDrawerInSelected: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r) return;
+      try { apply(nestDrawer(s.model, r.inst.id), true); } catch { /* NEST_NOT_A_DRAWER — ignore */ }
+    },
     setHinge: (edge) => {
       const s = get();
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
@@ -702,14 +723,14 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     resize: (dim, mm) => {
       const m = get().model;
-      const b = m.blocks[0];
+      const b = blockOfPart(m, get().selectedId); // B — resize the ACTIVE cabinet (selected part's block)
       if (!b) return;
       const mm10 = Math.max(1, Math.round(mm)) * 10;
       const next =
         dim === "w" ? resizeBlockWidth(m, b.id, mm10)
         : dim === "h" ? resizeBlockHeight(m, b.id, mm10)
         : resizeBlockDepth(m, b.id, mm10);
-      if (next !== m) apply(next);
+      if (next !== m) apply(next, true); // B — keep the selection so the usta can edit w→h→d on one block
     },
     moveLine: (lineId, delta, scope, pushHistory) => {
       const s = get();
@@ -721,7 +742,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     resizeDrag: (dim, extentMm10, pushHistory) => {
       const s = get();
-      const b = s.model.blocks[0];
+      const b = blockOfPart(s.model, s.selectedId); // B — drag-resize the ACTIVE cabinet's face
       if (!b) return;
       const mm10 = Math.max(300, Math.round(extentMm10)); // clamp to ≥30mm so a drag never collapses it
       let next: StructuralModel;
@@ -734,8 +755,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     zoneRow: () => {
       const s = get();
-      const block = s.model.blocks[0];
-      if (!block) return null;
+      if (!s.model.blocks.length) return null;
       let parent: Section | null = null;
       const sel = s.selectedId;
       if (sel && sel.includes("__div_")) {
@@ -747,7 +767,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
         parent = findDivParent(s.model, (sec) => sec.children.some((c) => c.id === tid));
       }
       if (!parent || parent.children.length < 2) return null;
-      const axis = block.lines.find((l) => l.id === parent!.dividers[0])?.axis ?? "y";
+      // B — the divider's axis: search every cabinet's lines (the parent section may be in the 2nd cabinet)
+      const axis = s.model.blocks.flatMap((b) => b.lines).find((l) => l.id === parent!.dividers[0])?.axis ?? "y";
       const sizeOf = (b: { w: number; h: number; d: number }) => (axis === "x" ? b.w : axis === "y" ? b.h : b.d);
       const zones = parent.children.map((c) => ({ id: c.id, size_mm10: sizeOf(c.box), rule: c.rule ?? ({ kind: "flex" } as DivisionRule) }));
       return { sectionId: parent.id, axis, zones };

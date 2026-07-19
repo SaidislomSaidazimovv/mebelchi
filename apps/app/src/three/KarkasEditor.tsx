@@ -6,7 +6,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { useKarkas, type ZoneRow } from "./karkasStore";
+import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
@@ -167,7 +167,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         st.moveLine(id.slice(id.indexOf("__div_") + 6), dir * step, "line", true);
       } else if (!id.includes("__inst_")) {
         const dim = id.endsWith("__side_l") || id.endsWith("__side_r") ? "w" : id.endsWith("__top") || id.endsWith("__bottom") ? "h" : id.endsWith("__back") ? "d" : null;
-        const box = st.model.blocks[0]?.box;
+        const box = blockOfPart(st.model, id)?.box; // B — the ACTIVE cabinet's box (arrow-key face nudge)
         if (!dim || !box) return;
         ev.preventDefault();
         const cur = dim === "w" ? box.w : dim === "h" ? box.h : box.d;
@@ -227,14 +227,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // in world coords (same centering as the boards). Overall W/H/D stays the 3 fixed DOM labels (level 0).
   const dimLabels = useMemo(() => {
     const out: { text: string; wx: number; wy: number; wz: number; level: 1 | 2 }[] = [];
-    const b = model.blocks[0];
-    if (!b) return out;
+    if (!model.blocks.length) return out;
     const bd = layoutBounds(solveLayout(model, planThickness(plan)));
     const WX = (v: number) => (v - bd.cx) / 10000, WY = (v: number) => (v - bd.minY) / 10000, WZ = (v: number) => (v - bd.cz) / 10000;
-    for (const z of b.zones) for (const s of leafSections(z.root)) {
-      const zf = s.box.z + s.box.d; // front face
-      out.push({ text: `${Math.round(s.box.h / 10)}`, wx: WX(s.box.x), wy: WY(s.box.y + s.box.h / 2), wz: WZ(zf), level: 1 });
-      out.push({ text: `${Math.round(s.box.w / 10)}`, wx: WX(s.box.x + s.box.w / 2), wy: WY(s.box.y), wz: WZ(zf), level: 2 });
+    // B — every cabinet's leaf-section labels, offset by that block's world position (block.box) so the
+    // 2nd cabinet's section dims land in place, not stacked over block-0.
+    for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) {
+      const zf = b.box.z + s.box.z + s.box.d; // front face
+      out.push({ text: `${Math.round(s.box.h / 10)}`, wx: WX(b.box.x + s.box.x), wy: WY(b.box.y + s.box.y + s.box.h / 2), wz: WZ(zf), level: 1 });
+      out.push({ text: `${Math.round(s.box.w / 10)}`, wx: WX(b.box.x + s.box.x + s.box.w / 2), wy: WY(b.box.y + s.box.y), wz: WZ(zf), level: 2 });
     }
     return out;
   }, [model, plan]);
@@ -247,12 +248,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const boilerFinds = useMemo(() => boilerFindingsFn(), [boilerFindingsFn, model]);
   const ghostItems = useMemo(() => {
     const out: { purpose: string; cx: number; cy: number; cz: number; w: number; h: number; d: number }[] = [];
-    const b = model.blocks[0];
-    if (!b) return out;
+    if (!model.blocks.length) return out;
     const bd = layoutBounds(solveLayout(model, planThickness(plan)));
-    for (const z of b.zones) for (const s of leafSections(z.root)) {
+    // B — ghost contents for every cabinet's purpose-tagged sections, offset by the block's world position.
+    for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) {
       if (!s.purpose || s.purpose === "structural") continue;
-      out.push({ purpose: s.purpose, cx: (s.box.x + s.box.w / 2 - bd.cx) / 10000, cy: (s.box.y + s.box.h / 2 - bd.minY) / 10000, cz: (s.box.z + s.box.d / 2 - bd.cz) / 10000, w: s.box.w / 10000, h: s.box.h / 10000, d: s.box.d / 10000 });
+      out.push({ purpose: s.purpose, cx: (b.box.x + s.box.x + s.box.w / 2 - bd.cx) / 10000, cy: (b.box.y + s.box.y + s.box.h / 2 - bd.minY) / 10000, cz: (b.box.z + s.box.z + s.box.d / 2 - bd.cz) / 10000, w: s.box.w / 10000, h: s.box.h / 10000, d: s.box.d / 10000 });
     }
     return out;
   }, [model, plan]);
@@ -260,6 +261,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const activeTarget = targetId && sections.some((x) => x.id === targetId) ? targetId : sections[0]?.id;
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const remove = useKarkas((s) => s.remove);
+  const nestDrawerInSelected = useKarkas((s) => s.nestDrawerInSelected);
   const setThickness = useKarkas((s) => s.setThickness);
   const setAngle = useKarkas((s) => s.setAngle);
   const shelfMaxAngle = useKarkas((s) => s.selectedShelfMaxAngle());
@@ -533,7 +535,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         } else if (pid.includes("__div_")) {
           // (3.3b) a divider → move the dividing line, rule-aware reflow of the two zones it splits
           const lineId = pid.slice(pid.indexOf("__div_") + "__div_".length);
-          const line = st.model.blocks[0]?.lines.find((l) => l.id === lineId);
+          const line = blockOfPart(st.model, pid)?.lines.find((l) => l.id === lineId); // B — dragged divider's own block
           if (line) {
             const start = alongAxis(e, line.axis, plane);
             if (start != null) { drag = { kind: "line", lineId, axis: line.axis, plane, last: start, first: true }; controls.enabled = false; }
@@ -547,7 +549,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             : pid.endsWith("__top") ? { dim: "h" as const, axis: "y" as const, sign: 1 }
             : pid.endsWith("__back") ? { dim: "d" as const, axis: "z" as const, sign: 1 }
             : null;
-          const box = st.model.blocks[0]?.box;
+          const box = blockOfPart(st.model, pid)?.box; // B — resize the dragged cabinet's face, not block-0
           if (spec && box) {
             const start = alongAxis(e, spec.axis, plane);
             const startExtent = spec.dim === "w" ? box.w : spec.dim === "h" ? box.h : box.d;
@@ -891,10 +893,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     a.download = "karkas.png";
     a.click();
   };
-  // U3.3 fix — the overall readout / resize reflects the CARCASS block, not the scene bounds (which would
-  // balloon when a free board floats far away). Falls back to the scene dims if there's no block.
-  const block0 = model.blocks[0];
-  const dims = block0 ? { w: Math.round(block0.box.w / 10), h: Math.round(block0.box.h / 10), d: Math.round(block0.box.d / 10) } : sceneDimsMm(scene);
+  // U3.3 fix — the readout / resize reflects a CARCASS block, not the scene bounds (which would balloon
+  // when a free board floats far away). B (multi-block) — it follows the ACTIVE cabinet: the selected
+  // part's block, else block-0. So selecting a part in the 2nd cabinet shows + edits that cabinet's size.
+  const activeBlock = blockOfPart(model, selectedId);
+  const dims = activeBlock ? { w: Math.round(activeBlock.box.w / 10), h: Math.round(activeBlock.box.h / 10), d: Math.round(activeBlock.box.d / 10) } : sceneDimsMm(scene);
   return (
     <div className="mob-root" data-theme={theme}>
       {/* ── U2.1 — Moblo top bar (home · document · tabs · theme · menu) ── */}
@@ -1148,7 +1151,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       })()}
       {/* Step 3.3a (v4 §5 readout law) — the selection's dimensions in a FIXED top-centre strip, never
           hidden by the hand. Updates live during a drag/resize (later pieces). 2 axes only (face w×h). */}
-      {selectedId && selPart && (
+      {tab === "build" && selectedId && selPart && (
         <div style={{ position: "fixed", top: compact ? 64 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 60, background: "rgba(31,85,112,0.94)", color: "#fff", borderRadius: 9, padding: "5px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 2px 10px rgba(0,0,0,0.22)", display: "flex", gap: 11, alignItems: "center", pointerEvents: precise ? "auto" : "none", whiteSpace: "nowrap", maxWidth: "94vw", overflowX: "auto" }}>
           <span>{selComp?.name ?? "Bo'lak"}</span>
           <span style={{ opacity: 0.5 }}>│</span>
@@ -1207,7 +1210,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* Step 4 (v4 §4, fixture 04-shelf-ratios) — the ratio pill-row editor for the active divided
           section: one pill per zone (Ratio weight / Fixed mm / Flex ↔), edit a value → all zones reflow
           together; the chip cycles the rule; «＋» splits the last zone. Appears when a divider/zone is active. */}
-      {zoneRow && (selectedId || showDivide) && (
+      {tab === "build" && !(compact && (toolsOpen || rpanel !== "none")) && zoneRow && (selectedId || showDivide) && (
         <div style={{ position: "fixed", bottom: compact ? 122 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(238,240,243,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
           {zoneRow.zones.map((z, i) => (
             <Fragment key={z.id}>
@@ -1226,7 +1229,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       )}
       {/* Step 6 (fixture 06-kromka-mode) — the K-variable pill row (paint metaphor): pick a jiyak, then
           tap the edge balls. «✕ Yo'q» strips the band. */}
-      {showKromka && (
+      {tab === "build" && !(compact && (toolsOpen || rpanel !== "none")) && showKromka && (
         <div style={{ position: "fixed", bottom: compact ? 122 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(255,255,255,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", maxWidth: "92vw" }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#555", marginRight: 2 }}>Jiyak:</span>
           {EDGES.map((e) => (
@@ -1241,7 +1244,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </div>
       )}
       {/* ── U3.3 — free-board editor: appears when a free board is selected (resize W/H/D · delete) ── */}
-      {selFreeBoard && rpanel === "none" && (
+      {tab === "build" && !(compact && toolsOpen) && selFreeBoard && rpanel === "none" && (
         <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 62, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
           <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>🪵 Erkin taxta</span>
           <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "w", mm)} units={units} />
@@ -1395,6 +1398,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <option value="right">◨ O'ng</option>
               </select>
             </>
+          )}
+          {/* E2 — drawer-in-drawer: a selected drawer can hold a nested drawer in its clear interior */}
+          {selComp.drawer && (
+            <button style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" }} onClick={nestDrawerInSelected} type="button" title="Bu yashik ichiga yana bir yashik">🗄＋ Ichki yashik</button>
           )}
           <button style={{ ...act, marginLeft: "auto", ...(selComp.loadBearing ? { borderColor: "#8a52c9", background: "#efe3fa", color: "#5b2a86" } : {}) }} onClick={toggleLoadBearing} type="button">
             ⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}
@@ -1957,7 +1964,7 @@ const popRight: CSSProperties = { ...popover, left: "auto", right: 0 };
 const popItem: CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "none", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer", textAlign: "left", whiteSpace: "nowrap" };
 const popSep: CSSProperties = { height: 1, background: "#eee7d8", margin: "4px 2px" };
 const act: CSSProperties = { padding: "9px 13px", minHeight: 40, borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer", flex: "0 0 auto", whiteSpace: "nowrap" };
-const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", overflowX: "auto", overflowY: "hidden" };
+const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
 const badge: CSSProperties = { padding: "3px 8px", borderRadius: 999, background: "#e3f3ea", color: "#006b3f", font: "600 11px system-ui" };
 const warnBar: CSSProperties = { margin: "0 14px 10px", padding: "8px 12px", borderRadius: 8, background: "#fdf3e0", border: "1px solid #f0d9a8", color: "#8a5a1f", display: "flex", gap: 10, alignItems: "center", font: "13px system-ui", minWidth: 0 };
 const specPanel: CSSProperties = { position: "absolute", top: 0, right: 0, bottom: 0, width: "min(380px, 92vw)", background: "#fbfaf6", borderLeft: "1px solid #e0dccf", boxShadow: "-8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };

@@ -53,7 +53,7 @@ describe("E2.1 · drawerInteriorBox — a drawer's clear inner volume", () => {
     expect(drawerInteriorBox(block, section, resolveThickness({}))).toMatchInlineSnapshot(`
       {
         "d": 5120,
-        "h": 6720,
+        "h": 1520,
         "w": 5100,
         "x": 450,
         "y": 320,
