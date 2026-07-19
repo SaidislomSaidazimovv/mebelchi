@@ -298,11 +298,14 @@ function drawerBoxPlaceInto(
  *  only — the master pulls a drawer out to reach its contents; the cut parts never move). Shared by a
  *  top-level drawer and every nested one, so each drawer's open state composes with its parent's. */
 function placeDrawer(idBase: string, box: Box6, openingX0: mm10, openingW: mm10, inst: Instance, t: ResolvedT): PanelPlacement[] {
-  const out = drawerBoxPlaceInto(idBase, box, openingX0, openingW, t);
+  // honour this drawer's OWN height (nested drawers pass the full parent box; top-level arrives pre-clamped
+  // in drawerBoxPlacement, so re-clamping here is idempotent). Unset = fills the box, as before.
+  const dbox = inst.drawerHeight_mm10 != null ? { ...box, h: Math.min(box.h, inst.drawerHeight_mm10) } : box;
+  const out = drawerBoxPlaceInto(idBase, dbox, openingX0, openingW, t);
   if (inst.interior) {
-    out.push(...drawerInteriorPlacements(idBase, drawerInteriorFromBox(box, openingX0, openingW, t), inst.interior, t));
+    out.push(...drawerInteriorPlacements(idBase, drawerInteriorFromBox(dbox, openingX0, openingW, t), inst.interior, t));
   }
-  const openZ = Math.round((inst.open ?? 0) * (box.d - t.facade - t.carcass)); // slide travel ≈ the body depth
+  const openZ = Math.round((inst.open ?? 0) * (dbox.d - t.facade - t.carcass)); // slide travel ≈ the body depth
   return openZ ? out.map((p) => ({ ...p, z_mm10: p.z_mm10 + openZ })) : out;
 }
 
@@ -327,7 +330,7 @@ function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPl
   const s = section.box;
   // B/D fix — the drawer is DRAWER_HEIGHT tall at the section floor, not the full section (a full-height
   // drawer renders as thin slats). Matches drawerBoxOf() in solve.ts so the 3D box == the cut list.
-  const world = { x: block.box.x + s.x, y: block.box.y + s.y, z: block.box.z + s.z, w: s.w, h: Math.min(s.h, DRAWER_HEIGHT_MM10), d: s.d };
+  const world = { x: block.box.x + s.x, y: block.box.y + s.y, z: block.box.z + s.z, w: s.w, h: Math.min(s.h, inst.drawerHeight_mm10 ?? DRAWER_HEIGHT_MM10), d: s.d };
   const span = shelfSpanX(block, section, t.carcass);
   return placeDrawer(`${block.id}__inst_${inst.id}`, world, span.x0, span.width, inst, t);
 }

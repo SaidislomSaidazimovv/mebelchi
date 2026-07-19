@@ -334,6 +334,9 @@ export interface Instance {
   readonly sectionId: SectionId;
   readonly anchor: Anchor3D;
   readonly link: InstanceLink;
+  /** Per-drawer height (mm10). Absent = the default DRAWER_HEIGHT; only meaningful for a drawer instance.
+   *  Capped to the section height by the solver. Purely additive — non-drawer instances ignore it. */
+  readonly drawerHeight_mm10?: mm10;
   /**
    * Per-instance part override (S1-B). `null`/absent = LINKED: the instance
    * inherits its `Component.partIds` (the shared definition). A populated list =
