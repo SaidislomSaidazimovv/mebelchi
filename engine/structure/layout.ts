@@ -33,6 +33,7 @@ import {
   sectionOfLine,
   shelfSpanX,
   shelfSpanY,
+  stackSlices,
 } from "./solve.js";
 import type { ResolvedT, ThicknessSpec } from "./solve.js";
 
@@ -315,11 +316,13 @@ function placeDrawer(idBase: string, box: Box6, openingX0: mm10, openingW: mm10,
 function drawerInteriorPlacements(idBase: string, box: Box6, interior: DrawerInterior, t: ResolvedT): PanelPlacement[] {
   const out: PanelPlacement[] = [];
   const byId = new Map(interior.components.map((c) => [c.id, c] as const));
-  for (const inst of interior.instances) {
-    const comp = byId.get(inst.componentId);
-    if (!comp?.drawer) continue;
-    out.push(...placeDrawer(`${idBase}__in_${inst.id}`, box, 0, box.w, inst, t)); // nested fills the parent box
-  }
+  // stack the sibling drawers down the parent's clear volume (mirrors solve's drawerInteriorParts)
+  const drawers = interior.instances.filter((inst) => byId.get(inst.componentId)?.drawer);
+  const slices = stackSlices(box.y, box.h, drawers.map((d) => d.drawerHeight_mm10 ?? null));
+  drawers.forEach((inst, i) => {
+    const sub: Box6 = { ...box, y: slices[i]!.y, h: slices[i]!.h };
+    out.push(...placeDrawer(`${idBase}__in_${inst.id}`, sub, 0, sub.w, inst, t));
+  });
   return out;
 }
 

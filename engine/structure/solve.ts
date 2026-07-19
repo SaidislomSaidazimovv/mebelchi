@@ -395,18 +395,37 @@ function drawerBoxParts(block: Block, inst: Instance, section: Section, t: Resol
  *  interior — whose clear box is computed fresh from this one — giving arbitrary nesting depth. The clear
  *  box is computed (never stored), so it always matches the board thickness in force. Non-drawer interior
  *  content is out of scope for now. */
+/** Stack N drawers down a clear volume of height `totalH` from `y0` (bottom→top): each drawer takes its
+ *  own `drawerHeight_mm10` when set, and the leftover height is split EQUALLY among the unset ones. One
+ *  unset drawer → the whole volume (unchanged fill). Clamped so a run of explicit heights never pokes out
+ *  the top. Shared by solve (cut list) + layout (3D) so the two always agree. */
+export function stackSlices(y0: mm10, totalH: mm10, heights: readonly (mm10 | null)[]): { y: mm10; h: mm10 }[] {
+  const usedH = heights.reduce<number>((sum, h) => sum + (h ?? 0), 0);
+  const autoCount = heights.filter((h) => h == null).length;
+  const share = autoCount > 0 ? Math.max(0, Math.round((totalH - usedH) / autoCount)) : 0;
+  const out: { y: mm10; h: mm10 }[] = [];
+  let y = y0;
+  for (const hi of heights) {
+    const remain = y0 + totalH - y; // never let a slice extend past the top of the volume
+    const h = Math.max(0, Math.min(hi ?? share, remain));
+    out.push({ y, h });
+    y += h;
+  }
+  return out;
+}
+
 function drawerInteriorParts(idBase: string, box: Box3D, interior: DrawerInterior, t: ResolvedT): Part[] {
   const out: Part[] = [];
   const byId = new Map(interior.components.map((c) => [c.id, c] as const));
-  for (const inst of interior.instances) {
-    const comp = byId.get(inst.componentId);
-    if (!comp?.drawer) continue;
+  // stack the sibling drawers down the parent's clear volume so 2+ nested drawers don't overlap
+  const drawers = interior.instances.filter((inst) => byId.get(inst.componentId)?.drawer);
+  const slices = stackSlices(box.y, box.h, drawers.map((d) => d.drawerHeight_mm10 ?? null));
+  drawers.forEach((inst, i) => {
+    const sub: Box3D = { ...box, y: slices[i]!.y, h: slices[i]!.h };
     const innerBase = `${idBase}__in_${inst.id}`;
-    // each nested drawer honours ITS OWN height (clamped to the parent); unset = fills the parent's volume
-    const dbox = inst.drawerHeight_mm10 != null ? drawerBoxOf(box, inst.drawerHeight_mm10) : box;
-    out.push(...drawerBoxFromBox(innerBase, dbox, box.w, t));
-    if (inst.interior) out.push(...drawerInteriorParts(innerBase, drawerInteriorFromBox(dbox, 0, box.w, t), inst.interior, t));
-  }
+    out.push(...drawerBoxFromBox(innerBase, sub, box.w, t));
+    if (inst.interior) out.push(...drawerInteriorParts(innerBase, drawerInteriorFromBox(sub, 0, box.w, t), inst.interior, t));
+  });
   return out;
 }
 
