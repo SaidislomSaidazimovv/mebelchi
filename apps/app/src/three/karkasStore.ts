@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -202,6 +202,8 @@ interface KarkasState extends Derived {
   add: (kind: AddKind, opts?: AddOpts) => void;
   /** Delete the selected instance (shelf / door / drawer). No-op if a carcass panel is selected. */
   remove: () => void;
+  /** E2 — nest a drawer inside the selected drawer (drawer-in-drawer). No-op if the selection isn't a drawer. */
+  nestDrawerInSelected: () => void;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
   selectedComponent: () => Component | null;
   /** The solved parts belonging to the selected instance (for the info card's material colour bar). */
@@ -651,6 +653,15 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const s = get();
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
       if (r) apply(removeInstance(s.model, r.inst.id));
+    },
+    // E2 — «Ichki yashik»: nest a fresh drawer inside the selected top-level drawer's interior (drawer-in-
+    // drawer). resolveInstance gives the outer instance id; nestDrawer throws if it isn't a drawer → caught.
+    // keepSel so the outer drawer stays selected → the usta can nest several in a row.
+    nestDrawerInSelected: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r) return;
+      try { apply(nestDrawer(s.model, r.inst.id), true); } catch { /* NEST_NOT_A_DRAWER — ignore */ }
     },
     setHinge: (edge) => {
       const s = get();

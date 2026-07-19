@@ -261,6 +261,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const activeTarget = targetId && sections.some((x) => x.id === targetId) ? targetId : sections[0]?.id;
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const remove = useKarkas((s) => s.remove);
+  const nestDrawerInSelected = useKarkas((s) => s.nestDrawerInSelected);
   const setThickness = useKarkas((s) => s.setThickness);
   const setAngle = useKarkas((s) => s.setAngle);
   const shelfMaxAngle = useKarkas((s) => s.selectedShelfMaxAngle());
@@ -1150,7 +1151,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       })()}
       {/* Step 3.3a (v4 §5 readout law) — the selection's dimensions in a FIXED top-centre strip, never
           hidden by the hand. Updates live during a drag/resize (later pieces). 2 axes only (face w×h). */}
-      {selectedId && selPart && (
+      {tab === "build" && selectedId && selPart && (
         <div style={{ position: "fixed", top: compact ? 64 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 60, background: "rgba(31,85,112,0.94)", color: "#fff", borderRadius: 9, padding: "5px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 2px 10px rgba(0,0,0,0.22)", display: "flex", gap: 11, alignItems: "center", pointerEvents: precise ? "auto" : "none", whiteSpace: "nowrap", maxWidth: "94vw", overflowX: "auto" }}>
           <span>{selComp?.name ?? "Bo'lak"}</span>
           <span style={{ opacity: 0.5 }}>│</span>
@@ -1209,7 +1210,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* Step 4 (v4 §4, fixture 04-shelf-ratios) — the ratio pill-row editor for the active divided
           section: one pill per zone (Ratio weight / Fixed mm / Flex ↔), edit a value → all zones reflow
           together; the chip cycles the rule; «＋» splits the last zone. Appears when a divider/zone is active. */}
-      {zoneRow && (selectedId || showDivide) && (
+      {tab === "build" && !(compact && (toolsOpen || rpanel !== "none")) && zoneRow && (selectedId || showDivide) && (
         <div style={{ position: "fixed", bottom: compact ? 122 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(238,240,243,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
           {zoneRow.zones.map((z, i) => (
             <Fragment key={z.id}>
@@ -1228,7 +1229,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       )}
       {/* Step 6 (fixture 06-kromka-mode) — the K-variable pill row (paint metaphor): pick a jiyak, then
           tap the edge balls. «✕ Yo'q» strips the band. */}
-      {showKromka && (
+      {tab === "build" && !(compact && (toolsOpen || rpanel !== "none")) && showKromka && (
         <div style={{ position: "fixed", bottom: compact ? 122 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(255,255,255,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", maxWidth: "92vw" }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#555", marginRight: 2 }}>Jiyak:</span>
           {EDGES.map((e) => (
@@ -1243,7 +1244,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </div>
       )}
       {/* ── U3.3 — free-board editor: appears when a free board is selected (resize W/H/D · delete) ── */}
-      {selFreeBoard && rpanel === "none" && (
+      {tab === "build" && !(compact && toolsOpen) && selFreeBoard && rpanel === "none" && (
         <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 62, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
           <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>🪵 Erkin taxta</span>
           <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "w", mm)} units={units} />
@@ -1397,6 +1398,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <option value="right">◨ O'ng</option>
               </select>
             </>
+          )}
+          {/* E2 — drawer-in-drawer: a selected drawer can hold a nested drawer in its clear interior */}
+          {selComp.drawer && (
+            <button style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" }} onClick={nestDrawerInSelected} type="button" title="Bu yashik ichiga yana bir yashik">🗄＋ Ichki yashik</button>
           )}
           <button style={{ ...act, marginLeft: "auto", ...(selComp.loadBearing ? { borderColor: "#8a52c9", background: "#efe3fa", color: "#5b2a86" } : {}) }} onClick={toggleLoadBearing} type="button">
             ⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}
@@ -1959,7 +1964,7 @@ const popRight: CSSProperties = { ...popover, left: "auto", right: 0 };
 const popItem: CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "none", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer", textAlign: "left", whiteSpace: "nowrap" };
 const popSep: CSSProperties = { height: 1, background: "#eee7d8", margin: "4px 2px" };
 const act: CSSProperties = { padding: "9px 13px", minHeight: 40, borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer", flex: "0 0 auto", whiteSpace: "nowrap" };
-const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", overflowX: "auto", overflowY: "hidden" };
+const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
 const badge: CSSProperties = { padding: "3px 8px", borderRadius: 999, background: "#e3f3ea", color: "#006b3f", font: "600 11px system-ui" };
 const warnBar: CSSProperties = { margin: "0 14px 10px", padding: "8px 12px", borderRadius: 8, background: "#fdf3e0", border: "1px solid #f0d9a8", color: "#8a5a1f", display: "flex", gap: 10, alignItems: "center", font: "13px system-ui", minWidth: 0 };
 const specPanel: CSSProperties = { position: "absolute", top: 0, right: 0, bottom: 0, width: "min(380px, 92vw)", background: "#fbfaf6", borderLeft: "1px solid #e0dccf", boxShadow: "-8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };
