@@ -1352,20 +1352,38 @@ export function removeBlockFromRun(model: StructuralModel, runId: RunId, blockId
  * needs a thickness. Pure/immutable. Throws if the outer instance is missing or is not a drawer.
  * (Nesting into an ALREADY-nested drawer is a follow-up — this reaches the block's own instances.)
  */
-export function nestDrawer(model: StructuralModel, outerInstanceId: InstanceId, name = "Ящик внутр"): StructuralModel {
-  for (const block of model.blocks) {
-    const outer = block.instances.find((i) => i.id === outerInstanceId);
-    if (!outer) continue;
-    const comp = block.components.find((c) => c.id === outer.componentId);
-    if (!comp?.drawer) throw new Error("NEST_NOT_A_DRAWER");
-    const innerId = `${outerInstanceId}__nd${(outer.interior?.instances.length ?? 0) + 1}`;
+/** Add a fresh nested drawer into `outerId`'s interior, searching this instance list AND every nested
+ *  interior (drawer-in-drawer). Returns the rebuilt list, or null if `outerId` isn't in this subtree.
+ *  Nested instances are always drawers, so no drawer check is needed below the top level. */
+function nestInto(instances: readonly Instance[], outerId: InstanceId, name: string): Instance[] | null {
+  const withDrawer = (outer: Instance): Instance => {
+    const innerId = `${outer.id}__nd${(outer.interior?.instances.length ?? 0) + 1}`;
     const innerComp: Component = { id: `cmp_${innerId}`, name, partIds: [], role: null, drawer: true };
     const innerInst: Instance = { id: innerId, componentId: innerComp.id, sectionId: outer.sectionId, anchor: { x: 0, y: 0, z: 0 }, link: "linked" };
     const interior: DrawerInterior = outer.interior
       ? { components: [...outer.interior.components, innerComp], instances: [...outer.interior.instances, innerInst] }
       : { components: [innerComp], instances: [innerInst] };
-    const instances = block.instances.map((i) => (i.id === outerInstanceId ? { ...outer, interior } : i));
-    return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? { ...b, instances } : b)) };
+    return { ...outer, interior };
+  };
+  let changed = false;
+  const next = instances.map((inst) => {
+    if (inst.id === outerId) { changed = true; return withDrawer(inst); }
+    if (inst.interior) {
+      const nested = nestInto(inst.interior.instances, outerId, name);
+      if (nested) { changed = true; return { ...inst, interior: { ...inst.interior, instances: nested } }; }
+    }
+    return inst;
+  });
+  return changed ? next : null;
+}
+
+export function nestDrawer(model: StructuralModel, outerInstanceId: InstanceId, name = "Ящик внутр"): StructuralModel {
+  for (const block of model.blocks) {
+    // top-level target: keep the explicit drawer check (contract — the store catches NEST_NOT_A_DRAWER)
+    const top = block.instances.find((i) => i.id === outerInstanceId);
+    if (top && !block.components.find((c) => c.id === top.componentId)?.drawer) throw new Error("NEST_NOT_A_DRAWER");
+    const instances = nestInto(block.instances, outerInstanceId, name); // finds top-level OR any nested drawer
+    if (instances) return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? { ...b, instances } : b)) };
   }
   throw new Error("NEST_OUTER_NOT_FOUND");
 }
