@@ -19,7 +19,7 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
@@ -95,6 +95,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setModel = useKarkas((s) => s.setModel);
   const add = useKarkas((s) => s.add);
   const addFreeBoard = useKarkas((s) => s.addFreeBoard);
+  const addBlock = useKarkas((s) => s.addBlock);
+  const selectedBlockIds = useKarkas((s) => s.selectedBlockIds);
+  const groupSelectedBlocks = useKarkas((s) => s.groupSelectedBlocks);
+  const groupAllBlocks = useKarkas((s) => s.groupAllBlocks);
+  const ungroupSelectedBlocks = useKarkas((s) => s.ungroupSelectedBlocks);
+  const setRunLength = useKarkas((s) => s.setRunLength);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -335,7 +341,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // compact toolbar: which dropdown (add-variants / overflow) is open
   const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel" | "tools">(null);
   // Step 3.2 (v4 §5) — the two permanent selection modes: ◇ Part-select (edit) / ▢ Space-select (add).
-  const [selMode, setSelMode] = useState<"part" | "space">("part");
+  const [selMode, setSelMode] = useState<"part" | "space" | "block">("part");
   // U3.1 — the mount-effect raycast is a stable closure, so it reads the live select-mode via this ref.
   const selModeRef = useRef(selMode);
   useEffect(() => { selModeRef.current = selMode; }, [selMode]);
@@ -599,6 +605,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const sid = sHit?.object.userData.sectionId as string | undefined;
         if (sid) { useKarkas.getState().setTarget(sid); return; }
       }
+      // U4.2 — «Blok» mode: a tap picks/unpicks the WHOLE cabinet (block) for grouping, never a single
+      // part. The block is the slice of the partId before its first `__` separator (`${blockId}__…`).
+      if (selModeRef.current === "block") {
+        const gb = rt.current?.group;
+        const bHit = gb ? raycaster.intersectObjects(gb.children, false)[0] : undefined;
+        const bpid = bHit?.object.userData.partId as string | undefined;
+        if (bpid) { const sep = bpid.indexOf("__"); useKarkas.getState().toggleBlockSel(sep < 0 ? bpid : bpid.slice(0, sep)); }
+        else setSelMode("part"); // tapped empty space → leave Blok mode (tap-away dismiss, like the ✕)
+        return;
+      }
       const g = rt.current?.group; if (!g) return;
       const hit = raycaster.intersectObjects(g.children, false)[0]; // faces only (not edge lines)
       useKarkas.getState().selectHole(null); // a panel tap clears any hole selection
@@ -736,10 +752,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHoles, model]);
 
-  // ── re-tint on selection change (no rebuild) ──
+  // ── re-tint on selection change (no rebuild). Blok mode paints whole picked cabinets green ON TOP of
+  //    the (cleared) per-part blue; outside Blok mode the pick is invisible so nothing bleeds through. ──
   useEffect(() => {
-    if (rt.current?.group) highlightBoard(rt.current.group, selectedId);
-  }, [selectedId]);
+    if (!rt.current?.group) return;
+    highlightBoard(rt.current.group, selectedId);
+    highlightBlocks(rt.current.group, selMode === "block" ? selectedBlockIds : []);
+  }, [selectedId, selectedBlockIds, selMode]);
 
   // ── Step 4b: 3D corner chips — project the selected panel's face corners to canvas px, and reproject on
   //    every camera move (OrbitControls "change"). Only while the corner tool is open on a real panel. ──
@@ -897,6 +916,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <button style={popItem} onClick={saveToBiblioteka} type="button">📚 Bibliotekaga saqlash</button>
                 <button style={popItem} onClick={saveProject} type="button">💾 Faylga saqlash</button>
                 <button style={popItem} onClick={() => fileRef.current?.click()} type="button">📂 Fayldan ochish</button>
+                {/* U4.3 — grouping entry lives in the ⋯ menu (not the mode segment). Only when ≥2 cabinets
+                    exist. Enters Blok mode → the bottom grouping bar takes over. */}
+                {tab === "build" && model.blocks.length > 1 && (
+                  <>
+                    <div style={popSep} />
+                    <button style={popItem} onClick={() => { setSelMode("block"); setRpanel("none"); setMenu(null); }} type="button">⬛ Bloklarni guruhlash</button>
+                  </>
+                )}
                 <div style={popSep} />
                 <button style={popItem} onClick={() => setModel(buildDemoModel())} type="button">▢ Namuna: Тумба</button>
                 <button style={popItem} onClick={() => setModel(buildLCornerModel())} type="button">⌐ Namuna: L-burchak</button>
@@ -909,7 +936,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       </header>
 
       {/* ── U2.1 — Moblo bottom contextual bar (overall dims · selection · +Loyihaga) ── */}
-      {tab === "build" && (
+      {tab === "build" && selMode !== "block" && (
         <div className="mob-bottombar">
           <div className="mob-dims" title="Butun mebel — eni × bo'y × chuqurlik">
             <MobDim axis="x" value={dims.w} units={units} onCommit={(mm) => resize("w", mm)} />
@@ -1001,6 +1028,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <div className="mob-panel-body">
             {rpanel === "add" ? (
               <>
+                {/* U4.1 — add a whole new cabinet (block) beside the current run. Grouping (E1) needs ≥2
+                    blocks; this seeds the second one. Distinct from the compartment adds below. */}
+                <button className="mob-addbtn" type="button" onClick={() => { addBlock(); setRpanel("none"); }} style={{ width: "100%", marginBottom: 12, borderColor: "#1f5570", color: "#1f5570", fontWeight: 700 }}>🗄 ＋ Yangi shkaf (blok)</button>
                 <div className="mob-modeseg">
                   {([["part", "◇ Bo'lak"], ["space", "▢ Bo'shliq"]] as const).map(([m, label]) => (
                     <button key={m} type="button" className={"mob-modebtn" + (selMode === m ? " is-active" : "")} onClick={() => setSelMode(m)}>{label}</button>
@@ -1056,6 +1086,39 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button className="mob-fab" type="button" title="Qo'shish" aria-label="Qo'shish" onClick={() => setRpanel((p) => (p === "add" ? "none" : "add"))}>{rpanel === "add" ? "×" : <MobPlus />}</button>
         </div>
       )}
+      {/* U4.3 — Blok-mode grouping bar. Lives at the BOTTOM where the dims bar sits (which we hide in Blok
+          mode) and is styled with the Moblo tokens so it matches the shell + follows the theme. The usta
+          taps CABINETS in 3D (they glow green); ≥2 free → «Guruhlash», ≥2 grouped → «Ajratish» (which
+          re-separates them), «Barchasini» groups all. Entered from the ⋯ menu; «✕» leaves. */}
+      {tab === "build" && selMode === "block" && (() => {
+        const validSel = selectedBlockIds.filter((id) => model.blocks.some((b) => b.id === id));
+        const claimed = new Set((model.runs ?? []).flatMap((r) => r.members.map((m) => m.blockId)));
+        const free = validSel.filter((id) => !claimed.has(id));      // ticked, not yet in a run → groupable
+        const grouped = validSel.filter((id) => claimed.has(id));    // ticked, already in a run → detachable
+        const enough = model.blocks.length > 1;
+        // U4.4 — the run a ticked grouped cabinet belongs to → its wall length is editable (one is enough)
+        const run = grouped.length ? (model.runs ?? []).find((r) => r.members.some((m) => grouped.includes(m.blockId))) : null;
+        return (
+          <div className="mob-groupbar">
+            <span className="mob-groupbar-hint">{!enough ? "shkaf qo'shing" : validSel.length ? `${validSel.length} ta` : "tanlang"}</span>
+            {run && (
+              <label className="mob-groupbar-run" title="Butun ryadni devor uzunligiga moslash">
+                <span>Devor</span>
+                <input className="mob-run-input" inputMode="numeric" key={`${run.id}:${run.length_mm10}`} defaultValue={Math.round(run.length_mm10 / 10)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { const v = parseInt(e.currentTarget.value.replace(/[^\d]/g, ""), 10); if (v) setRunLength(run.id, v); e.currentTarget.blur(); } }}
+                  onBlur={(e) => { const v = parseInt(e.currentTarget.value.replace(/[^\d]/g, ""), 10); if (v && v !== Math.round(run.length_mm10 / 10)) setRunLength(run.id, v); }} />
+                <span>mm</span>
+              </label>
+            )}
+            <div className="mob-groupbar-actions">
+              {free.length >= 2 && <button type="button" className="mob-gbtn is-group" onClick={groupSelectedBlocks}>🔗 Guruhlash</button>}
+              {grouped.length >= 2 && <button type="button" className="mob-gbtn is-ungroup" onClick={ungroupSelectedBlocks}>🔓 Ajratish</button>}
+              {enough && <button type="button" className="mob-gbtn" onClick={groupAllBlocks}>⛓ Barcha</button>}
+              <button type="button" className="mob-gbtn is-close" onClick={() => setSelMode("part")} title="Blok rejimidan chiqish">✕</button>
+            </div>
+          </div>
+        );
+      })()}
       {/* Step 3.3a (v4 §5 readout law) — the selection's dimensions in a FIXED top-centre strip, never
           hidden by the hand. Updates live during a drag/resize (later pieces). 2 axes only (face w×h). */}
       {selectedId && selPart && (

@@ -10,8 +10,8 @@ import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
-import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -149,6 +149,20 @@ interface KarkasState extends Derived {
    *  «Qayerga» picker; falls back to the first leaf. */
   targetId: string | null;
   setTarget: (id: string) => void;
+  /** U4.1 — add a second cabinet (block) beside the current one; the foundation for grouping (E1). */
+  addBlock: () => void;
+  /** U4.2 — the set of whole blocks ticked in the block-navigator for grouping. */
+  selectedBlockIds: string[];
+  /** U4.2 — toggle a block in the group-selection (clears any part selection). */
+  toggleBlockSel: (blockId: string) => void;
+  /** U4.2 — group the ≥2 ticked blocks into a Run (E1 `groupBlocks`); no-op for <2. */
+  groupSelectedBlocks: () => void;
+  /** U4.2 — group ALL currently-ungrouped blocks into one Run (the «Barchasini» one-tap); no-op for <2. */
+  groupAllBlocks: () => void;
+  /** U4.3 — remove the ticked blocks from their Run(s); a Run left with <2 members dissolves entirely. */
+  ungroupSelectedBlocks: () => void;
+  /** U4.4 — fit a Run to a wall length (mm): members reflow by their Fixed/Ratio/Flex rules. */
+  setRunLength: (runId: string, mm: number) => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
   addFreeBoard: () => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
@@ -344,6 +358,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     ...derive(buildDemoModel(), DEFAULT_PLAN),
     open: false,
     selectedId: null,
+    selectedBlockIds: [],
     targetId: null,
     setTarget: (id) => set({ targetId: id }),
     // U3.2 — free assembly: a board that lives OUTSIDE the carcass sections, placed by its own box and
@@ -366,6 +381,108 @@ export const useKarkas = create<KarkasState>((set, get) => {
       };
       apply(addFreePartOp(s.model, block.id, fp));
       set({ selectedId: `${block.id}__free_${fp.id}` }); // select it so it highlights (and, in U3.2b, drags)
+    },
+    // U4.1 — add a SECOND cabinet (block) beside the current one. Grouping (E1 `groupBlocks`) needs ≥2
+    // blocks, so this is the foundation. A fresh bare carcass (same dims as block-0) is tiled just to the
+    // right of the rightmost block, with a 30mm gap so the two read as separate until grouped. Every id is
+    // suffixed unique so the new block never clashes with the existing one (the carcass is empty, so only
+    // the block / zone / root-section ids need remapping — no instances or components to fix up).
+    addBlock: () => {
+      const s = get();
+      const b0 = s.model.blocks[0];
+      const dims = b0
+        ? { w: Math.round(b0.box.w / 10), h: Math.round(b0.box.h / 10), d: Math.round(b0.box.d / 10) }
+        : { w: 600, h: 720, d: 560 };
+      const fresh = buildCarcassModel(dims.w, dims.h, dims.d).blocks[0];
+      const uid = Date.now().toString(36);
+      const zone = fresh.zones[0];
+      const rightEdge = s.model.blocks.reduce((mx, b) => Math.max(mx, b.box.x + b.box.w), 0);
+      const reblock: Block = {
+        ...fresh,
+        id: `blk_${uid}`,
+        name: `Shkaf ${s.model.blocks.length + 1}`,
+        box: { ...fresh.box, x: rightEdge + 300 }, // 30mm gap to the right of the run
+        zones: [{ ...zone, id: `z_${uid}`, root: { ...zone.root, id: `sec_${uid}` } }],
+      };
+      apply({ ...s.model, blocks: [...s.model.blocks, reblock] });
+    },
+    // U4.2 — block navigator: tick whole blocks (clearing any part selection), then group ≥2 into a Run.
+    // groupBlocks tiles the members end-to-end at their current widths (gaps removed); resolveRun (U4.4)
+    // later fits the run to a wall. Guard <2 / an engine throw so a stray tap can't crash the editor.
+    toggleBlockSel: (blockId) => set((s) => ({
+      selectedId: null,
+      selectedBlockIds: s.selectedBlockIds.includes(blockId)
+        ? s.selectedBlockIds.filter((id) => id !== blockId)
+        : [...s.selectedBlockIds, blockId],
+    })),
+    groupSelectedBlocks: () => {
+      const s = get();
+      const claimed = new Set((s.model.runs ?? []).flatMap((r) => r.members.map((m) => m.blockId)));
+      // only the ticked blocks that are real AND not already in a run (groupBlocks throws on a claimed one)
+      const ids = s.selectedBlockIds.filter((id) => s.model.blocks.some((b) => b.id === id) && !claimed.has(id));
+      if (ids.length < 2) return;
+      try {
+        apply(groupBlocks(s.model, ids));
+        set({ selectedBlockIds: [] });
+      } catch {
+        // GROUP_NEEDS_2_BLOCKS / unknown — ignore; the ticks stay for a retry.
+      }
+    },
+    // U4.2 — «Barchasini»: group every not-yet-grouped block into one Run in a single tap (no ticking).
+    groupAllBlocks: () => {
+      const s = get();
+      const claimed = new Set((s.model.runs ?? []).flatMap((r) => r.members.map((m) => m.blockId)));
+      const free = s.model.blocks.filter((b) => !claimed.has(b.id)).map((b) => b.id);
+      if (free.length < 2) return;
+      try {
+        apply(groupBlocks(s.model, free));
+        set({ selectedBlockIds: [] });
+      } catch {
+        // defensive — groupBlocks only throws on <2 / unknown / already-claimed, all excluded above.
+      }
+    },
+    // U4.3 — «Ajratish»: dissolve every Run any ticked block belongs to, then re-space that run's members
+    // apart with a gap so they visibly SEPARATE again. Grouping had tiled them flush; ungroup restores the
+    // gap ("oldingi holiga qaytib ajralishi") — otherwise the blocks stay touching and it looks like nothing
+    // happened. Positions are laid in member order along the run's axis, keeping the run's starting origin.
+    ungroupSelectedBlocks: () => {
+      const s = get();
+      const sel = s.selectedBlockIds.filter((id) => s.model.blocks.some((b) => b.id === id));
+      const runIds = [...new Set(sel.map((id) => (s.model.runs ?? []).find((r) => r.members.some((mm) => mm.blockId === id))?.id).filter((x): x is string => !!x))];
+      if (runIds.length === 0) return;
+      const GAP = 300; // 30mm, same as addBlock — reads as two distinct cabinets again
+      const orig = (box: XBox, ax: "x" | "y" | "z") => (ax === "x" ? box.x : ax === "y" ? box.y : box.z);
+      const ext = (box: XBox, ax: "x" | "y" | "z") => (ax === "x" ? box.w : ax === "y" ? box.h : box.d);
+      let m = s.model;
+      for (const rid of runIds) {
+        const run = (m.runs ?? []).find((r) => r.id === rid);
+        if (!run) continue;
+        const ax = run.axis as "x" | "y" | "z";
+        const byId = new Map(m.blocks.map((b) => [b.id, b] as const));
+        const order = run.members.map((mm) => mm.blockId);
+        const first = byId.get(order[0]);
+        let cur = first ? orig(first.box, ax) : 0;
+        const pos: Record<string, number> = {};
+        for (const id of order) {
+          const bb = byId.get(id); if (!bb) continue;
+          pos[id] = cur;
+          cur += ext(bb.box, ax) + GAP;
+        }
+        m = ungroupBlocks(m, rid);
+        m = { ...m, blocks: m.blocks.map((b) => (pos[b.id] === undefined ? b : { ...b, box: { ...b.box, [ax]: pos[b.id] } })) };
+      }
+      apply(m);
+      set({ selectedBlockIds: [] });
+    },
+    // U4.4 — «Devorga moslash»: resize the whole Run to a typed wall length. resolveRun distributes it
+    // across the members by their Fixed/Ratio/Flex rules (default = Flex, so they share the wall equally)
+    // and reflows each cabinet's carcass to its new width. mm in → mm10 to the engine.
+    setRunLength: (runId, mm) => {
+      const s = get();
+      const len = Math.max(1, Math.round(mm)) * 10;
+      try { apply(resolveRun(s.model, runId, len)); } catch {
+        // RUN_INVALID_LENGTH / unknown run — ignore.
+      }
     },
     moveFreePart: (fpId, delta, first) => {
       const s = get();
@@ -471,7 +588,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
     // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
     openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
-    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
+    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, selectedBlockIds: [], past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
     close: () => set({ open: false }),
     tapPart: (id) => {
       // tapping a placed part also targets its section, so the next add lands where you're looking
