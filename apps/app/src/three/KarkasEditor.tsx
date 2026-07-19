@@ -89,6 +89,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [tab, setTab] = useState<MobTab>("build");
   const [toolsOpen, setToolsOpen] = useState(false); // mobile: the «⋯ ko'proq» slide-up sheet
   const [rpanel, setRpanel] = useState<"none" | "add" | "material">("none"); // U2.3 right panel
+  // Commit a pending DimField edit before a control hides/unmounts the editor: blur the focused input so
+  // its onBlur commit fires FIRST (synchronously). Mobile taps on the sheet's ✕ / ⋯ / FABs don't reliably
+  // blur the numeric keyboard, which silently dropped an in-progress edit (e.g. «Yashik b.»). These close
+  // actions never change the selection, so the blurred field still commits to the right part.
+  const commitActiveEdit = () => { const el = document.activeElement as HTMLElement | null; if (el && el.tagName === "INPUT") el.blur(); };
   const scene = useKarkas((s) => s.scene);
   const selectedId = useKarkas((s) => s.selectedId);
   const tapPart = useKarkas((s) => s.tapPart);
@@ -262,6 +267,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const toggleLoadBearing = useKarkas((s) => s.toggleLoadBearing);
   const remove = useKarkas((s) => s.remove);
   const nestDrawerInSelected = useKarkas((s) => s.nestDrawerInSelected);
+  const setDrawerHeight = useKarkas((s) => s.setDrawerHeight);
+  const drawerHeightMm = useKarkas((s) => s.selectedDrawerHeight());
   const setThickness = useKarkas((s) => s.setThickness);
   const setAngle = useKarkas((s) => s.setAngle);
   const shelfMaxAngle = useKarkas((s) => s.selectedShelfMaxAngle());
@@ -697,15 +704,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       const boxes = leafSectionBoxes(m, solveLayout(m));
       r.sectionGroup = buildSectionHitboxes(boxes, activeTarget ?? null);
       r.scene.add(r.sectionGroup);
-    } else if (sections.length > 1 && activeTarget) {
-      // «Qayerga» feedback — whenever the section picker is up, glow JUST the chosen compartment in 3D so
-      // the usta sees WHERE the next add will land. Non-space mode, so onUp never treats it as a tap-target.
-      const boxes = leafSectionBoxes(m, solveLayout(m)).filter((box) => box.id === activeTarget);
-      if (boxes.length) { r.sectionGroup = buildSectionHitboxes(boxes, activeTarget); r.scene.add(r.sectionGroup); }
+    } else if (sections.length > 1 && targetId && !selectedId && sections.some((x) => x.id === targetId)) {
+      // «Qayerga» feedback — glow JUST the chosen compartment so the usta sees WHERE the next add lands.
+      // Only after an EXPLICIT pick (targetId set by tapping a «N-bo'lim» pill) and NOT while editing a
+      // selected part — so a fresh model / plain viewing / part-editing stays clean (was always-on before).
+      const boxes = leafSectionBoxes(m, solveLayout(m)).filter((box) => box.id === targetId);
+      if (boxes.length) { r.sectionGroup = buildSectionHitboxes(boxes, targetId); r.scene.add(r.sectionGroup); }
     }
     r.renderer.render(r.scene, r.camera);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, selMode, activeTarget, rpanel, sections.length]);
+  }, [scene, selMode, activeTarget, targetId, selectedId, rpanel, sections.length]);
 
   // ── rebuild the group + reframe when the model (scene) changes ──
   useEffect(() => {
@@ -1095,9 +1103,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* ── mobile FAB group: ＋ Qo'shish · 🎨 Materiallar · ⋯ Ko'proq (hidden while editing a free board) ── */}
       {tab === "build" && compact && !selFreeBoard && (
         <div className="mob-fabgroup">
-          <button className="mob-fab-mini" type="button" title="Ko'proq" aria-label="Ko'proq" onClick={() => setToolsOpen((o) => !o)}>⋯</button>
-          <button className={"mob-fab-mini" + (rpanel === "material" ? " is-active" : "")} type="button" title="Materiallar" aria-label="Materiallar" onClick={() => setRpanel((p) => (p === "material" ? "none" : "material"))}><MobPaint /></button>
-          <button className="mob-fab" type="button" title="Qo'shish" aria-label="Qo'shish" onClick={() => setRpanel((p) => (p === "add" ? "none" : "add"))}>{rpanel === "add" ? "×" : <MobPlus />}</button>
+          <button className="mob-fab-mini" type="button" title="Ko'proq" aria-label="Ko'proq" onClick={() => { commitActiveEdit(); setToolsOpen((o) => !o); }}>⋯</button>
+          <button className={"mob-fab-mini" + (rpanel === "material" ? " is-active" : "")} type="button" title="Materiallar" aria-label="Materiallar" onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "material" ? "none" : "material")); }}><MobPaint /></button>
+          <button className="mob-fab" type="button" title="Qo'shish" aria-label="Qo'shish" onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "add" ? "none" : "add")); }}>{rpanel === "add" ? "×" : <MobPlus />}</button>
         </div>
       )}
       {/* U4.3 — Blok-mode grouping bar. Lives at the BOTTOM where the dims bar sits (which we hide in Blok
@@ -1272,7 +1280,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           each cluster into its Moblo zone. On desktop it floats at the right; on mobile it's a slide-up
           sheet toggled by the ＋ FAB (Moblo pattern), so the small screen stays uncluttered. ── */}
       {tab === "build" && (!compact || toolsOpen) && <div className={"mob-legacy" + (compact ? " is-sheet" : "")}>
-        <div className="mob-sheet-head"><span>Asboblar</span><button type="button" className="mob-x" onClick={() => setToolsOpen(false)} aria-label="Yopish">×</button></div>
+        <div className="mob-sheet-head"><span>Asboblar</span><button type="button" className="mob-x" onClick={() => { commitActiveEdit(); setToolsOpen(false); }} aria-label="Yopish">×</button></div>
       {/* Phase 4 — edit toolbar. It stays WRAP (never overflow-clip, else the ＋Polka/＋Eshik/🎨 popovers get
           cut off); on compact the «⋯ Ko'proq» menu removes the 10 secondary tools so it stays short. */}
       <div style={editbar}>
@@ -1407,6 +1415,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <option value="left">◧ Chap</option>
                 <option value="right">◨ O'ng</option>
               </select>
+            </>
+          )}
+          {/* Yashik balandligi — per-drawer front/box height (mm). solve/layout clamp the top at the bay. */}
+          {selComp.drawer && (
+            <>
+              <span style={mono}>Yashik b.:</span>
+              <DimField label="mm" value={drawerHeightMm ?? 200} onCommit={setDrawerHeight} min={50} units={units} />
             </>
           )}
           {/* E2 — drawer-in-drawer: a selected drawer can hold a nested drawer in its clear interior */}
