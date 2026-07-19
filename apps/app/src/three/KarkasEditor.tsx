@@ -99,6 +99,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const selectedBlockIds = useKarkas((s) => s.selectedBlockIds);
   const groupSelectedBlocks = useKarkas((s) => s.groupSelectedBlocks);
   const groupAllBlocks = useKarkas((s) => s.groupAllBlocks);
+  const ungroupSelectedBlocks = useKarkas((s) => s.ungroupSelectedBlocks);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -913,6 +914,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <button style={popItem} onClick={saveToBiblioteka} type="button">📚 Bibliotekaga saqlash</button>
                 <button style={popItem} onClick={saveProject} type="button">💾 Faylga saqlash</button>
                 <button style={popItem} onClick={() => fileRef.current?.click()} type="button">📂 Fayldan ochish</button>
+                {/* U4.3 — grouping entry lives in the ⋯ menu (not the mode segment). Only when ≥2 cabinets
+                    exist. Enters Blok mode → the bottom grouping bar takes over. */}
+                {tab === "build" && model.blocks.length > 1 && (
+                  <>
+                    <div style={popSep} />
+                    <button style={popItem} onClick={() => { setSelMode("block"); setRpanel("none"); setMenu(null); }} type="button">⬛ Bloklarni guruhlash</button>
+                  </>
+                )}
                 <div style={popSep} />
                 <button style={popItem} onClick={() => setModel(buildDemoModel())} type="button">▢ Namuna: Тумба</button>
                 <button style={popItem} onClick={() => setModel(buildLCornerModel())} type="button">⌐ Namuna: L-burchak</button>
@@ -925,7 +934,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       </header>
 
       {/* ── U2.1 — Moblo bottom contextual bar (overall dims · selection · +Loyihaga) ── */}
-      {tab === "build" && (
+      {tab === "build" && selMode !== "block" && (
         <div className="mob-bottombar">
           <div className="mob-dims" title="Butun mebel — eni × bo'y × chuqurlik">
             <MobDim axis="x" value={dims.w} units={units} onCommit={(mm) => resize("w", mm)} />
@@ -1021,8 +1030,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     blocks; this seeds the second one. Distinct from the compartment adds below. */}
                 <button className="mob-addbtn" type="button" onClick={() => { addBlock(); setRpanel("none"); }} style={{ width: "100%", marginBottom: 12, borderColor: "#1f5570", color: "#1f5570", fontWeight: 700 }}>🗄 ＋ Yangi shkaf (blok)</button>
                 <div className="mob-modeseg">
-                  {([["part", "◇ Bo'lak"], ["space", "▢ Bo'shliq"], ["block", "⬛ Blok"]] as const).map(([m, label]) => (
-                    <button key={m} type="button" className={"mob-modebtn" + (selMode === m ? " is-active" : "")} onClick={() => { setSelMode(m); if (m === "block") setRpanel("none"); }}>{label}</button>
+                  {([["part", "◇ Bo'lak"], ["space", "▢ Bo'shliq"]] as const).map(([m, label]) => (
+                    <button key={m} type="button" className={"mob-modebtn" + (selMode === m ? " is-active" : "")} onClick={() => setSelMode(m)}>{label}</button>
                   ))}
                 </div>
                 {selMode === "space" ? (
@@ -1075,21 +1084,26 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button className="mob-fab" type="button" title="Qo'shish" aria-label="Qo'shish" onClick={() => setRpanel((p) => (p === "add" ? "none" : "add"))}>{rpanel === "add" ? "×" : <MobPlus />}</button>
         </div>
       )}
-      {/* U4.2 — Moblo grouping tray (⬛ Blok mode). No chip list: the usta taps the CABINETS in 3D (they
-          glow green), then «🔗 Guruhlash» merges the ticked ones; «⛓ Barchasini» merges all in one tap.
-          Only in Blok mode + ≥2 cabinets, so normal part editing is never touched. Top-centre — the part
-          readout below needs a selection, which Blok mode never has, so they can't collide. */}
-      {tab === "build" && selMode === "block" && model.blocks.length > 1 && (() => {
+      {/* U4.3 — Blok-mode grouping bar. Lives at the BOTTOM where the dims bar sits (which we hide in Blok
+          mode) and is styled with the Moblo tokens so it matches the shell + follows the theme. The usta
+          taps CABINETS in 3D (they glow green); ≥2 free → «Guruhlash», ≥2 grouped → «Ajratish» (which
+          re-separates them), «Barchasini» groups all. Entered from the ⋯ menu; «✕» leaves. */}
+      {tab === "build" && selMode === "block" && (() => {
         const validSel = selectedBlockIds.filter((id) => model.blocks.some((b) => b.id === id));
+        const claimed = new Set((model.runs ?? []).flatMap((r) => r.members.map((m) => m.blockId)));
+        const free = validSel.filter((id) => !claimed.has(id));      // ticked, not yet in a run → groupable
+        const grouped = validSel.filter((id) => claimed.has(id));    // ticked, already in a run → detachable
+        const enough = model.blocks.length > 1;
         return (
-          <div style={{ position: "fixed", top: compact ? 64 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(255,255,255,0.97)", borderRadius: 12, padding: "7px 11px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", maxWidth: "94vw", overflowX: "auto", whiteSpace: "nowrap" }}>
-            <span style={{ ...mono, fontWeight: 800, color: "#00713f", flex: "0 0 auto" }}>⬛ Blok</span>
-            <span style={{ ...mono, flex: "0 0 auto" }}>{validSel.length ? `${validSel.length} shkaf tanlandi` : "shkaflarni bosing"}</span>
-            {validSel.length >= 2 && (
-              <button type="button" onClick={groupSelectedBlocks} style={{ ...act, flex: "0 0 auto" }}>🔗 Guruhlash</button>
-            )}
-            <button type="button" onClick={groupAllBlocks} style={{ ...act, flex: "0 0 auto", borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" }}>⛓ Barchasini</button>
-            <button type="button" onClick={() => setSelMode("part")} title="Blok rejimidan chiqish" style={{ ...pill, flex: "0 0 auto", padding: "6px 10px" }}>✕</button>
+          <div className="mob-groupbar">
+            <span className="mob-groupbar-title">⬛ Guruhlash</span>
+            <span className="mob-groupbar-hint">{!enough ? "yana shkaf qo'shing" : validSel.length ? `${validSel.length} tanlandi` : "shkaflarni bosing"}</span>
+            <div className="mob-groupbar-actions">
+              {free.length >= 2 && <button type="button" className="mob-gbtn is-group" onClick={groupSelectedBlocks}>🔗 Guruhlash</button>}
+              {grouped.length >= 2 && <button type="button" className="mob-gbtn is-ungroup" onClick={ungroupSelectedBlocks}>🔓 Ajratish</button>}
+              {enough && <button type="button" className="mob-gbtn" onClick={groupAllBlocks}>⛓ Barchasini</button>}
+              <button type="button" className="mob-gbtn is-close" onClick={() => setSelMode("part")} title="Blok rejimidan chiqish">✕</button>
+            </div>
           </div>
         );
       })()}

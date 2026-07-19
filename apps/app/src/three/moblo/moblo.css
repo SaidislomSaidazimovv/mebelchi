@@ -222,6 +222,27 @@
   box-shadow: var(--mob-shadow);
   z-index: 5;
 }
+/* U4.3 — Blok-mode grouping bar: takes the dims bar's bottom spot while grouping cabinets. Themed shell,
+ * semantic (green group / amber ungroup) action buttons. */
+.mob-groupbar {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; max-width: calc(100% - 28px);
+  padding: 7px 9px 7px 14px; overflow-x: auto;
+  background: var(--mob-surface); border: 1px solid var(--mob-border);
+  border-radius: 16px; box-shadow: var(--mob-shadow); z-index: 6;
+}
+.mob-groupbar-title { font: 700 13px Inter, system-ui, sans-serif; color: var(--mob-accent); white-space: nowrap; }
+.mob-groupbar-hint { font-size: 12px; color: var(--mob-muted); white-space: nowrap; padding-right: 8px; border-right: 1px solid var(--mob-border); }
+.mob-groupbar-actions { display: flex; gap: 6px; align-items: center; }
+.mob-gbtn {
+  appearance: none; cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--mob-border); background: var(--mob-surface-2); color: var(--mob-ink);
+  border-radius: 10px; padding: 7px 12px; font: 650 12.5px Inter, system-ui, sans-serif;
+}
+.mob-gbtn.is-group { border-color: #00a961; background: #e3f3ea; color: #00713f; }
+.mob-gbtn.is-ungroup { border-color: #d98a1f; background: #fbeccd; color: #8a5200; }
+.mob-gbtn.is-close { padding: 7px 11px; color: var(--mob-muted); }
+
 .mob-modes { display: flex; gap: 4px; }
 .mob-mode {
   appearance: none; cursor: pointer;
@@ -317,6 +338,8 @@
   .mob-lefttools .mob-round { width: 38px; height: 38px; }
   /* keep the dims bar COMPACT + centred on mobile (not stretched full-width); it sits just above the nav */
   .mob-bottombar { bottom: 66px; padding: 6px 8px; gap: 8px; }
+  .mob-groupbar { bottom: 66px; padding: 6px 8px 6px 12px; gap: 8px; }
+  .mob-gbtn { padding: 7px 10px; }
   .mob-bottombar .mob-dims { gap: 8px; }
   .mob-bottombar .mob-dim-input { width: 46px; }
   .mob-unit { padding: 4px 6px; }
