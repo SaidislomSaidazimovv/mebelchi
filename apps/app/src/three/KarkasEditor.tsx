@@ -101,6 +101,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const groupAllBlocks = useKarkas((s) => s.groupAllBlocks);
   const ungroupSelectedBlocks = useKarkas((s) => s.ungroupSelectedBlocks);
   const setRunLength = useKarkas((s) => s.setRunLength);
+  const setRunMemberRule = useKarkas((s) => s.setRunMemberRule);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -1098,6 +1099,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const enough = model.blocks.length > 1;
         // U4.4 — the run a ticked grouped cabinet belongs to → its wall length is editable (one is enough)
         const run = grouped.length ? (model.runs ?? []).find((r) => r.members.some((m) => grouped.includes(m.blockId))) : null;
+        // U4.5 — with EXACTLY one grouped cabinet ticked, its own rule (Fixed/Ratio/Flex) is editable
+        const oneId = grouped.length === 1 ? grouped[0] : null;
+        const rule = oneId && run ? run.members.find((m) => m.blockId === oneId)?.rule : undefined;
+        const oneBlk = oneId ? model.blocks.find((b) => b.id === oneId) : null;
+        const axisMm = oneBlk && run ? Math.round((run.axis === "x" ? oneBlk.box.w : run.axis === "y" ? oneBlk.box.h : oneBlk.box.d) / 10) : 0;
         return (
           <div className="mob-groupbar">
             <span className="mob-groupbar-hint">{!enough ? "shkaf qo'shing" : validSel.length ? `${validSel.length} ta` : "tanlang"}</span>
@@ -1109,6 +1115,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   onBlur={(e) => { const v = parseInt(e.currentTarget.value.replace(/[^\d]/g, ""), 10); if (v && v !== Math.round(run.length_mm10 / 10)) setRunLength(run.id, v); }} />
                 <span>mm</span>
               </label>
+            )}
+            {rule && oneId && run && (
+              <div className="mob-groupbar-rule" title="Shu shkaf qoidasi — bosib almashtiring: erkin / qat'iy / nisbat">
+                <button type="button" className="mob-gbtn"
+                  onClick={() => setRunMemberRule(run.id, oneId, rule.kind === "flex" ? { kind: "fixed", mm10: axisMm * 10 } : rule.kind === "fixed" ? { kind: "ratio", weight: 1 } : { kind: "flex" })}>
+                  {rule.kind === "fixed" ? "🔒 Qat'iy" : rule.kind === "ratio" ? "⚖ Nisbat" : "↔ Erkin"}
+                </button>
+                {rule.kind === "fixed" && (
+                  <>
+                    <input className="mob-run-input" style={{ width: 54 }} inputMode="numeric" key={`f${oneId}:${rule.mm10}`} defaultValue={Math.round(rule.mm10 / 10)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { const v = parseInt(e.currentTarget.value.replace(/[^\d]/g, ""), 10); if (v) setRunMemberRule(run.id, oneId, { kind: "fixed", mm10: v * 10 }); e.currentTarget.blur(); } }}
+                      onBlur={(e) => { const v = parseInt(e.currentTarget.value.replace(/[^\d]/g, ""), 10); if (v) setRunMemberRule(run.id, oneId, { kind: "fixed", mm10: v * 10 }); }} />
+                    <span>mm</span>
+                  </>
+                )}
+                {rule.kind === "ratio" && (
+                  <input className="mob-run-input" style={{ width: 42 }} inputMode="decimal" key={`r${oneId}:${rule.weight}`} defaultValue={rule.weight}
+                    onKeyDown={(e) => { if (e.key === "Enter") { const v = parseFloat(e.currentTarget.value.replace(",", ".")); if (v > 0) setRunMemberRule(run.id, oneId, { kind: "ratio", weight: v }); e.currentTarget.blur(); } }}
+                    onBlur={(e) => { const v = parseFloat(e.currentTarget.value.replace(",", ".")); if (v > 0) setRunMemberRule(run.id, oneId, { kind: "ratio", weight: v }); }} />
+                )}
+              </div>
             )}
             <div className="mob-groupbar-actions">
               {free.length >= 2 && <button type="button" className="mob-gbtn is-group" onClick={groupSelectedBlocks}>🔗 Guruhlash</button>}

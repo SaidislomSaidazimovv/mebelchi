@@ -163,6 +163,8 @@ interface KarkasState extends Derived {
   ungroupSelectedBlocks: () => void;
   /** U4.4 — fit a Run to a wall length (mm): members reflow by their Fixed/Ratio/Flex rules. */
   setRunLength: (runId: string, mm: number) => void;
+  /** U4.5 — set one member's rule (Fixed mm / Ratio weight / Flex); the run re-solves at its length. */
+  setRunMemberRule: (runId: string, blockId: string, rule: DivisionRule) => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
   addFreeBoard: () => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
@@ -483,6 +485,17 @@ export const useKarkas = create<KarkasState>((set, get) => {
       try { apply(resolveRun(s.model, runId, len)); } catch {
         // RUN_INVALID_LENGTH / unknown run — ignore.
       }
+    },
+    // U4.5 — per-cabinet rule inside a run: pin one to a Fixed width (or a Ratio weight), leave the rest
+    // Flex. After the rule changes we re-solve the run at its CURRENT length so the reflow is immediate —
+    // e.g. marking one cabinet «Fixed 600» instantly shrinks it and the Flex ones absorb the difference.
+    setRunMemberRule: (runId, blockId, rule) => {
+      const s = get();
+      const run = (s.model.runs ?? []).find((r) => r.id === runId);
+      if (!run) return;
+      const members = run.members.map((mm) => (mm.blockId === blockId ? { ...mm, rule } : mm));
+      const withRule: StructuralModel = { ...s.model, runs: s.model.runs!.map((r) => (r.id === runId ? { ...r, members } : r)) };
+      try { apply(resolveRun(withRule, runId, run.length_mm10)); } catch { apply(withRule); }
     },
     moveFreePart: (fpId, delta, first) => {
       const s = get();
