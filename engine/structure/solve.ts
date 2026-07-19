@@ -354,6 +354,13 @@ export function shelfSpanY(block: Block, section: Section, board: mm10): { y0: m
 /** Runner clearance per drawer side (mm10) — the gap the slide occupies between box and carcass. */
 const DRAWER_SLIDE_CLEAR_MM10 = 130;
 
+/** Default drawer height (mm10): a fresh drawer is this tall, sitting at the BOTTOM of its section —
+ *  NOT the full section height (a full-height drawer renders as thin slats and reads as "broken"). Capped
+ *  to the section when it's shorter. MUST match DRAWER_HEIGHT_MM10 in layout.ts so the cut list + 3D agree. */
+const DRAWER_HEIGHT_MM10 = 2000; // 200 mm
+/** The drawer's own box: the section's footprint but only DRAWER_HEIGHT tall, kept at the section floor. */
+const drawerBoxOf = (b: Box3D): Box3D => ({ ...b, h: Math.min(b.h, DRAWER_HEIGHT_MM10) });
+
 /** A drawer placement → its 5-panel box: facade front + two carcass sides + carcass back + thin
  *  bottom, sized to the section less the runner clearance. Part ids share the instance base so the
  *  editor's resolveInstance still selects the whole drawer. */
@@ -380,7 +387,7 @@ function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: Resolve
  *  dividers (shelfSpanX subtracts a full board at a wall, half at a divider). */
 function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
   const openingW = shelfSpanX(block, section, t.carcass).width;
-  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, section.box, openingW, t);
+  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box), openingW, t);
 }
 
 /** Parts for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the parent's
@@ -426,7 +433,7 @@ export function drawerInteriorFromBox(box: Box3D, openingX0: mm10, openingW: mm1
  *  what a nested drawer's `interior.box` is set to. Pure. */
 export function drawerInteriorBox(block: Block, section: Section, t: ResolvedT): Box3D {
   const span = shelfSpanX(block, section, t.carcass);
-  return drawerInteriorFromBox(section.box, span.x0, span.width, t);
+  return drawerInteriorFromBox(drawerBoxOf(section.box), span.x0, span.width, t);
 }
 
 /** One placed instance → its content panel(s), sized from the section it sits in.

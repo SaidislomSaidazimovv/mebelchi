@@ -259,6 +259,9 @@ function facadePlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlace
 /** Runner clearance per drawer side (mm10) — mirrors DRAWER_SLIDE_CLEAR_MM10 in solve.ts so the box
  *  the viewport draws sits exactly where the cut-list box is. */
 const DRAWER_SLIDE_CLEAR_MM10 = 130;
+/** Default drawer height (mm10) — mirrors DRAWER_HEIGHT_MM10 in solve.ts (a fresh drawer sits this tall at
+ *  the section floor, not the full section height). Kept in sync so the 3D box matches the cut list. */
+const DRAWER_HEIGHT_MM10 = 2000; // 200 mm
 
 /** A drawer placement → the 5-panel box (facade front + 2 sides + back + bottom) laid into its
  *  section, matching the ids + geometry `drawerBoxParts` emits in solve.ts so the 3D shows the drawer
@@ -322,7 +325,9 @@ function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPl
   const component = componentById(block, inst.componentId);
   if (!section || !component || !component.drawer) return null;
   const s = section.box;
-  const world = { x: block.box.x + s.x, y: block.box.y + s.y, z: block.box.z + s.z, w: s.w, h: s.h, d: s.d };
+  // B/D fix — the drawer is DRAWER_HEIGHT tall at the section floor, not the full section (a full-height
+  // drawer renders as thin slats). Matches drawerBoxOf() in solve.ts so the 3D box == the cut list.
+  const world = { x: block.box.x + s.x, y: block.box.y + s.y, z: block.box.z + s.z, w: s.w, h: Math.min(s.h, DRAWER_HEIGHT_MM10), d: s.d };
   const span = shelfSpanX(block, section, t.carcass);
   return placeDrawer(`${block.id}__inst_${inst.id}`, world, span.x0, span.width, inst, t);
 }
