@@ -744,8 +744,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     zoneRow: () => {
       const s = get();
-      const block = s.model.blocks[0];
-      if (!block) return null;
+      if (!s.model.blocks.length) return null;
       let parent: Section | null = null;
       const sel = s.selectedId;
       if (sel && sel.includes("__div_")) {
@@ -757,7 +756,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
         parent = findDivParent(s.model, (sec) => sec.children.some((c) => c.id === tid));
       }
       if (!parent || parent.children.length < 2) return null;
-      const axis = block.lines.find((l) => l.id === parent!.dividers[0])?.axis ?? "y";
+      // B — the divider's axis: search every cabinet's lines (the parent section may be in the 2nd cabinet)
+      const axis = s.model.blocks.flatMap((b) => b.lines).find((l) => l.id === parent!.dividers[0])?.axis ?? "y";
       const sizeOf = (b: { w: number; h: number; d: number }) => (axis === "x" ? b.w : axis === "y" ? b.h : b.d);
       const zones = parent.children.map((c) => ({ id: c.id, size_mm10: sizeOf(c.box), rule: c.rule ?? ({ kind: "flex" } as DivisionRule) }));
       return { sectionId: parent.id, axis, zones };

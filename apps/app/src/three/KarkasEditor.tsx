@@ -227,14 +227,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // in world coords (same centering as the boards). Overall W/H/D stays the 3 fixed DOM labels (level 0).
   const dimLabels = useMemo(() => {
     const out: { text: string; wx: number; wy: number; wz: number; level: 1 | 2 }[] = [];
-    const b = model.blocks[0];
-    if (!b) return out;
+    if (!model.blocks.length) return out;
     const bd = layoutBounds(solveLayout(model, planThickness(plan)));
     const WX = (v: number) => (v - bd.cx) / 10000, WY = (v: number) => (v - bd.minY) / 10000, WZ = (v: number) => (v - bd.cz) / 10000;
-    for (const z of b.zones) for (const s of leafSections(z.root)) {
-      const zf = s.box.z + s.box.d; // front face
-      out.push({ text: `${Math.round(s.box.h / 10)}`, wx: WX(s.box.x), wy: WY(s.box.y + s.box.h / 2), wz: WZ(zf), level: 1 });
-      out.push({ text: `${Math.round(s.box.w / 10)}`, wx: WX(s.box.x + s.box.w / 2), wy: WY(s.box.y), wz: WZ(zf), level: 2 });
+    // B — every cabinet's leaf-section labels, offset by that block's world position (block.box) so the
+    // 2nd cabinet's section dims land in place, not stacked over block-0.
+    for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) {
+      const zf = b.box.z + s.box.z + s.box.d; // front face
+      out.push({ text: `${Math.round(s.box.h / 10)}`, wx: WX(b.box.x + s.box.x), wy: WY(b.box.y + s.box.y + s.box.h / 2), wz: WZ(zf), level: 1 });
+      out.push({ text: `${Math.round(s.box.w / 10)}`, wx: WX(b.box.x + s.box.x + s.box.w / 2), wy: WY(b.box.y + s.box.y), wz: WZ(zf), level: 2 });
     }
     return out;
   }, [model, plan]);
@@ -247,12 +248,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const boilerFinds = useMemo(() => boilerFindingsFn(), [boilerFindingsFn, model]);
   const ghostItems = useMemo(() => {
     const out: { purpose: string; cx: number; cy: number; cz: number; w: number; h: number; d: number }[] = [];
-    const b = model.blocks[0];
-    if (!b) return out;
+    if (!model.blocks.length) return out;
     const bd = layoutBounds(solveLayout(model, planThickness(plan)));
-    for (const z of b.zones) for (const s of leafSections(z.root)) {
+    // B — ghost contents for every cabinet's purpose-tagged sections, offset by the block's world position.
+    for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) {
       if (!s.purpose || s.purpose === "structural") continue;
-      out.push({ purpose: s.purpose, cx: (s.box.x + s.box.w / 2 - bd.cx) / 10000, cy: (s.box.y + s.box.h / 2 - bd.minY) / 10000, cz: (s.box.z + s.box.d / 2 - bd.cz) / 10000, w: s.box.w / 10000, h: s.box.h / 10000, d: s.box.d / 10000 });
+      out.push({ purpose: s.purpose, cx: (b.box.x + s.box.x + s.box.w / 2 - bd.cx) / 10000, cy: (b.box.y + s.box.y + s.box.h / 2 - bd.minY) / 10000, cz: (b.box.z + s.box.z + s.box.d / 2 - bd.cz) / 10000, w: s.box.w / 10000, h: s.box.h / 10000, d: s.box.d / 10000 });
     }
     return out;
   }, [model, plan]);
