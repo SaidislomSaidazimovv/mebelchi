@@ -334,6 +334,16 @@ function clampFreeBox(box: XBox, B: XBox): XBox {
   };
 }
 
+/** B (multi-block) — the block that owns a part id (`${blockId}__…`) = the "active" block being edited.
+ *  Falls back to the first block when nothing is selected or the id is unknown, so single-block behaviour
+ *  is unchanged. Lets the dims bar / resize / free-board ops follow whichever cabinet the usta is in. */
+export function blockOfPart(model: StructuralModel, partId: string | null | undefined): Block | undefined {
+  if (!partId) return model.blocks[0];
+  const sep = partId.indexOf("__");
+  const bid = sep < 0 ? partId : partId.slice(0, sep);
+  return model.blocks.find((b) => b.id === bid) ?? model.blocks[0];
+}
+
 export const useKarkas = create<KarkasState>((set, get) => {
   // push the current model onto the undo stack, then swap in + re-derive the next one. Structural
   // edits clear the selection (the tapped part id may be gone); property edits keep it (keepSel).
@@ -702,14 +712,14 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     resize: (dim, mm) => {
       const m = get().model;
-      const b = m.blocks[0];
+      const b = blockOfPart(m, get().selectedId); // B — resize the ACTIVE cabinet (selected part's block)
       if (!b) return;
       const mm10 = Math.max(1, Math.round(mm)) * 10;
       const next =
         dim === "w" ? resizeBlockWidth(m, b.id, mm10)
         : dim === "h" ? resizeBlockHeight(m, b.id, mm10)
         : resizeBlockDepth(m, b.id, mm10);
-      if (next !== m) apply(next);
+      if (next !== m) apply(next, true); // B — keep the selection so the usta can edit w→h→d on one block
     },
     moveLine: (lineId, delta, scope, pushHistory) => {
       const s = get();
@@ -721,7 +731,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     resizeDrag: (dim, extentMm10, pushHistory) => {
       const s = get();
-      const b = s.model.blocks[0];
+      const b = blockOfPart(s.model, s.selectedId); // B — drag-resize the ACTIVE cabinet's face
       if (!b) return;
       const mm10 = Math.max(300, Math.round(extentMm10)); // clamp to ≥30mm so a drag never collapses it
       let next: StructuralModel;

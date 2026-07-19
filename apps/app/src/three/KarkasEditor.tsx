@@ -6,7 +6,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { useKarkas, type ZoneRow } from "./karkasStore";
+import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
@@ -167,7 +167,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         st.moveLine(id.slice(id.indexOf("__div_") + 6), dir * step, "line", true);
       } else if (!id.includes("__inst_")) {
         const dim = id.endsWith("__side_l") || id.endsWith("__side_r") ? "w" : id.endsWith("__top") || id.endsWith("__bottom") ? "h" : id.endsWith("__back") ? "d" : null;
-        const box = st.model.blocks[0]?.box;
+        const box = blockOfPart(st.model, id)?.box; // B — the ACTIVE cabinet's box (arrow-key face nudge)
         if (!dim || !box) return;
         ev.preventDefault();
         const cur = dim === "w" ? box.w : dim === "h" ? box.h : box.d;
@@ -533,7 +533,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         } else if (pid.includes("__div_")) {
           // (3.3b) a divider → move the dividing line, rule-aware reflow of the two zones it splits
           const lineId = pid.slice(pid.indexOf("__div_") + "__div_".length);
-          const line = st.model.blocks[0]?.lines.find((l) => l.id === lineId);
+          const line = blockOfPart(st.model, pid)?.lines.find((l) => l.id === lineId); // B — dragged divider's own block
           if (line) {
             const start = alongAxis(e, line.axis, plane);
             if (start != null) { drag = { kind: "line", lineId, axis: line.axis, plane, last: start, first: true }; controls.enabled = false; }
@@ -547,7 +547,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             : pid.endsWith("__top") ? { dim: "h" as const, axis: "y" as const, sign: 1 }
             : pid.endsWith("__back") ? { dim: "d" as const, axis: "z" as const, sign: 1 }
             : null;
-          const box = st.model.blocks[0]?.box;
+          const box = blockOfPart(st.model, pid)?.box; // B — resize the dragged cabinet's face, not block-0
           if (spec && box) {
             const start = alongAxis(e, spec.axis, plane);
             const startExtent = spec.dim === "w" ? box.w : spec.dim === "h" ? box.h : box.d;
@@ -891,10 +891,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     a.download = "karkas.png";
     a.click();
   };
-  // U3.3 fix — the overall readout / resize reflects the CARCASS block, not the scene bounds (which would
-  // balloon when a free board floats far away). Falls back to the scene dims if there's no block.
-  const block0 = model.blocks[0];
-  const dims = block0 ? { w: Math.round(block0.box.w / 10), h: Math.round(block0.box.h / 10), d: Math.round(block0.box.d / 10) } : sceneDimsMm(scene);
+  // U3.3 fix — the readout / resize reflects a CARCASS block, not the scene bounds (which would balloon
+  // when a free board floats far away). B (multi-block) — it follows the ACTIVE cabinet: the selected
+  // part's block, else block-0. So selecting a part in the 2nd cabinet shows + edits that cabinet's size.
+  const activeBlock = blockOfPart(model, selectedId);
+  const dims = activeBlock ? { w: Math.round(activeBlock.box.w / 10), h: Math.round(activeBlock.box.h / 10), d: Math.round(activeBlock.box.d / 10) } : sceneDimsMm(scene);
   return (
     <div className="mob-root" data-theme={theme}>
       {/* ── U2.1 — Moblo top bar (home · document · tabs · theme · menu) ── */}
