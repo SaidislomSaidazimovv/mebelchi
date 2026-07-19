@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -151,6 +151,14 @@ interface KarkasState extends Derived {
   setTarget: (id: string) => void;
   /** U4.1 — add a second cabinet (block) beside the current one; the foundation for grouping (E1). */
   addBlock: () => void;
+  /** U4.2 — the set of whole blocks ticked in the block-navigator for grouping. */
+  selectedBlockIds: string[];
+  /** U4.2 — toggle a block in the group-selection (clears any part selection). */
+  toggleBlockSel: (blockId: string) => void;
+  /** U4.2 — group the ≥2 ticked blocks into a Run (E1 `groupBlocks`); no-op for <2. */
+  groupSelectedBlocks: () => void;
+  /** U4.2 — group ALL currently-ungrouped blocks into one Run (the «Barchasini» one-tap); no-op for <2. */
+  groupAllBlocks: () => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
   addFreeBoard: () => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
@@ -346,6 +354,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     ...derive(buildDemoModel(), DEFAULT_PLAN),
     open: false,
     selectedId: null,
+    selectedBlockIds: [],
     targetId: null,
     setTarget: (id) => set({ targetId: id }),
     // U3.2 — free assembly: a board that lives OUTSIDE the carcass sections, placed by its own box and
@@ -392,6 +401,39 @@ export const useKarkas = create<KarkasState>((set, get) => {
         zones: [{ ...zone, id: `z_${uid}`, root: { ...zone.root, id: `sec_${uid}` } }],
       };
       apply({ ...s.model, blocks: [...s.model.blocks, reblock] });
+    },
+    // U4.2 — block navigator: tick whole blocks (clearing any part selection), then group ≥2 into a Run.
+    // groupBlocks tiles the members end-to-end at their current widths (gaps removed); resolveRun (U4.4)
+    // later fits the run to a wall. Guard <2 / an engine throw so a stray tap can't crash the editor.
+    toggleBlockSel: (blockId) => set((s) => ({
+      selectedId: null,
+      selectedBlockIds: s.selectedBlockIds.includes(blockId)
+        ? s.selectedBlockIds.filter((id) => id !== blockId)
+        : [...s.selectedBlockIds, blockId],
+    })),
+    groupSelectedBlocks: () => {
+      const s = get();
+      const ids = s.selectedBlockIds.filter((id) => s.model.blocks.some((b) => b.id === id));
+      if (ids.length < 2) return;
+      try {
+        apply(groupBlocks(s.model, ids));
+        set({ selectedBlockIds: [] });
+      } catch {
+        // GROUP_BLOCK_ALREADY_IN_RUN / GROUP_NEEDS_2_BLOCKS — ignore; the ticks stay for a retry.
+      }
+    },
+    // U4.2 — «Barchasini»: group every not-yet-grouped block into one Run in a single tap (no ticking).
+    groupAllBlocks: () => {
+      const s = get();
+      const claimed = new Set((s.model.runs ?? []).flatMap((r) => r.members.map((m) => m.blockId)));
+      const free = s.model.blocks.filter((b) => !claimed.has(b.id)).map((b) => b.id);
+      if (free.length < 2) return;
+      try {
+        apply(groupBlocks(s.model, free));
+        set({ selectedBlockIds: [] });
+      } catch {
+        // defensive — groupBlocks only throws on <2 / unknown / already-claimed, all excluded above.
+      }
     },
     moveFreePart: (fpId, delta, first) => {
       const s = get();
@@ -497,7 +539,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
     // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
     openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
-    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
+    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, selectedBlockIds: [], past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
     close: () => set({ open: false }),
     tapPart: (id) => {
       // tapping a placed part also targets its section, so the next add lands where you're looking

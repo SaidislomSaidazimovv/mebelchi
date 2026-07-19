@@ -19,7 +19,7 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
@@ -96,6 +96,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const add = useKarkas((s) => s.add);
   const addFreeBoard = useKarkas((s) => s.addFreeBoard);
   const addBlock = useKarkas((s) => s.addBlock);
+  const selectedBlockIds = useKarkas((s) => s.selectedBlockIds);
+  const groupSelectedBlocks = useKarkas((s) => s.groupSelectedBlocks);
+  const groupAllBlocks = useKarkas((s) => s.groupAllBlocks);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -336,7 +339,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // compact toolbar: which dropdown (add-variants / overflow) is open
   const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel" | "tools">(null);
   // Step 3.2 (v4 §5) — the two permanent selection modes: ◇ Part-select (edit) / ▢ Space-select (add).
-  const [selMode, setSelMode] = useState<"part" | "space">("part");
+  const [selMode, setSelMode] = useState<"part" | "space" | "block">("part");
   // U3.1 — the mount-effect raycast is a stable closure, so it reads the live select-mode via this ref.
   const selModeRef = useRef(selMode);
   useEffect(() => { selModeRef.current = selMode; }, [selMode]);
@@ -600,6 +603,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const sid = sHit?.object.userData.sectionId as string | undefined;
         if (sid) { useKarkas.getState().setTarget(sid); return; }
       }
+      // U4.2 — «Blok» mode: a tap picks/unpicks the WHOLE cabinet (block) for grouping, never a single
+      // part. The block is the slice of the partId before its first `__` separator (`${blockId}__…`).
+      if (selModeRef.current === "block") {
+        const gb = rt.current?.group; if (!gb) return;
+        const bHit = raycaster.intersectObjects(gb.children, false)[0];
+        const bpid = bHit?.object.userData.partId as string | undefined;
+        if (bpid) { const sep = bpid.indexOf("__"); useKarkas.getState().toggleBlockSel(sep < 0 ? bpid : bpid.slice(0, sep)); }
+        return;
+      }
       const g = rt.current?.group; if (!g) return;
       const hit = raycaster.intersectObjects(g.children, false)[0]; // faces only (not edge lines)
       useKarkas.getState().selectHole(null); // a panel tap clears any hole selection
@@ -737,10 +749,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHoles, model]);
 
-  // ── re-tint on selection change (no rebuild) ──
+  // ── re-tint on selection change (no rebuild). Blok mode paints whole picked cabinets green ON TOP of
+  //    the (cleared) per-part blue; outside Blok mode the pick is invisible so nothing bleeds through. ──
   useEffect(() => {
-    if (rt.current?.group) highlightBoard(rt.current.group, selectedId);
-  }, [selectedId]);
+    if (!rt.current?.group) return;
+    highlightBoard(rt.current.group, selectedId);
+    highlightBlocks(rt.current.group, selMode === "block" ? selectedBlockIds : []);
+  }, [selectedId, selectedBlockIds, selMode]);
 
   // ── Step 4b: 3D corner chips — project the selected panel's face corners to canvas px, and reproject on
   //    every camera move (OrbitControls "change"). Only while the corner tool is open on a real panel. ──
@@ -1006,8 +1021,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     blocks; this seeds the second one. Distinct from the compartment adds below. */}
                 <button className="mob-addbtn" type="button" onClick={() => { addBlock(); setRpanel("none"); }} style={{ width: "100%", marginBottom: 12, borderColor: "#1f5570", color: "#1f5570", fontWeight: 700 }}>🗄 ＋ Yangi shkaf (blok)</button>
                 <div className="mob-modeseg">
-                  {([["part", "◇ Bo'lak"], ["space", "▢ Bo'shliq"]] as const).map(([m, label]) => (
-                    <button key={m} type="button" className={"mob-modebtn" + (selMode === m ? " is-active" : "")} onClick={() => setSelMode(m)}>{label}</button>
+                  {([["part", "◇ Bo'lak"], ["space", "▢ Bo'shliq"], ["block", "⬛ Blok"]] as const).map(([m, label]) => (
+                    <button key={m} type="button" className={"mob-modebtn" + (selMode === m ? " is-active" : "")} onClick={() => { setSelMode(m); if (m === "block") setRpanel("none"); }}>{label}</button>
                   ))}
                 </div>
                 {selMode === "space" ? (
@@ -1060,6 +1075,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button className="mob-fab" type="button" title="Qo'shish" aria-label="Qo'shish" onClick={() => setRpanel((p) => (p === "add" ? "none" : "add"))}>{rpanel === "add" ? "×" : <MobPlus />}</button>
         </div>
       )}
+      {/* U4.2 — Moblo grouping tray (⬛ Blok mode). No chip list: the usta taps the CABINETS in 3D (they
+          glow green), then «🔗 Guruhlash» merges the ticked ones; «⛓ Barchasini» merges all in one tap.
+          Only in Blok mode + ≥2 cabinets, so normal part editing is never touched. Top-centre — the part
+          readout below needs a selection, which Blok mode never has, so they can't collide. */}
+      {tab === "build" && selMode === "block" && model.blocks.length > 1 && (() => {
+        const validSel = selectedBlockIds.filter((id) => model.blocks.some((b) => b.id === id));
+        return (
+          <div style={{ position: "fixed", top: compact ? 64 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(255,255,255,0.97)", borderRadius: 12, padding: "7px 11px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", maxWidth: "94vw", overflowX: "auto", whiteSpace: "nowrap" }}>
+            <span style={{ ...mono, fontWeight: 800, color: "#00713f", flex: "0 0 auto" }}>⬛ Blok</span>
+            <span style={{ ...mono, flex: "0 0 auto" }}>{validSel.length ? `${validSel.length} shkaf tanlandi` : "shkaflarni bosing"}</span>
+            {validSel.length >= 2 && (
+              <button type="button" onClick={groupSelectedBlocks} style={{ ...act, flex: "0 0 auto" }}>🔗 Guruhlash</button>
+            )}
+            <button type="button" onClick={groupAllBlocks} style={{ ...act, flex: "0 0 auto", borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" }}>⛓ Barchasini</button>
+            <button type="button" onClick={() => setSelMode("part")} title="Blok rejimidan chiqish" style={{ ...pill, flex: "0 0 auto", padding: "6px 10px" }}>✕</button>
+          </div>
+        );
+      })()}
       {/* Step 3.3a (v4 §5 readout law) — the selection's dimensions in a FIXED top-centre strip, never
           hidden by the hand. Updates live during a drag/resize (later pieces). 2 axes only (face w×h). */}
       {selectedId && selPart && (

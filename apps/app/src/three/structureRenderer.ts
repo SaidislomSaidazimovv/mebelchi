@@ -146,6 +146,25 @@ export function highlightBoard(group: THREE.Group, id: string | null): void {
   }
 }
 
+const GROUP_PICK = 0x00a961; // green emissive — a whole block ticked for grouping (U4.2 Blok mode)
+/** U4.2 — tint EVERY board of each picked block green (whole-cabinet group selection). Call it AFTER
+ *  highlightBoard (which clears all emissive): the picked blocks then win. A partId is `${blockId}__…`,
+ *  so the block is the slice before the first `__`. No-op for an empty pick. */
+export function highlightBlocks(group: THREE.Group, blockIds: readonly string[]): void {
+  if (blockIds.length === 0) return;
+  const set = new Set(blockIds);
+  for (const child of group.children) {
+    const mesh = child as THREE.Mesh;
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    const pid = mesh.userData.partId as string | undefined;
+    if (mat && "emissive" in mat && pid) {
+      const sep = pid.indexOf("__");
+      const bid = sep < 0 ? pid : pid.slice(0, sep);
+      if (set.has(bid)) { mat.emissive = new THREE.Color(GROUP_PICK); mat.emissiveIntensity = 0.55; mat.needsUpdate = true; }
+    }
+  }
+}
+
 /** Re-colour every board from `colorOf` (Phase F1 — decor changed, no geometry rebuild). Leaves the
  *  selection emissive untouched, so re-apply highlightBoard after if a part is selected. */
 export function recolorBoards(group: THREE.Group, colorOf: (id: string) => number | undefined): void {
