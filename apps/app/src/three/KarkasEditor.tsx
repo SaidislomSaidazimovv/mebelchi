@@ -100,6 +100,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const groupSelectedBlocks = useKarkas((s) => s.groupSelectedBlocks);
   const groupAllBlocks = useKarkas((s) => s.groupAllBlocks);
   const ungroupSelectedBlocks = useKarkas((s) => s.ungroupSelectedBlocks);
+  const setRunLength = useKarkas((s) => s.setRunLength);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -1094,10 +1095,21 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const free = validSel.filter((id) => !claimed.has(id));      // ticked, not yet in a run → groupable
         const grouped = validSel.filter((id) => claimed.has(id));    // ticked, already in a run → detachable
         const enough = model.blocks.length > 1;
+        // U4.4 — the run a ticked grouped cabinet belongs to → its wall length is editable (one is enough)
+        const run = grouped.length ? (model.runs ?? []).find((r) => r.members.some((m) => grouped.includes(m.blockId))) : null;
         return (
           <div className="mob-groupbar">
             <span className="mob-groupbar-title">⬛ Guruhlash</span>
             <span className="mob-groupbar-hint">{!enough ? "yana shkaf qo'shing" : validSel.length ? `${validSel.length} tanlandi` : "shkaflarni bosing"}</span>
+            {run && (
+              <label className="mob-groupbar-run" title="Butun ryadni devor uzunligiga moslash">
+                <span>Devor</span>
+                <input className="mob-run-input" inputMode="numeric" key={`${run.id}:${run.length_mm10}`} defaultValue={Math.round(run.length_mm10 / 10)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { const v = parseInt(e.currentTarget.value.replace(/[^\d]/g, ""), 10); if (v) setRunLength(run.id, v); e.currentTarget.blur(); } }}
+                  onBlur={(e) => { const v = parseInt(e.currentTarget.value.replace(/[^\d]/g, ""), 10); if (v && v !== Math.round(run.length_mm10 / 10)) setRunLength(run.id, v); }} />
+                <span>mm</span>
+              </label>
+            )}
             <div className="mob-groupbar-actions">
               {free.length >= 2 && <button type="button" className="mob-gbtn is-group" onClick={groupSelectedBlocks}>🔗 Guruhlash</button>}
               {grouped.length >= 2 && <button type="button" className="mob-gbtn is-ungroup" onClick={ungroupSelectedBlocks}>🔓 Ajratish</button>}

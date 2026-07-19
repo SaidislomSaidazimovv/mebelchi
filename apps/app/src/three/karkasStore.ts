@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -161,6 +161,8 @@ interface KarkasState extends Derived {
   groupAllBlocks: () => void;
   /** U4.3 — remove the ticked blocks from their Run(s); a Run left with <2 members dissolves entirely. */
   ungroupSelectedBlocks: () => void;
+  /** U4.4 — fit a Run to a wall length (mm): members reflow by their Fixed/Ratio/Flex rules. */
+  setRunLength: (runId: string, mm: number) => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
   addFreeBoard: () => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
@@ -471,6 +473,16 @@ export const useKarkas = create<KarkasState>((set, get) => {
       }
       apply(m);
       set({ selectedBlockIds: [] });
+    },
+    // U4.4 — «Devorga moslash»: resize the whole Run to a typed wall length. resolveRun distributes it
+    // across the members by their Fixed/Ratio/Flex rules (default = Flex, so they share the wall equally)
+    // and reflows each cabinet's carcass to its new width. mm in → mm10 to the engine.
+    setRunLength: (runId, mm) => {
+      const s = get();
+      const len = Math.max(1, Math.round(mm)) * 10;
+      try { apply(resolveRun(s.model, runId, len)); } catch {
+        // RUN_INVALID_LENGTH / unknown run — ignore.
+      }
     },
     moveFreePart: (fpId, delta, first) => {
       const s = get();
