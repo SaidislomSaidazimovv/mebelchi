@@ -153,6 +153,9 @@ interface KarkasState extends Derived {
   addFreeBoard: () => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
   snapFreePart: (fpId: string) => void;
+  resizeFreeBoard: (fpId: string, dim: "w" | "h" | "d", mm: number) => void;
+  rotateFreeBoard: (fpId: string) => void;
+  setFreeBoardMaterial: (fpId: string, matId: string) => void;
   removeFreeBoard: (fpId: string) => void;
   past: StructuralModel[];
   /** Step 12 (#15) — the redo forward stack; a fresh edit clears it. */
@@ -304,6 +307,17 @@ function snapFreeBox(box: XBox, secBoxes: readonly XBox[], thr: number): { x: nu
   return { x: snap(box.x, box.w, xs), y: snap(box.y, box.h, ys), z: snap(box.z, box.d, zs) };
 }
 
+/** U3.3 fix — keep a free board's box sane relative to its block `B` so a drag/resize can never explode the
+ *  scene bounds (which would zoom the camera out until everything vanishes). Position stays near the block,
+ *  each side ≥ 3 mm and ≤ 3× the block. */
+function clampFreeBox(box: XBox, B: XBox): XBox {
+  const c = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  return {
+    w: c(box.w, 30, B.w * 3), h: c(box.h, 30, B.h * 3), d: c(box.d, 30, B.d * 3),
+    x: c(box.x, -B.w, B.w * 2), y: c(box.y, -B.h, B.h * 2), z: c(box.z, -B.d, B.d * 2),
+  };
+}
+
 export const useKarkas = create<KarkasState>((set, get) => {
   // push the current model onto the undo stack, then swap in + re-derive the next one. Structural
   // edits clear the selection (the tapped part id may be gone); property edits keep it (keepSel).
@@ -361,7 +375,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
         ...s.model,
         blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
           ...b,
-          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: { ...f.box, x: f.box.x + delta.x, y: f.box.y + delta.y, z: f.box.z + delta.z } })),
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: clampFreeBox({ ...f.box, x: f.box.x + delta.x, y: f.box.y + delta.y, z: f.box.z + delta.z }, block.box) })),
         })),
       };
       // `first` opens ONE undo step; later drag frames just replace it, so a drag isn't 100 undo entries.
@@ -388,6 +402,56 @@ export const useKarkas = create<KarkasState>((set, get) => {
         })),
       };
       set((st) => ({ ...derive(model, st.plan) }));
+    },
+    resizeFreeBoard: (fpId, dim, mm) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const v = Math.max(30, Math.round(mm * 10)); // mm → mm10, min 3 mm
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: clampFreeBox({ ...f.box, [dim]: v }, block.box) })),
+        })),
+      };
+      apply(model, true); // keep the board selected while resizing
+    },
+    // U3.3b — rotate 90°: cycle the thin axis y→x→z→y and swap the two dims so the 16 mm thickness moves
+    // with it (horizontal shelf → vertical side → front/back panel → …). One undo step, keeps selection.
+    rotateFreeBoard: (fpId) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const dimOf = (ax: "x" | "y" | "z"): "w" | "h" | "d" => (ax === "x" ? "w" : ax === "y" ? "h" : "d");
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (f.id !== fpId) return f;
+            const next: "x" | "y" | "z" = f.thicknessAxis === "y" ? "x" : f.thicknessAxis === "x" ? "z" : "y";
+            const box = { ...f.box };
+            const od = dimOf(f.thicknessAxis), nd = dimOf(next);
+            const t = box[od]; box[od] = box[nd]; box[nd] = t; // swap old-thin ↔ new-thin dim
+            return { ...f, thicknessAxis: next, box };
+          }),
+        })),
+      };
+      apply(model, true);
+    },
+    setFreeBoardMaterial: (fpId, matId) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, material: matId || undefined })),
+        })),
+      };
+      apply(model, true);
     },
     removeFreeBoard: (fpId) => {
       const s = get();

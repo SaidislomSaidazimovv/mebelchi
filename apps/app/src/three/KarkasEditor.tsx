@@ -95,6 +95,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setModel = useKarkas((s) => s.setModel);
   const add = useKarkas((s) => s.add);
   const addFreeBoard = useKarkas((s) => s.addFreeBoard);
+  const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
+  const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
+  const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
+  const removeFreeBoard = useKarkas((s) => s.removeFreeBoard);
   const divide = useKarkas((s) => s.divide);
   const undo = useKarkas((s) => s.undo);
   const canUndo = useKarkas((s) => s.past.length > 0);
@@ -119,6 +123,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // (3.3d) selectedParts() only covers instance parts (shelves/drawers/facades); a divider or a carcass
   // panel is a bare part whose id IS the selection — fall back to it so the readout shows their dims too.
   const selPart = useMemo(() => selParts[0] ?? parts.find((p) => p.id === selectedId) ?? null, [selParts, parts, selectedId]);
+  // U3.3 — the selected FREE board (if any), so its own editor bar (resize / delete / …) can appear.
+  const selFreeBoard = useMemo(() => {
+    if (!selectedId || !selectedId.includes("__free_")) return null;
+    const fid = selectedId.slice(selectedId.indexOf("__free_") + "__free_".length);
+    return model.blocks[0]?.freeParts?.find((f) => f.id === fid) ?? null;
+  }, [selectedId, model]);
   // (3.3d) numeric-entry target for the readout: a divider → a typed ±mm nudge; a carcass panel → a typed
   // absolute block dim. Everything else falls through to the block DimField, so no inline entry is shown.
   const precise = useMemo(() => {
@@ -853,7 +863,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     a.download = "karkas.png";
     a.click();
   };
-  const dims = sceneDimsMm(scene);
+  // U3.3 fix — the overall readout / resize reflects the CARCASS block, not the scene bounds (which would
+  // balloon when a free board floats far away). Falls back to the scene dims if there's no block.
+  const block0 = model.blocks[0];
+  const dims = block0 ? { w: Math.round(block0.box.w / 10), h: Math.round(block0.box.h / 10), d: Math.round(block0.box.d / 10) } : sceneDimsMm(scene);
   return (
     <div className="mob-root" data-theme={theme}>
       {/* ── U2.1 — Moblo top bar (home · document · tabs · theme · menu) ── */}
@@ -912,7 +925,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               )}
             </div>
           ) : <span className="mob-sel">Butun mebel</span>}
-          <button className="mob-project-btn" type="button" onClick={addToProject} title={editingBlockId ? "Yangilash" : "Loyihaga qo'shish"}>{compact ? (editingBlockId ? "💾" : "＋") : (editingBlockId ? "💾 Yangilash" : fromCabinet ? "＋ Nusxa" : "＋ Loyihaga")}</button>
+          <button className="mob-project-btn" type="button" onClick={addToProject} title={editingBlockId ? "Yangilash" : "Loyihaga qo'shish"}>{compact ? "💾" : (editingBlockId ? "💾 Yangilash" : fromCabinet ? "＋ Nusxa" : "＋ Loyihaga")}</button>
         </div>
       )}
 
@@ -979,7 +992,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     <button className="mob-addbtn" type="button" onClick={() => add("drawer")}>＋ Yashik</button>
                     <button className="mob-addbtn" type="button" onClick={() => add("divider")}>＋ Razdelitel</button>
                     <button className={"mob-addbtn" + (showDivide ? " is-active" : "")} type="button" onClick={() => togglePanel("divide")}>⊟ Bo'lish</button>
-                    <button className="mob-addbtn" type="button" onClick={() => addFreeBoard()} style={{ gridColumn: "1 / -1", borderStyle: "dashed" }}>🪵 Erkin taxta (istalgan joyga)</button>
+                    <button className="mob-addbtn" type="button" onClick={() => { addFreeBoard(); setRpanel("none"); }} style={{ gridColumn: "1 / -1", borderStyle: "dashed" }}>🪵 Erkin taxta (istalgan joyga)</button>
                   </div>
                 ) : (
                   <p className="mob-hint">Bir taxtani tanlang — so'ng burchak, o'yiq yoki jiyak qo'shing.</p>
@@ -1011,8 +1024,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button key={t.id} role="tab" aria-selected={tab === t.id} className={"mob-tabbar-btn" + (tab === t.id ? " is-active" : "")} onClick={() => setTab(t.id)} type="button">{t.label}</button>
         ))}
       </nav>
-      {/* ── mobile FAB group: ＋ Qo'shish (add sheet) · 🎨 Materiallar (materials sheet) · ⋯ Ko'proq ── */}
-      {tab === "build" && compact && (
+      {/* ── mobile FAB group: ＋ Qo'shish · 🎨 Materiallar · ⋯ Ko'proq (hidden while editing a free board) ── */}
+      {tab === "build" && compact && !selFreeBoard && (
         <div className="mob-fabgroup">
           <button className="mob-fab-mini" type="button" title="Ko'proq" aria-label="Ko'proq" onClick={() => setToolsOpen((o) => !o)}>⋯</button>
           <button className={"mob-fab-mini" + (rpanel === "material" ? " is-active" : "")} type="button" title="Materiallar" aria-label="Materiallar" onClick={() => setRpanel((p) => (p === "material" ? "none" : "material"))}><MobPaint /></button>
@@ -1111,6 +1124,21 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           ))}
           <button type="button" onClick={() => setActiveKromka(null)} title="Jiyakni olib tashlash"
             style={{ padding: "5px 9px", borderRadius: 9, cursor: "pointer", border: activeKromka === null ? "2px solid #1f5570" : "1px solid #ddd", background: activeKromka === null ? "#eaf2f6" : "#fff", fontSize: 12, fontWeight: 600 }}>✕ Yo'q</button>
+        </div>
+      )}
+      {/* ── U3.3 — free-board editor: appears when a free board is selected (resize W/H/D · delete) ── */}
+      {selFreeBoard && rpanel === "none" && (
+        <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 62, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
+          <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>🪵 Erkin taxta</span>
+          <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "w", mm)} units={units} />
+          <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
+          <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
+          <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 34, padding: "6px 11px" }}>↻</button>
+          <select value={selFreeBoard.material ?? ""} onChange={(e) => setFreeBoardMaterial(selFreeBoard.id, e.target.value)} title="Material" style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34 }}>
+            <option value="">Standart</option>
+            {BOARDS.map((bd) => <option key={bd.id} value={bd.id}>{bd.name}</option>)}
+          </select>
+          <button type="button" title="O'chirish" onClick={() => removeFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#d1495b", background: "#fbe4e8", color: "#a01a2e", minHeight: 34, padding: "6px 11px" }}>🗑</button>
         </div>
       )}
       {/* ── U2.1 — the pre-Moblo editing tools float in this transitional card until U2.2–U2.4 move
