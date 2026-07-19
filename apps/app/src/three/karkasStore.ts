@@ -10,7 +10,7 @@ import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
-import { buildDemoModel } from "../../../../engine/structure/demoModel.js";
+import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
 import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
@@ -149,6 +149,8 @@ interface KarkasState extends Derived {
    *  «Qayerga» picker; falls back to the first leaf. */
   targetId: string | null;
   setTarget: (id: string) => void;
+  /** U4.1 — add a second cabinet (block) beside the current one; the foundation for grouping (E1). */
+  addBlock: () => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
   addFreeBoard: () => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
@@ -366,6 +368,30 @@ export const useKarkas = create<KarkasState>((set, get) => {
       };
       apply(addFreePartOp(s.model, block.id, fp));
       set({ selectedId: `${block.id}__free_${fp.id}` }); // select it so it highlights (and, in U3.2b, drags)
+    },
+    // U4.1 — add a SECOND cabinet (block) beside the current one. Grouping (E1 `groupBlocks`) needs ≥2
+    // blocks, so this is the foundation. A fresh bare carcass (same dims as block-0) is tiled just to the
+    // right of the rightmost block, with a 30mm gap so the two read as separate until grouped. Every id is
+    // suffixed unique so the new block never clashes with the existing one (the carcass is empty, so only
+    // the block / zone / root-section ids need remapping — no instances or components to fix up).
+    addBlock: () => {
+      const s = get();
+      const b0 = s.model.blocks[0];
+      const dims = b0
+        ? { w: Math.round(b0.box.w / 10), h: Math.round(b0.box.h / 10), d: Math.round(b0.box.d / 10) }
+        : { w: 600, h: 720, d: 560 };
+      const fresh = buildCarcassModel(dims.w, dims.h, dims.d).blocks[0];
+      const uid = Date.now().toString(36);
+      const zone = fresh.zones[0];
+      const rightEdge = s.model.blocks.reduce((mx, b) => Math.max(mx, b.box.x + b.box.w), 0);
+      const reblock: Block = {
+        ...fresh,
+        id: `blk_${uid}`,
+        name: `Shkaf ${s.model.blocks.length + 1}`,
+        box: { ...fresh.box, x: rightEdge + 300 }, // 30mm gap to the right of the run
+        zones: [{ ...zone, id: `z_${uid}`, root: { ...zone.root, id: `sec_${uid}` } }],
+      };
+      apply({ ...s.model, blocks: [...s.model.blocks, reblock] });
     },
     moveFreePart: (fpId, delta, first) => {
       const s = get();

@@ -95,6 +95,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setModel = useKarkas((s) => s.setModel);
   const add = useKarkas((s) => s.add);
   const addFreeBoard = useKarkas((s) => s.addFreeBoard);
+  const addBlock = useKarkas((s) => s.addBlock);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -1001,6 +1002,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <div className="mob-panel-body">
             {rpanel === "add" ? (
               <>
+                {/* U4.1 — add a whole new cabinet (block) beside the current run. Grouping (E1) needs ≥2
+                    blocks; this seeds the second one. Distinct from the compartment adds below. */}
+                <button className="mob-addbtn" type="button" onClick={() => { addBlock(); setRpanel("none"); }} style={{ width: "100%", marginBottom: 12, borderColor: "#1f5570", color: "#1f5570", fontWeight: 700 }}>🗄 ＋ Yangi shkaf (blok)</button>
                 <div className="mob-modeseg">
                   {([["part", "◇ Bo'lak"], ["space", "▢ Bo'shliq"]] as const).map(([m, label]) => (
                     <button key={m} type="button" className={"mob-modebtn" + (selMode === m ? " is-active" : "")} onClick={() => setSelMode(m)}>{label}</button>
