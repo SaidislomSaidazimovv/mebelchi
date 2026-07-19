@@ -455,8 +455,10 @@ export const useKarkas = create<KarkasState>((set, get) => {
         ? { w: Math.round(b0.box.w / 10), h: Math.round(b0.box.h / 10), d: Math.round(b0.box.d / 10) }
         : { w: 600, h: 720, d: 560 };
       const fresh = buildCarcassModel(dims.w, dims.h, dims.d).blocks[0];
+      if (!fresh) return; // buildCarcassModel always yields a block — the guard only narrows the type
       const uid = Date.now().toString(36);
       const zone = fresh.zones[0];
+      if (!zone) return; // a fresh carcass always has one zone — narrows Zone | undefined → Zone
       const rightEdge = s.model.blocks.reduce((mx, b) => Math.max(mx, b.box.x + b.box.w), 0);
       const reblock: Block = {
         ...fresh,
@@ -521,7 +523,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
         const ax = run.axis as "x" | "y" | "z";
         const byId = new Map(m.blocks.map((b) => [b.id, b] as const));
         const order = run.members.map((mm) => mm.blockId);
-        const first = byId.get(order[0]);
+        const firstId = order[0];
+        const first = firstId ? byId.get(firstId) : undefined;
         let cur = first ? orig(first.box, ax) : 0;
         const pos: Record<string, number> = {};
         for (const id of order) {
@@ -706,7 +709,9 @@ export const useKarkas = create<KarkasState>((set, get) => {
     // keepSel so the outer drawer stays selected → the usta can nest several in a row.
     nestDrawerInSelected: () => {
       const s = get();
-      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      // deep resolver so «Ichki yashik» nests into the ACTUAL selected drawer (nested or top-level), not
+      // always the top-level ancestor.
+      const r = s.selectedId ? resolveDrawerInstance(s.model, s.selectedId) : null;
       if (!r) return;
       try { apply(nestDrawer(s.model, r.inst.id), true); } catch { /* NEST_NOT_A_DRAWER — ignore */ }
     },

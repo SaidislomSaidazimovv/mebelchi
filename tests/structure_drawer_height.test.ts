@@ -66,4 +66,18 @@ describe("per-drawer height (drawerHeight_mm10)", () => {
     expect(nestedFront.length_mm10).toBe(900); // the nested drawer took its own height…
     expect(topFront.length_mm10).toBe(2000); // …and the parent kept its 200mm default (unchanged)
   });
+
+  // Regression — sibling nested drawers STACK (split the parent height) instead of overlapping (both
+  // filling the same box was the visible bug: concentric drawer boxes).
+  it("two sibling nested drawers split the parent height instead of overlapping", () => {
+    const topInst = drawer.blocks[0]!.instances.at(-1)!;
+    const one = nestDrawer(drawer, topInst.id);
+    const fill = solveStructure(one).find((p) => p.name.includes("Ящик · фасад") && p.id.includes("__in_"))!.length_mm10;
+    const two = nestDrawer(one, topInst.id); // a SECOND sibling in the same interior
+    const nested = solveStructure(two).filter((p) => p.name.includes("Ящик · фасад") && p.id.includes("__in_")).map((p) => p.length_mm10);
+    expect(nested.length).toBe(2);
+    expect(nested[0]! + nested[1]!).toBeLessThanOrEqual(fill + 1); // together they fit the parent (no overlap)
+    expect(nested[0]).toBe(Math.round(fill / 2)); // equal split of the leftover volume
+    expect(nested[1]).toBe(Math.round(fill / 2));
+  });
 });

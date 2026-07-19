@@ -425,3 +425,60 @@
 }
 .mob-note b { font-size: 16px; color: var(--mob-ink); }
 .mob-note span { font-size: 13px; color: var(--mob-muted); }
+
+/* #3 — math keypad (mobile dimension entry with + − × ÷) */
+.mob-kp-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(18,26,42,.38);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.mob-kp {
+  width: 100%; max-width: 420px;
+  background: var(--mob-surface); border: 1px solid var(--mob-border);
+  border-radius: var(--mob-radius) var(--mob-radius) 0 0;
+  box-shadow: var(--mob-shadow); padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
+}
+.mob-kp-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; color: var(--mob-ink); font-size: 15px; margin-bottom: 8px; }
+.mob-kp-display {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  background: var(--mob-surface-2); border: 1px solid var(--mob-border); border-radius: 10px;
+  padding: 10px 14px; margin-bottom: 12px; min-height: 30px;
+}
+.mob-kp-expr { font: 700 22px ui-monospace, "SF Mono", monospace; color: var(--mob-ink); overflow-x: auto; white-space: nowrap; }
+.mob-kp-eq { font-size: 13px; color: var(--mob-muted); flex-shrink: 0; }
+.mob-kp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.mob-kp-key {
+  appearance: none; cursor: pointer;
+  background: var(--mob-surface-2); border: 1px solid var(--mob-border); border-radius: 11px;
+  color: var(--mob-ink); font-size: 20px; font-weight: 600; padding: 14px 0;
+  transition: background .12s, border-color .12s;
+}
+.mob-kp-key:hover { border-color: var(--mob-accent); }
+.mob-kp-key:active { background: var(--mob-accent-soft); }
+.mob-kp-key.is-op { color: var(--mob-accent); font-weight: 700; }
+.mob-kp-key.is-back { color: var(--mob-muted); }
+.mob-kp-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; margin-top: 8px; }
+.mob-kp-clear {
+  appearance: none; cursor: pointer; padding: 14px 0; border-radius: 11px;
+  background: var(--mob-surface-2); border: 1px solid var(--mob-border); color: var(--mob-muted);
+  font-size: 17px; font-weight: 700;
+}
+.mob-kp-ok {
+  appearance: none; cursor: pointer; padding: 14px 0; border-radius: 11px; border: 0;
+  background: var(--mob-accent); color: #fff; font-size: 17px; font-weight: 700;
+  box-shadow: 0 2px 8px rgba(47,107,255,.35);
+}
+.mob-kp-ok:disabled { opacity: .45; box-shadow: none; cursor: default; }
+
+/* #4 — live measure readout during a resize drag */
+.mob-measure {
+  position: fixed; top: 96px; left: 50%; transform: translateX(-50%);
+  z-index: 55; pointer-events: none;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--mob-surface); border: 2px solid var(--mob-accent);
+  border-radius: 999px; padding: 6px 14px; box-shadow: var(--mob-shadow);
+  font-size: 15px; white-space: nowrap;
+}
+.mob-measure-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.mob-measure-label { color: var(--mob-muted); font-weight: 600; }
+.mob-measure-val { color: var(--mob-ink); font-weight: 800; font-variant-numeric: tabular-nums; }

@@ -129,6 +129,17 @@ describe("E2.4 · nestDrawer op — create a drawer-in-drawer without hand-built
     expect(solveModelToParts(out)).toHaveLength(20); // 5 carcass + 5 outer + 5 + 5
   });
 
+  it("nesting INTO a nested drawer deepens it, not a top-level sibling", () => {
+    const m1 = nestDrawer(mkDrawer().model, "d1"); // d1 → interior[d1__nd1]
+    const m2 = nestDrawer(m1, "d1__nd1"); // target the NESTED drawer, not d1
+    const outer = m2.blocks[0]!.instances[0]!;
+    expect(outer.interior!.instances).toHaveLength(1); // d1 still has ONE nested drawer (no new sibling)
+    expect(outer.interior!.instances[0]!.interior!.instances.map((i) => i.id)).toEqual(["d1__nd1__nd1"]);
+    // and the deep box is manufactured (carcass 5 + d1 5 + nd1 5 + nd1__nd1 5 = 20)
+    expect(solveModelToParts(m2)).toHaveLength(20);
+    expect(solveModelToParts(m2).find((p) => p.id === "b__inst_d1__in_d1__nd1__in_d1__nd1__nd1__front")).toBeDefined();
+  });
+
   it("guards: unknown outer instance throws", () => {
     expect(() => nestDrawer(mkDrawer().model, "ghost")).toThrow("NEST_OUTER_NOT_FOUND");
   });
