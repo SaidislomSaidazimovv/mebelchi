@@ -408,36 +408,35 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // #3+#4 — 2D drawing views (imos Drawing Views): project the block to Front / Plan / Section A-A,
   // wrap in a title block, and open a print window so the usta can save it as PDF / print it. SVG
   // only (no GPU) → mobile-safe. Materials label = the carcass decor from the plan.
-  const printDrawing = () => {
+  // Moblo — the technical drawing SVG, memoised so BOTH the inline Chizma-tab preview AND the «open»
+  // (print) window render the same sheet. Rebuilds only when the model / material plan changes.
+  const drawingSvg = useMemo(() => {
     try {
       const drawing = buildBlockDrawing(solveLayout(model, planThickness(plan)), solveModelToParts(model, planThickness(plan)));
       const boardName = (id: string) => BOARDS.find((b) => b.id === id)?.name ?? "—";
       const carcass = boardName(plan.carcass);
       const edge = EDGES.find((e) => e.id === plan.edge)?.name ?? "—";
-      const svg = drawingSheetSvg(drawing, {
+      return drawingSheetSvg(drawing, {
         firm: "MEBELCHI",
         name: "Karkas blok",
         date: new Date().toISOString().slice(0, 10),
         materials: carcass,
-        legend: [
-          `Korpus: ${carcass}`,
-          `Fasad: ${boardName(plan.facade)}`,
-          `Orqa: ${boardName(plan.back)}`,
-          `Kromka: ${edge}`,
-        ],
+        legend: [`Korpus: ${carcass}`, `Fasad: ${boardName(plan.facade)}`, `Orqa: ${boardName(plan.back)}`, `Kromka: ${edge}`],
       });
-      const w = window.open("", "_blank");
-      if (!w) { alert("Chizma oynasi ochilmadi — popup ruxsatини bering."); return; }
-      w.document.write(
-        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chizma — Karkas blok</title><style>` +
-        "@page{size:A4 landscape;margin:0}html,body{margin:0;padding:0}svg{display:block;width:100vw;height:100vh}" +
-        "</style></head><body>" + svg +
-        "<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>",
-      );
-      w.document.close();
-    } catch (err) {
-      alert("Chizma xatosi: " + (err instanceof Error ? err.message : String(err)));
-    }
+    } catch { return ""; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, plan]);
+  const printDrawing = () => {
+    if (!drawingSvg) { alert("Chizma tayyorlanmadi."); return; }
+    const w = window.open("", "_blank");
+    if (!w) { alert("Chizma oynasi ochilmadi — popup ruxsatini bering."); return; }
+    w.document.write(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chizma — Karkas blok</title><style>` +
+      "@page{size:A4 landscape;margin:0}html,body{margin:0;padding:0}svg{display:block;width:100vw;height:100vh}" +
+      "</style></head><body>" + drawingSvg +
+      "<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>",
+    );
+    w.document.close();
   };
 
   // Save the whole project (model + material plan) as a .json download.
@@ -980,13 +979,20 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </>
       )}
       {/* ── Chizma tab = the technical drawing (print / PDF) ── */}
+      {/* Chizma tab — the technical drawing shown INLINE (preview) right here + an «open» button that
+          pops the full A4 sheet in a new window for a close-up / print. Was an empty placeholder before. */}
       {tab === "drawing" && (
-        <div className="mob-screen"><div className="mob-screen-inner">
-          <div className="mob-screen-glyph">📐</div>
-          <h2>Chizma</h2>
-          <p>Blokning texnik chizmasi — old / plan / kesim ko'rinishlari, o'lchamlar bilan.</p>
-          <button type="button" className="mob-project-btn" style={{ padding: "10px 18px" }} onClick={printDrawing}>📐 Chizmani ochish</button>
-        </div></div>
+        <div style={{ position: "absolute", inset: "60px 0 0 0", background: "var(--mob-surface-2)", zIndex: 3, display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 16px", background: "var(--mob-surface)", borderBottom: "1px solid var(--mob-border)" }}>
+            <b style={{ fontSize: 15 }}>📐 Chizma</b>
+            <button type="button" className="mob-project-btn" style={{ padding: "9px 15px" }} onClick={printDrawing}>⛶ Ochish / Chop etish</button>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: 16, display: "flex", justifyContent: "center", alignItems: "flex-start" }}>
+            {drawingSvg
+              ? <div className="mob-drawing-inline" style={{ width: "100%", maxWidth: 1040, background: "#fff", boxShadow: "0 2px 16px rgba(0,0,0,0.14)", borderRadius: 6, overflow: "hidden" }} dangerouslySetInnerHTML={{ __html: drawingSvg }} />
+              : <p style={{ color: "var(--mob-muted)", marginTop: 40 }}>Chizma tayyorlanmadi.</p>}
+          </div>
+        </div>
       )}
       {/* ── AR tab — native camera placement (deferred) ── */}
       {tab === "ar" && (
