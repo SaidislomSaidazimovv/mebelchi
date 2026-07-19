@@ -608,10 +608,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       // U4.2 — «Blok» mode: a tap picks/unpicks the WHOLE cabinet (block) for grouping, never a single
       // part. The block is the slice of the partId before its first `__` separator (`${blockId}__…`).
       if (selModeRef.current === "block") {
-        const gb = rt.current?.group; if (!gb) return;
-        const bHit = raycaster.intersectObjects(gb.children, false)[0];
+        const gb = rt.current?.group;
+        const bHit = gb ? raycaster.intersectObjects(gb.children, false)[0] : undefined;
         const bpid = bHit?.object.userData.partId as string | undefined;
         if (bpid) { const sep = bpid.indexOf("__"); useKarkas.getState().toggleBlockSel(sep < 0 ? bpid : bpid.slice(0, sep)); }
+        else setSelMode("part"); // tapped empty space → leave Blok mode (tap-away dismiss, like the ✕)
         return;
       }
       const g = rt.current?.group; if (!g) return;
@@ -1099,8 +1100,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const run = grouped.length ? (model.runs ?? []).find((r) => r.members.some((m) => grouped.includes(m.blockId))) : null;
         return (
           <div className="mob-groupbar">
-            <span className="mob-groupbar-title">⬛ Guruhlash</span>
-            <span className="mob-groupbar-hint">{!enough ? "yana shkaf qo'shing" : validSel.length ? `${validSel.length} tanlandi` : "shkaflarni bosing"}</span>
+            <span className="mob-groupbar-hint">{!enough ? "shkaf qo'shing" : validSel.length ? `${validSel.length} ta` : "tanlang"}</span>
             {run && (
               <label className="mob-groupbar-run" title="Butun ryadni devor uzunligiga moslash">
                 <span>Devor</span>
@@ -1113,7 +1113,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <div className="mob-groupbar-actions">
               {free.length >= 2 && <button type="button" className="mob-gbtn is-group" onClick={groupSelectedBlocks}>🔗 Guruhlash</button>}
               {grouped.length >= 2 && <button type="button" className="mob-gbtn is-ungroup" onClick={ungroupSelectedBlocks}>🔓 Ajratish</button>}
-              {enough && <button type="button" className="mob-gbtn" onClick={groupAllBlocks}>⛓ Barchasini</button>}
+              {enough && <button type="button" className="mob-gbtn" onClick={groupAllBlocks}>⛓ Barcha</button>}
               <button type="button" className="mob-gbtn is-close" onClick={() => setSelMode("part")} title="Blok rejimidan chiqish">✕</button>
             </div>
           </div>
