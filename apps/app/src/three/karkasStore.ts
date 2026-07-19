@@ -131,6 +131,49 @@ function resolveInstance(model: StructuralModel, partId: string): { block: Block
   return null;
 }
 
+// The DEEPEST drawer instance a part id names, following the `__in_<id>` nesting chain into `interior`s —
+// so selecting a NESTED drawer resolves to THAT drawer, not its top-level ancestor (which the plain
+// resolveInstance returns). Also hands back the component scope (for the drawer flag) + the id path
+// (top→deep) needed to update the right instance immutably. Used only by the per-drawer height edit.
+function resolveDrawerInstance(
+  model: StructuralModel,
+  partId: string,
+): { block: Block; inst: Instance; components: readonly Component[]; path: string[]; base: string } | null {
+  for (const b of model.blocks) {
+    for (const top of b.instances) {
+      const base = `${b.id}__inst_${top.id}`;
+      if (partId !== base && !partId.startsWith(`${base}__`)) continue;
+      let inst = top, components: readonly Component[] = b.components, curBase = base;
+      const path = [top.id];
+      for (;;) {
+        const rest = partId.slice(curBase.length);
+        if (!rest.startsWith("__in_") || !inst.interior) break;
+        const after = rest.slice("__in_".length);
+        const child = inst.interior.instances.find((ci) => after === ci.id || after.startsWith(`${ci.id}__`));
+        if (!child) break;
+        components = inst.interior.components;
+        inst = child;
+        curBase = `${curBase}__in_${child.id}`;
+        path.push(child.id);
+      }
+      return { block: b, inst, components, path, base: curBase };
+    }
+  }
+  return null;
+}
+
+// Immutably set fields on the instance addressed by `path` (top→deep) inside a block's instance tree,
+// walking `interior.instances` at each step. Returns a fresh array; untouched instances keep identity.
+function patchInstanceAtPath(instances: readonly Instance[], path: string[], patch: Partial<Instance>): Instance[] {
+  const [head, ...rest] = path;
+  return instances.map((i) => {
+    if (i.id !== head) return i;
+    if (rest.length === 0) return { ...i, ...patch };
+    if (!i.interior) return i;
+    return { ...i, interior: { ...i.interior, instances: patchInstanceAtPath(i.interior.instances, rest, patch) } };
+  });
+}
+
 /** Return a copy of the model with the given instances re-pointed to `sectionId`. */
 function rehomeInstances(model: StructuralModel, ids: Set<string>, sectionId: string): StructuralModel {
   return {
@@ -204,6 +247,10 @@ interface KarkasState extends Derived {
   remove: () => void;
   /** E2 — nest a drawer inside the selected drawer (drawer-in-drawer). No-op if the selection isn't a drawer. */
   nestDrawerInSelected: () => void;
+  /** Set the selected drawer's box/front height (mm, ≥50). No-op if the selection isn't a drawer. */
+  setDrawerHeight: (mm: number) => void;
+  /** The selected drawer's box/front height in mm (its override, or the 200mm default). null if not a drawer. */
+  selectedDrawerHeight: () => number | null;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
   selectedComponent: () => Component | null;
   /** The solved parts belonging to the selected instance (for the info card's material colour bar). */
@@ -668,10 +715,34 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
       if (r) apply(setHingeEdge(s.model, r.inst.id, edge), true); // keepSel — same door, just re-hinged
     },
+    // Yashik balandligi — per-drawer front/box height (mm). Clamp ≥ 50mm so the box never collapses;
+    // solve/layout clamp the top at the section height, so an over-tall value just fills the bay.
+    setDrawerHeight: (mm) => {
+      const s = get();
+      const r = s.selectedId ? resolveDrawerInstance(s.model, s.selectedId) : null;
+      if (!r) return;
+      const h = Math.max(50, Math.round(mm)) * 10;
+      const model = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== r.block.id ? b : { ...b, instances: patchInstanceAtPath(b.instances, r.path, { drawerHeight_mm10: h }) })),
+      };
+      apply(model, true); // keepSel — same drawer (nested or top-level), just re-sized
+    },
     selectedComponent: () => {
       const s = get();
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
       return r ? r.block.components.find((c) => c.id === r.inst.componentId) ?? null : null;
+    },
+    selectedDrawerHeight: () => {
+      const s = get();
+      const r = s.selectedId ? resolveDrawerInstance(s.model, s.selectedId) : null;
+      if (!r) return null;
+      const comp = r.components.find((c) => c.id === r.inst.componentId);
+      if (!comp?.drawer) return null;
+      // show the drawer's ACTUAL solved front height (front part length = box height) so an unset nested
+      // drawer reads its real fill height, not the 200 fallback — editing then grows/shrinks from what's seen.
+      const front = s.parts.find((p) => p.id === `${r.base}__front`);
+      return Math.round((front ? front.length_mm10 : r.inst.drawerHeight_mm10 ?? 2000) / 10);
     },
     selectedParts: () => {
       const s = get();

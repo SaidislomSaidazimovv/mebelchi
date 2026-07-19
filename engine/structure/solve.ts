@@ -359,7 +359,7 @@ const DRAWER_SLIDE_CLEAR_MM10 = 130;
  *  to the section when it's shorter. MUST match DRAWER_HEIGHT_MM10 in layout.ts so the cut list + 3D agree. */
 const DRAWER_HEIGHT_MM10 = 2000; // 200 mm
 /** The drawer's own box: the section's footprint but only DRAWER_HEIGHT tall, kept at the section floor. */
-const drawerBoxOf = (b: Box3D): Box3D => ({ ...b, h: Math.min(b.h, DRAWER_HEIGHT_MM10) });
+const drawerBoxOf = (b: Box3D, height_mm10?: mm10): Box3D => ({ ...b, h: Math.min(b.h, height_mm10 ?? DRAWER_HEIGHT_MM10) });
 
 /** A drawer placement → its 5-panel box: facade front + two carcass sides + carcass back + thin
  *  bottom, sized to the section less the runner clearance. Part ids share the instance base so the
@@ -387,7 +387,7 @@ function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: Resolve
  *  dividers (shelfSpanX subtracts a full board at a wall, half at a divider). */
 function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
   const openingW = shelfSpanX(block, section, t.carcass).width;
-  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box), openingW, t);
+  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box, inst.drawerHeight_mm10), openingW, t);
 }
 
 /** Parts for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the parent's
@@ -402,8 +402,10 @@ function drawerInteriorParts(idBase: string, box: Box3D, interior: DrawerInterio
     const comp = byId.get(inst.componentId);
     if (!comp?.drawer) continue;
     const innerBase = `${idBase}__in_${inst.id}`;
-    out.push(...drawerBoxFromBox(innerBase, box, box.w, t)); // fills the parent's clear volume
-    if (inst.interior) out.push(...drawerInteriorParts(innerBase, drawerInteriorFromBox(box, 0, box.w, t), inst.interior, t));
+    // each nested drawer honours ITS OWN height (clamped to the parent); unset = fills the parent's volume
+    const dbox = inst.drawerHeight_mm10 != null ? drawerBoxOf(box, inst.drawerHeight_mm10) : box;
+    out.push(...drawerBoxFromBox(innerBase, dbox, box.w, t));
+    if (inst.interior) out.push(...drawerInteriorParts(innerBase, drawerInteriorFromBox(dbox, 0, box.w, t), inst.interior, t));
   }
   return out;
 }
@@ -431,9 +433,9 @@ export function drawerInteriorFromBox(box: Box3D, openingX0: mm10, openingW: mm1
 
 /** The clear inner volume of a TOP-LEVEL drawer in `section` (opening = the carcass clear span). This is
  *  what a nested drawer's `interior.box` is set to. Pure. */
-export function drawerInteriorBox(block: Block, section: Section, t: ResolvedT): Box3D {
+export function drawerInteriorBox(block: Block, section: Section, t: ResolvedT, height_mm10?: mm10): Box3D {
   const span = shelfSpanX(block, section, t.carcass);
-  return drawerInteriorFromBox(drawerBoxOf(section.box), span.x0, span.width, t);
+  return drawerInteriorFromBox(drawerBoxOf(section.box, height_mm10), span.x0, span.width, t);
 }
 
 /** One placed instance → its content panel(s), sized from the section it sits in.
@@ -452,7 +454,7 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
     const box = stampMat(drawerBoxParts(block, inst, section, t));
     // v5 — drawer-in-drawer: fill this drawer's clear inner volume (computed) with its nested content.
     if (!inst.interior) return box;
-    return [...box, ...drawerInteriorParts(`${block.id}__inst_${inst.id}`, drawerInteriorBox(block, section, t), inst.interior, t)];
+    return [...box, ...drawerInteriorParts(`${block.id}__inst_${inst.id}`, drawerInteriorBox(block, section, t, inst.drawerHeight_mm10), inst.interior, t)];
   }
   // A sliding accessory (motion, e.g. a pull-out rack — role null) is a single shelf-like board spanning
   // the opening; it was RENDERED (motionPlacement) but never emitted here, so it was missing from the cut
