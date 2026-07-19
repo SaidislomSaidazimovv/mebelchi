@@ -346,6 +346,34 @@ export function buildSectionHitboxes(
   return g;
 }
 
+/** A Moblo-style move gizmo: three axis arrows (X red · Y green · Z blue) at `center`, sized by `length`
+ *  (metres). Each arrow (shaft + cone) carries `userData.gizmoAxis` so a pointer-down can start an
+ *  axis-constrained drag. depthTest off + high renderOrder → the arrows always read on top of the boards. */
+export function buildMoveGizmo(center: [number, number, number], length: number): THREE.Group {
+  const g = new THREE.Group();
+  g.position.set(center[0], center[1], center[2]);
+  const up = new THREE.Vector3(0, 1, 0);
+  const AXES = [
+    { axis: "x", color: 0xe5484d, dir: new THREE.Vector3(1, 0, 0) },
+    { axis: "y", color: 0x30a46c, dir: new THREE.Vector3(0, 1, 0) },
+    { axis: "z", color: 0x2f6bff, dir: new THREE.Vector3(0, 0, 1) },
+  ] as const;
+  const shaftR = length * 0.035, coneR = length * 0.09, coneH = length * 0.22, shaftL = length * 0.78;
+  for (const a of AXES) {
+    const q = new THREE.Quaternion().setFromUnitVectors(up, a.dir); // default geoms point +Y → rotate to axis
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftR, shaftR, shaftL, 12), new THREE.MeshBasicMaterial({ color: a.color, depthTest: false }));
+    shaft.quaternion.copy(q);
+    shaft.position.copy(a.dir).multiplyScalar(shaftL / 2);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(coneR, coneH, 16), new THREE.MeshBasicMaterial({ color: a.color, depthTest: false }));
+    cone.quaternion.copy(q);
+    cone.position.copy(a.dir).multiplyScalar(shaftL + coneH / 2);
+    shaft.userData.gizmoAxis = a.axis; cone.userData.gizmoAxis = a.axis;
+    shaft.renderOrder = 1000; cone.renderOrder = 1000;
+    g.add(shaft, cone);
+  }
+  return g;
+}
+
 /** Free the GPU resources of a structure group (call on unmount / before rebuild). */
 export function disposeStructureGroup(group: THREE.Group): void {
   group.traverse((o) => {
