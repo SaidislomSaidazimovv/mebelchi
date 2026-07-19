@@ -692,17 +692,21 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const r = rt.current;
     if (!r) return;
     if (r.sectionGroup) { r.scene.remove(r.sectionGroup); disposeStructureGroup(r.sectionGroup); r.sectionGroup = null; }
-    // Only while the ＋ add panel is OPEN in space mode — closing the panel/sheet clears the blue overlay.
+    const m = useKarkas.getState().model;
     if (selMode === "space" && rpanel === "add") {
-      const m = useKarkas.getState().model;
+      // tap-to-place: ALL leaf compartments are tappable; the active target glows.
       const boxes = leafSectionBoxes(m, solveLayout(m));
-      const grp = buildSectionHitboxes(boxes, activeTarget ?? null);
-      r.sectionGroup = grp;
-      r.scene.add(grp);
+      r.sectionGroup = buildSectionHitboxes(boxes, activeTarget ?? null);
+      r.scene.add(r.sectionGroup);
+    } else if (sections.length > 1 && activeTarget) {
+      // «Qayerga» feedback — whenever the section picker is up, glow JUST the chosen compartment in 3D so
+      // the usta sees WHERE the next add will land. Non-space mode, so onUp never treats it as a tap-target.
+      const boxes = leafSectionBoxes(m, solveLayout(m)).filter((box) => box.id === activeTarget);
+      if (boxes.length) { r.sectionGroup = buildSectionHitboxes(boxes, activeTarget); r.scene.add(r.sectionGroup); }
     }
     r.renderer.render(r.scene, r.camera);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, selMode, activeTarget, rpanel]);
+  }, [scene, selMode, activeTarget, rpanel, sections.length]);
 
   // ── rebuild the group + reframe when the model (scene) changes ──
   useEffect(() => {
