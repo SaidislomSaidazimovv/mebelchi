@@ -89,6 +89,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [tab, setTab] = useState<MobTab>("build");
   const [toolsOpen, setToolsOpen] = useState(false); // mobile: the «⋯ ko'proq» slide-up sheet
   const [rpanel, setRpanel] = useState<"none" | "add" | "material">("none"); // U2.3 right panel
+  // #3 — tap-a-dimension math keypad: an usta-friendly calculator (600+18, 1200/2…) that opens on tapping
+  // a W/H/D chip on mobile, so no fiddly native keyboard. `mm` is always in mm; the pad handles cm display.
+  const [keypad, setKeypad] = useState<{ label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void } | null>(null);
+  // #4 — live measure readout while dragging a face to resize: the active dim + its current size (mm), shown
+  // as a floating callout so the usta sees the measurement change in real time. Cleared on pointer-up.
+  const [measure, setMeasure] = useState<{ dim: "w" | "h" | "d"; mm: number } | null>(null);
+  const measureRef = useRef(setMeasure); // stable handle for the once-mounted pointer effect
+  measureRef.current = setMeasure;
   // Commit a pending DimField edit before a control hides/unmounts the editor: blur the focused input so
   // its onBlur commit fires FIRST (synchronously). Mobile taps on the sheet's ✕ / ⋯ / FABs don't reliably
   // blur the numeric keyboard, which silently dropped an in-progress edit (e.g. «Yashik b.»). These close
@@ -595,10 +603,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const raw = drag.startExtent + drag.sign * Math.round((cur - drag.startWorld) * 10000);
         const nextExtent = Math.round(raw / step) * step; // snap the absolute extent to the grid
         if (Math.abs(nextExtent - drag.startExtent) >= 1) { useKarkas.getState().resizeDrag(drag.dim, nextExtent, drag.first); drag.first = false; }
+        measureRef.current({ dim: drag.dim, mm: Math.round(nextExtent / 10) }); // #4 — live measure readout
       }
     };
     const onUp = (e: PointerEvent) => {
-      if (drag) { if (drag.kind === "freemove") useKarkas.getState().snapFreePart(drag.fpId); drag = null; controls.enabled = true; return; } // finished a move / resize (free board snaps to a face)
+      if (drag) { if (drag.kind === "freemove") useKarkas.getState().snapFreePart(drag.fpId); drag = null; controls.enabled = true; measureRef.current(null); return; } // finished a move / resize (free board snaps to a face)
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return; // a camera orbit, not a tap
       raycaster.setFromCamera(ndc(e), camera);
       // Step 7c — a tap on a drill marker selects that individual hole (markers sit proud of the face)
@@ -954,9 +963,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {tab === "build" && selMode !== "block" && (
         <div className="mob-bottombar">
           <div className="mob-dims" title="Butun mebel — eni × bo'y × chuqurlik">
-            <MobDim axis="x" value={dims.w} units={units} onCommit={(mm) => resize("w", mm)} />
-            <MobDim axis="y" value={dims.h} units={units} onCommit={(mm) => resize("h", mm)} />
-            <MobDim axis="z" value={dims.d} units={units} onCommit={(mm) => resize("d", mm)} />
+            <MobDim axis="x" value={dims.w} units={units} onCommit={(mm) => resize("w", mm)} onKeypad={compact ? () => setKeypad({ label: "Eni", value: dims.w, units, onCommit: (mm) => resize("w", mm) }) : undefined} />
+            <MobDim axis="y" value={dims.h} units={units} onCommit={(mm) => resize("h", mm)} onKeypad={compact ? () => setKeypad({ label: "Bo'yi", value: dims.h, units, onCommit: (mm) => resize("h", mm) }) : undefined} />
+            <MobDim axis="z" value={dims.d} units={units} onCommit={(mm) => resize("d", mm)} onKeypad={compact ? () => setKeypad({ label: "Chuqurligi", value: dims.d, units, onCommit: (mm) => resize("d", mm) }) : undefined} />
             <button type="button" className="mob-unit" title="mm ⇄ cm" onClick={() => setUnits((u) => (u === "mm" ? "cm" : "mm"))}>{units}</button>
           </div>
           <div className="mob-divider" />
@@ -978,6 +987,23 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button className="mob-project-btn" type="button" onClick={addToProject} title={editingBlockId ? "Yangilash" : "Loyihaga qo'shish"}>{compact ? "💾" : (editingBlockId ? "💾 Yangilash" : fromCabinet ? "＋ Nusxa" : "＋ Loyihaga")}</button>
         </div>
       )}
+
+      {/* #3 — math keypad: tap a W/H/D chip on mobile to enter a size with a calculator (600+18, 1200/2…) */}
+      {keypad && <MathKeypad label={keypad.label} value={keypad.value} units={keypad.units} onCommit={keypad.onCommit} onClose={() => setKeypad(null)} />}
+
+      {/* #4 — live measure readout while dragging a face to resize */}
+      {measure && tab === "build" && (() => {
+        const col = measure.dim === "w" ? "var(--ax-x)" : measure.dim === "h" ? "var(--ax-y)" : "var(--ax-z)";
+        const arrow = measure.dim === "w" ? "↔" : measure.dim === "h" ? "↕" : "⤢";
+        const label = measure.dim === "w" ? "Eni" : measure.dim === "h" ? "Bo'yi" : "Chuqurligi";
+        return (
+          <div className="mob-measure" style={{ borderColor: col }}>
+            <span className="mob-measure-dot" style={{ background: col }} />
+            <span className="mob-measure-label">{label}</span>
+            <span className="mob-measure-val">{arrow} {units === "cm" ? +(measure.mm / 10).toFixed(1) : measure.mm} {units}</span>
+          </div>
+        );
+      })()}
 
       {/* ── U2.4 — Detallar tab = the full parts list / spec (cut list · materials · price · export) ── */}
       {tab === "parts" && (
@@ -1925,7 +1951,89 @@ export function KarkasOverlay() {
 
 /* ── U2.1 — Moblo bottom-bar dimension control: a colour-dotted, tap-to-edit number (axis-coloured,
  *  like Moblo's readout). Commits the whole-block resize on blur / Enter. mm / cm aware. ── */
-function MobDim({ axis, value, onCommit, units }: { axis: "x" | "y" | "z"; value: number; onCommit: (mm: number) => void; units: "mm" | "cm" }) {
+/** Safe left-to-right arithmetic for the keypad: digits, . , + − × ÷ (× ÷ bind tighter). No eval, no
+ *  parens — an usta needs "600+18" / "1200/2", not a formula language. Returns null on an invalid/partial
+ *  expression (e.g. a trailing operator) so the OK button can stay disabled until it resolves. */
+function evalExpr(src: string): number | null {
+  const s = src.replace(/×/g, "*").replace(/÷/g, "/").replace(/,/g, ".").replace(/\s/g, "");
+  if (!s || !/^[-+*/.\d]+$/.test(s)) return null;
+  const tokens = s.match(/(\d+\.?\d*|\.\d+|[-+*/])/g);
+  if (!tokens) return null;
+  const pass1: string[] = []; // fold × ÷ first
+  for (let i = 0; i < tokens.length; i += 1) {
+    const tk = tokens[i]!;
+    if (tk === "*" || tk === "/") {
+      const a = parseFloat(pass1.pop() ?? ""), b = parseFloat(tokens[i += 1] ?? "");
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+      pass1.push(String(tk === "*" ? a * b : a / b));
+    } else pass1.push(tk);
+  }
+  let acc: number | null = null, op = "+"; // then + −, left to right
+  for (const tk of pass1) {
+    if (tk === "+" || tk === "-") op = tk;
+    else {
+      const n = parseFloat(tk);
+      if (!Number.isFinite(n)) return null;
+      acc = acc === null ? (op === "-" ? -n : n) : op === "+" ? acc + n : acc - n;
+    }
+  }
+  return acc === null || !Number.isFinite(acc) ? null : acc;
+}
+
+/** #3 — usta-friendly numeric keypad with + − × ÷. Opens over a tapped dimension; commits the evaluated
+ *  result (in mm). Accepts on-screen taps AND the physical keyboard (digits / operators / Enter / ⌫ / Esc). */
+function MathKeypad({ label, value, units, onCommit, onClose }: { label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void; onClose: () => void }) {
+  const toDisp = (mm: number) => (units === "cm" ? String(+(mm / 10).toFixed(1)) : String(mm));
+  const [expr, setExpr] = useState(toDisp(value));
+  const [fresh, setFresh] = useState(true); // first digit replaces the prefilled value; an operator keeps it
+  const preview = evalExpr(expr);
+  const push = (ch: string) => setExpr((e) => {
+    const isOp = "+-*/".includes(ch);
+    if (fresh) { setFresh(false); return isOp ? e + ch : ch; } // typing a number clears the prefill; an op extends it
+    return e + ch;
+  });
+  const back = () => { setFresh(false); setExpr((e) => e.slice(0, -1)); };
+  const clear = () => { setFresh(false); setExpr(""); };
+  const ok = () => {
+    if (preview === null) return;
+    const mm = units === "cm" ? Math.round(preview * 10) : Math.round(preview);
+    if (mm >= 1) onCommit(mm);
+    onClose();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter") { e.preventDefault(); ok(); }
+      else if (e.key === "Escape") onClose();
+      else if (e.key === "Backspace") { e.preventDefault(); back(); }
+      else if (/^[0-9.]$/.test(e.key)) push(e.key);
+      else if ("+-*/".includes(e.key)) push(e.key);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }); // re-bind each render so the handlers close over the latest expr/preview
+  const KEYS = ["7", "8", "9", "÷", "4", "5", "6", "×", "1", "2", "3", "−", "0", ".", "⌫", "+"] as const;
+  const send = (k: string) => (k === "⌫" ? back() : push(k === "×" ? "*" : k === "÷" ? "/" : k === "−" ? "-" : k));
+  return (
+    <div className="mob-kp-backdrop" onClick={onClose}>
+      <div className="mob-kp" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`${label} — o'lcham`}>
+        <div className="mob-kp-head"><span>{label}</span><button type="button" className="mob-x" onClick={onClose} aria-label="Yopish">×</button></div>
+        <div className="mob-kp-display">
+          <span className="mob-kp-expr">{expr || "0"}</span>
+          <span className="mob-kp-eq">{preview !== null && /[-+*/]/.test(expr) ? `= ${+preview.toFixed(2)} ${units}` : units}</span>
+        </div>
+        <div className="mob-kp-grid">
+          {KEYS.map((k) => <button key={k} type="button" className={"mob-kp-key" + ("÷×−+".includes(k) ? " is-op" : "") + (k === "⌫" ? " is-back" : "")} onClick={() => send(k)}>{k}</button>)}
+        </div>
+        <div className="mob-kp-actions">
+          <button type="button" className="mob-kp-clear" onClick={clear}>C</button>
+          <button type="button" className="mob-kp-ok" onClick={ok} disabled={preview === null}>OK</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MobDim({ axis, value, onCommit, units, onKeypad }: { axis: "x" | "y" | "z"; value: number; onCommit: (mm: number) => void; units: "mm" | "cm"; onKeypad?: () => void }) {
   const toDisp = (mm: number) => (units === "cm" ? String(+(mm / 10).toFixed(1)) : String(mm));
   const [v, setV] = useState(toDisp(value));
   useEffect(() => { setV(toDisp(value)); }, [value, units]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1936,12 +2044,15 @@ function MobDim({ axis, value, onCommit, units }: { axis: "x" | "y" | "z"; value
     else setV(toDisp(value));
   };
   const color = axis === "x" ? "var(--ax-x)" : axis === "y" ? "var(--ax-y)" : "var(--ax-z)";
+  // #3 — on mobile the chip opens the math keypad instead of the native keyboard (readOnly so no caret/typing)
   return (
     <label className="mob-dim">
       <span className="dot" style={{ background: color }} />
       <input className="mob-dim-input" value={v} inputMode="decimal"
+        readOnly={!!onKeypad}
+        onClick={onKeypad}
         onChange={(e) => setV(e.target.value.replace(/[^\d.,]/g, ""))}
-        onBlur={commit} onFocus={(e) => e.target.select()}
+        onBlur={onKeypad ? undefined : commit} onFocus={onKeypad ? undefined : (e) => e.target.select()}
         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
     </label>
   );
