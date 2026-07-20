@@ -107,6 +107,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [arSupport, setArSupport] = useState<ArSupport>("checking");
   const [arError, setArError] = useState<string | null>(null);
   const [arActive, setArActive] = useState(false);
+  const [arNoFloor, setArNoFloor] = useState(false); // session granted, but without floor hit-test
   const arOverlayRef = useRef<HTMLDivElement | null>(null);
   const arSessionRef = useRef<ArSession | null>(null);
   // #4 — live measure readout while dragging a face to resize: the active dim + its current size (mm), shown
@@ -1080,18 +1081,40 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   useEffect(() => { let live = true; void detectArSupport().then((s) => { if (live) setArSupport(s); }); return () => { live = false; }; }, []);
   /** A freshly built structure group for AR / export — independent of the editor's live group. */
   const arGroup = () => buildStructureGroup(scene, colorRef.current);
+  /** Turn a refused session into advice the master can act on — the raw WebXR text alone helps nobody. */
+  const arAdvice = (err: unknown): string => {
+    const msg = err instanceof Error ? err.message : String(err);
+    const name = err instanceof Error ? err.name : "";
+    const low = `${name} ${msg}`.toLowerCase();
+    if (low.includes("notallowed") || low.includes("permission") || low.includes("security")) {
+      return "Kamera ruxsati berilmadi. Brauzer manzil satridagi 🔒 → Kamera → «Ruxsat».";
+    }
+    if (low.includes("not supported") || low.includes("notsupported")) {
+      // The device advertises immersive-ar but refuses every config — on Android this is almost always
+      // ARCore missing or out of date, not a permission problem.
+      return "Qurilma AR sessiyasini bermadi. Play Market'dan «Google Play Services for AR» (ARCore) ni o'rnating/yangilang, so'ng Chrome'ni qayta oching.";
+    }
+    return `Xato: ${msg}`;
+  };
   const startAr = async () => {
     setArError(null);
+    setArNoFloor(false);
+    // Show the dom-overlay root SYNCHRONOUSLY. setArActive() alone is not enough: React flushes state
+    // asynchronously, so the root would still be display:none when requestSession inspects it — and a
+    // hidden overlay root gets the whole config rejected.
+    if (arOverlayRef.current) arOverlayRef.current.style.display = "flex";
+    setArActive(true);
     try {
-      setArActive(true); // the dom-overlay root must be visible BEFORE the session claims it
-      arSessionRef.current = await startArSession(arGroup(), arOverlayRef.current ?? undefined, () => {
+      const sess = await startArSession(arGroup(), arOverlayRef.current ?? undefined, () => {
         arSessionRef.current = null;
         setArActive(false);
       });
+      arSessionRef.current = sess;
+      setArNoFloor(!sess.hitTest); // no hit-test → no reticle, so the hint must not promise one
     } catch (err) {
+      if (arOverlayRef.current) arOverlayRef.current.style.display = "none";
       setArActive(false);
-      // A refused session is normal (permission denied, no camera, unsupported feature) — say so.
-      setArError(`AR ochilmadi: ${err instanceof Error ? err.message : String(err)}. Kamera ruxsatini tekshiring.`);
+      setArError(`AR ochilmadi. ${arAdvice(err)}`);
     }
   };
   const downloadGlb = async () => {
@@ -1273,7 +1296,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       )}
       {/* dom-overlay root — the browser paints this over the camera feed during an AR session */}
       <div ref={arOverlayRef} className="mob-ar-overlay" style={{ display: arActive ? "flex" : "none" }}>
-        <span className="mob-ar-hint">Polga qarating → ko'k halqa → bosing</span>
+        <span className="mob-ar-hint">
+          {arNoFloor ? "Pol aniqlanmadi — bosing, mebel oldingizga qo'yiladi" : "Polga qarating → ko'k halqa → bosing"}
+        </span>
         <button type="button" className="mob-ar-exit" onClick={() => arSessionRef.current?.end()}>✕ Chiqish</button>
       </div>
 

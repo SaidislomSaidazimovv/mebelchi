@@ -56,6 +56,8 @@ function groundedClone(group: THREE.Object3D): THREE.Object3D {
 export interface ArSession {
   /** End the AR session (also called automatically when the user exits from the headset/browser UI). */
   end: () => void;
+  /** Did the device grant floor hit-test? false = no reticle, a tap drops the model in front instead. */
+  hitTest: boolean;
 }
 
 /**
@@ -98,18 +100,54 @@ export async function startArSession(group: THREE.Object3D, overlay?: HTMLElemen
 
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
 
-  const opts: Record<string, unknown> = { requiredFeatures: ["hit-test"] };
-  if (overlay) { opts.optionalFeatures = ["dom-overlay"]; opts.domOverlay = { root: overlay }; }
-  const session = await xr.requestSession("immersive-ar", opts);
+  // Ask for the richest session the device will actually grant, degrading one demand at a time. A device
+  // can report immersive-ar support and STILL refuse a specific config ("the specified session
+  // configuration is not supported") — typically because hit-test was DEMANDED but ARCore is old/absent,
+  // or because the dom-overlay root was not rendered when the request went out. Failing outright there
+  // told the usta nothing useful, so each step drops one requirement instead.
+  const configs: Record<string, unknown>[] = [];
+  if (overlay) configs.push({ requiredFeatures: ["hit-test"], optionalFeatures: ["dom-overlay"], domOverlay: { root: overlay } });
+  configs.push({ requiredFeatures: ["hit-test"] });
+  if (overlay) configs.push({ optionalFeatures: ["hit-test", "dom-overlay"], domOverlay: { root: overlay } });
+  configs.push({ optionalFeatures: ["hit-test"] });
+  configs.push({});
+  let session: any = null;
+  let lastErr: unknown = null;
+  for (const opts of configs) {
+    try { session = await xr.requestSession("immersive-ar", opts); break; } catch (e) { lastErr = e; }
+  }
+  if (!session) {
+    renderer.domElement.remove();
+    renderer.dispose();
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+  }
   await renderer.xr.setSession(session);
 
-  const viewerSpace = await session.requestReferenceSpace("viewer");
   const localSpace = await session.requestReferenceSpace("local");
-  const hitSource = await session.requestHitTestSource({ space: viewerSpace });
+  // hit-test may not have been granted (it is only optional in the later configs). Without it there is
+  // no floor reticle, so a tap plants the cabinet a short way in front of the camera instead.
+  let hitSource: any = null;
+  try {
+    if (typeof session.requestHitTestSource === "function") {
+      const viewerSpace = await session.requestReferenceSpace("viewer");
+      hitSource = await session.requestHitTestSource({ space: viewerSpace });
+    }
+  } catch { hitSource = null; }
 
   const onSelect = (): void => {
-    if (!reticle.visible) return;
-    model.position.setFromMatrixPosition(reticle.matrix); // plant it where the reticle sits
+    if (reticle.visible) {
+      model.position.setFromMatrixPosition(reticle.matrix); // plant it where the reticle sits
+    } else {
+      // No floor detection on this device — drop it a step in front of where the phone is pointing, at
+      // roughly floor level (a phone is held ~1.3 m up), so the tap still does something sensible.
+      const fwd = new THREE.Vector3();
+      camera.getWorldDirection(fwd);
+      fwd.y = 0;
+      if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+      fwd.normalize();
+      model.position.copy(camera.position).addScaledVector(fwd, 1.5);
+      model.position.y = camera.position.y - 1.3;
+    }
     model.visible = true;
   };
   session.addEventListener("select", onSelect);
@@ -144,5 +182,5 @@ export async function startArSession(group: THREE.Object3D, overlay?: HTMLElemen
   };
   session.addEventListener("end", cleanup);
 
-  return { end: () => { try { session.end(); } catch { cleanup(); } } };
+  return { end: () => { try { session.end(); } catch { cleanup(); } }, hitTest: !!hitSource };
 }
