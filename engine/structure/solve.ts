@@ -533,9 +533,21 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
  */
 export function freePartToPart(block: Block, fp: FreePart): Part {
   const { w, h, d } = fp.box;
+  // `thicknessAxis` is the author's declaration, fixed when the part was created — but the master then
+  // resizes it, and a board turned on its side keeps the stale axis. That put nonsense in the cut list:
+  // a bed's headboard came out "900 × 25 × 1610 thick", and no workshop can order 1610mm stock.
+  //
+  // A board's thickness IS its smallest dimension — that is what makes it a board. So the box decides,
+  // and the declared axis only settles a tie (a square post, where any choice is the same part). This
+  // also matches how the renderer already picks the face to draw.
+  const smallest = Math.min(w, h, d);
+  const axis = fp.thicknessAxis === "x" && w === smallest ? "x"
+    : fp.thicknessAxis === "y" && h === smallest ? "y"
+      : fp.thicknessAxis === "z" && d === smallest ? "z"
+        : w === smallest ? "x" : h === smallest ? "y" : "z";
   const [length, width, thickness] =
-    fp.thicknessAxis === "x" ? [h, d, w]
-      : fp.thicknessAxis === "y" ? [w, d, h]
+    axis === "x" ? [h, d, w]
+      : axis === "y" ? [w, d, h]
         : [w, h, d]; // "z"
   // Banding defaults to every edge — right for a visible board (a table top), wrong for a solid post,
   // so a free part may declare its own. See FreePart.edgeBands.

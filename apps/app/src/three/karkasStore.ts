@@ -394,6 +394,9 @@ interface ProjectFile {
 
 type XBox = { x: number; y: number; z: number; w: number; h: number; d: number };
 
+/** Monotonic counter behind every new free-part id — see addFreeBoard. */
+let freeSeq = 0;
+
 /** Magnetic pull — 40 mm, the same reach for a live drag and for the drop. */
 const SNAP_PULL = 400; // mm10
 
@@ -496,7 +499,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
       // inside an existing one looks like nothing happened.
       const n = (block.freeParts ?? []).length;
       const fp: FreePart = {
-        id: `free_${Date.now().toString(36)}`,
+        // A clock alone is not unique enough: two parts added inside the same millisecond got the SAME
+        // id, and the engine rightly refuses that (ADD_FREEPART_DUPLICATE_ID) — so a quick run of taps
+        // threw. Adding four legs is the most ordinary thing a master does, so the counter is not
+        // optional. The timestamp stays only because it makes ids readable while debugging.
+        id: `free_${Date.now().toString(36)}_${(freeSeq++).toString(36)}`,
         name: spec.name,
         role: spec.role,
         thicknessAxis: spec.axis,
