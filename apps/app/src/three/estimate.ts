@@ -8,6 +8,7 @@
 import type { Part } from "../../../../engine/contracts/types.js";
 import type { StructuralModel, Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
+import { edgeLengths } from "../../../../engine/structure/features.js";
 import {
   partBoard,
   edgeById,
@@ -73,8 +74,12 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
     const l = M(p.length_mm10);
     const areaM2 = w * l;
     const bands: [boolean, boolean, boolean, boolean] = [p.edges[0] > 0, p.edges[1] > 0, p.edges[2] > 0, p.edges[3] > 0];
-    // SWJ008 perimeter convention: faces 1 & 3 run along Width, faces 2 & 4 along Length.
-    const edgeM = (bands[0] ? w : 0) + (bands[2] ? w : 0) + (bands[1] ? l : 0) + (bands[3] ? l : 0);
+    // Banded-edge running length. The face→edge mapping comes from the engine's edgeLengths() so there
+    // is ONE source of truth: SWJ008 order [front, back, side, side] — front/back run along the LENGTH,
+    // the two sides along the WIDTH (grounded in solve.ts's factory face map: Face1 drills at Y=Width,
+    // POL_3_1.XML Face1 @ Y=503, so Face1 is the top edge and spans the length). This file used to keep
+    // its own, mirrored copy of the rule, which under-counted kromka — and kromka feeds the price.
+    const edgeM = edgeLengths(p.length_mm10, p.width_mm10).reduce((sum, len, i) => sum + (bands[i] ? M(len) : 0), 0);
     const board = partBoard(plan, p.role, p.materialId);
     const priceUzs = areaM2 * (board?.pricePerM2 ?? 0) + edgeM * edgeRate;
     return {
