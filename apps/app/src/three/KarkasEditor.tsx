@@ -138,6 +138,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const duplicateSelected = useKarkas((s) => s.duplicateSelected);
+  const applyToAllIdentical = useKarkas((s) => s.applyToAllIdentical);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
   const removeFreeBoard = useKarkas((s) => s.removeFreeBoard);
   const divide = useKarkas((s) => s.divide);
@@ -161,6 +162,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // screen). Subscribe to the stable function ref + memoize the result on selectedId/parts instead.
   const selectedPartsFn = useKarkas((s) => s.selectedParts);
   const selParts = useMemo(() => selectedPartsFn(), [selectedPartsFn, selectedId, parts]);
+  // Group of identical parts behind the selection. Same fresh-object hazard as selectedParts() above —
+  // subscribe to the stable fn and memoize, never `useKarkas(s => s.selectedGroup())`.
+  const selectedGroupFn = useKarkas((s) => s.selectedGroup);
+  const selGroup = useMemo(() => selectedGroupFn(), [selectedGroupFn, selectedId, parts]);
+  /** ≥2 identical parts exist AND at least one has been edited apart → «apply to all» is worth offering. */
+  const canApplyToAll = !!selGroup && selGroup.size > 1 && !selGroup.united;
   // (3.3d) selectedParts() only covers instance parts (shelves/drawers/facades); a divider or a carcass
   // panel is a bare part whose id IS the selection — fall back to it so the readout shows their dims too.
   const selPart = useMemo(() => selParts[0] ?? parts.find((p) => p.id === selectedId) ?? null, [selParts, parts, selectedId]);
@@ -1212,6 +1219,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               <button className="mob-sel-menu" type="button" aria-label="Amallar" onClick={(e) => { e.stopPropagation(); setMenu(menu === "sel" ? null : "sel"); }}>⋮</button>
               {menu === "sel" && (
                 <div style={{ ...popover, top: "auto", bottom: "calc(100% + 8px)" }}>
+                  {canApplyToAll && (
+                    <button style={popItem} onClick={() => { applyToAllIdentical(); setMenu(null); }} type="button">
+                      ⛓ Hammasiga qo'llash ({selGroup?.size})
+                    </button>
+                  )}
                   <button style={popItem} onClick={() => { duplicateSelected(); setMenu(null); }} type="button">⧉ Nusxalash</button>
                   <button style={popItem} onClick={() => { remove(); setMenu(null); }} type="button">🗑 O'chirish</button>
                   <button style={popItem} onClick={() => { saveToBiblioteka(); setMenu(null); }} type="button">💾 Kutubxonaga</button>
@@ -1493,6 +1505,22 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <span>{selComp?.name ?? "Bo'lak"}</span>
           <span style={{ opacity: 0.5 }}>│</span>
           <span style={{ fontFamily: "monospace" }}>{Math.round(selPart.length_mm10 / 10)} × {Math.round(selPart.width_mm10 / 10)} mm</span>
+          {/* Group of identical parts. This strip is the ONLY selection readout on mobile (the bottom-bar
+              chip and the legacy property bar are both display:none under the mobile breakpoint), so the
+              affordance has to live here or the master never sees it. The strip is pointer-transparent so
+              it never eats a tap meant for the model — the button re-enables pointers just for itself. */}
+          {selGroup && selGroup.size > 1 && (
+            canApplyToAll ? (
+              <button
+                type="button"
+                onClick={applyToAllIdentical}
+                title={`Shu detalning o'lchov/materialini ${selGroup.size} ta bir xil detalga qo'llash`}
+                style={{ pointerEvents: "auto", cursor: "pointer", border: "none", borderRadius: 7, padding: "3px 9px", background: "#f5a623", color: "#3d2500", font: "700 12px system-ui", whiteSpace: "nowrap" }}
+              >⛓ {selGroup.size} taga</button>
+            ) : (
+              <span title={`${selGroup.size} ta bir xil detal`} style={{ opacity: 0.62, fontSize: 12, fontWeight: 600 }}>⛓×{selGroup.size}</span>
+            )
+          )}
           {/* (3.3d) tap-readout → numpad: type an exact size (panel → block dim) or a ± nudge (divider). */}
           {precise && (
             <>
@@ -1700,6 +1728,21 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {selComp && (
         <div style={selBar}>
           <span style={mono}>{selComp.name}</span>
+          {/* Group state — the editor forks a part onto its own component on EVERY per-part edit, so
+              without this the master cannot tell which parts are still identical, nor that the change
+              they just made landed on one shelf only. Tapping applies it to the whole family. */}
+          {selGroup && selGroup.size > 1 && (
+            canApplyToAll ? (
+              <button
+                type="button"
+                onClick={applyToAllIdentical}
+                title={`Bu detalning o'lchov/materialini ${selGroup.size} ta bir xil detalga qo'llash`}
+                style={{ ...badge, background: "#fbe9d2", color: "#8a4b0f", border: "none", cursor: "pointer" }}
+              >✂ Alohida · ⛓ {selGroup.size} taga qo'llash</button>
+            ) : (
+              <span style={{ ...badge, background: "#dbe6f7", color: "#1f478a" }} title="Bu detallar bir xil — birini o'zgartirsangiz faqat o'sha o'zgaradi">⛓ Bir xil ×{selGroup.size}</span>
+            )
+          )}
           {selComp.doubled && <span style={badge}>32мм</span>}
           {selComp.glazedGrid && <span style={badge}>Витрина ×{selComp.glazedGrid.lights}</span>}
           {selComp.glazed && !selComp.glazedGrid && <span style={badge}>Стекло</span>}

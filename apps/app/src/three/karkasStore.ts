@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -272,6 +272,14 @@ interface KarkasState extends Derived {
   selectedDrawerHeight: () => number | null;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
   selectedComponent: () => Component | null;
+  /**
+   * The selection's group of identical parts: how many there are, and whether they still all share one
+   * component. `united: false` means this one (or a sibling) was edited individually — which happens on
+   * EVERY per-part edit, since those fork first. null when nothing is selected. Drives the group badge.
+   */
+  selectedGroup: () => { size: number; united: boolean } | null;
+  /** «Apply to all identical» — push the selected part's component onto its whole family. */
+  applyToAllIdentical: () => void;
   /** The solved parts belonging to the selected instance (for the info card's material colour bar). */
   selectedParts: () => Part[];
   /** Toggle the selected component's load-bearing declaration (drives the stability ⚠). */
@@ -871,6 +879,22 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const s = get();
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
       return r ? r.block.components.find((c) => c.id === r.inst.componentId) ?? null : null;
+    },
+    selectedGroup: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      return r ? familyStatus(s.model, r.inst.id) : null;
+    },
+    applyToAllIdentical: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r) return;
+      const next = applyToFamily(s.model, r.inst.id);
+      // The engine returns the SAME model when there is nothing to unify (a lone part, or a family that
+      // already shares one component). Pushing that through apply() would still stack an undo step, so
+      // the master's next ↩ would silently do nothing.
+      if (next === s.model) return;
+      apply(next, true); // keepSel — same part, its siblings just caught up
     },
     selectedDrawerHeight: () => {
       const s = get();

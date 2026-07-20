@@ -1610,6 +1610,76 @@ export function forkComponentForInstance(model: StructuralModel, instanceId: Ins
   return changed ? { ...model, blocks } : model;
 }
 
+/**
+ * The GROUP FAMILY a component belongs to — the id it was forked from.
+ *
+ * Every per-part edit calls `forkComponentForInstance` first, which suffixes `__i_<instanceId>`;
+ * `dissolveGroup` suffixes `__each_<k>`. So the moment a master edits one of three identical shelves,
+ * that shelf silently gets its own component and the "group" stops existing as a shared id — but the
+ * ORIGIN survives in the id. Stripping the suffixes recovers which instances were the same part to
+ * begin with, which is the only thing «apply to all identical» can mean after the fork has happened.
+ * Stripping loops because a dissolved clone can later be forked again (`…__each_0__i_inst_x`).
+ */
+export function componentFamily(id: ComponentId): string {
+  let out = id;
+  for (;;) {
+    const next = out.replace(/__(?:i_.+|each_\d+)$/, "");
+    if (next === out) return out;
+    out = next;
+  }
+}
+
+/** Family size and whether its members currently still share ONE component (i.e. nothing forked off). */
+export function familyStatus(
+  model: StructuralModel,
+  instanceId: InstanceId,
+): { size: number; united: boolean } | null {
+  for (const block of model.blocks) {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst) continue;
+    const fam = componentFamily(inst.componentId);
+    const members = block.instances.filter((i) => componentFamily(i.componentId) === fam);
+    return { size: members.length, united: new Set(members.map((i) => i.componentId)).size === 1 };
+  }
+  return null;
+}
+
+/**
+ * «Apply to all identical» — re-point every instance in `instanceId`'s family at THIS instance's
+ * component, so all of them carry its thickness/material/angle/lip/... at once. Re-pointing rather
+ * than copying fields means the whole Component travels, including any property added later.
+ *
+ * This is the counterpart the editor was missing: `forkComponentForInstance` splits one part off on
+ * every edit (so a master must re-do the same change N times), and nothing put them back together.
+ * Clones left orphaned inside the family are dropped; components outside it are never touched.
+ * No-op (same reference) when the family has fewer than 2 members.
+ */
+export function applyToFamily(model: StructuralModel, instanceId: InstanceId): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst) return block;
+    const target = block.components.find((c) => c.id === inst.componentId);
+    if (!target) return block;
+    const fam = componentFamily(inst.componentId);
+    const inFamily = (cid: ComponentId): boolean => componentFamily(cid) === fam;
+    const members = block.instances.filter((i) => inFamily(i.componentId));
+    if (members.length < 2) return block;
+    // Already on one component with nothing overriding it → genuinely nothing to do. Returning a fresh
+    // model here would push a no-op onto the undo stack, so the master's ↩ would appear to do nothing.
+    if (members.every((i) => i.componentId === target.id && i.link !== "detached")) return block;
+    changed = true;
+    // link/partIds reset: a member carrying a detached override would otherwise keep overriding the
+    // component it was just re-pointed at, and the master would see "applied" but nothing change.
+    const instances = block.instances.map((i) =>
+      inFamily(i.componentId) ? { ...i, componentId: target.id, link: "linked" as const, partIds: null } : i);
+    const used = new Set(instances.map((i) => i.componentId));
+    const components = block.components.filter((c) => used.has(c.id) || !inFamily(c.id));
+    return { ...block, components, instances };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
 export function setLoadBearing(
   model: StructuralModel,
   componentId: ComponentId,
