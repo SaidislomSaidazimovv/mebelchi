@@ -25,6 +25,31 @@ const D = 5600; // 560 mm
 const SPLIT = 3000; // vertical divider at 300 mm
 
 /** A two-column cabinet with three shelves. Fresh objects every call (no shared mutation). */
+/**
+ * An EMPTY document — a bare block with nothing in it.
+ *
+ * Every other entry point hands the master a finished cabinet, which is fine for editing one and wrong
+ * for building something that is not a cabinet: there was no way to start from nothing. The block still
+ * carries a `box`, because that box is what the free boards snap against and what the dimension bar
+ * edits — it is the working envelope, not a carcass. Default 1200×750×600, a table-sized volume.
+ */
+export function buildEmptyModel(w_mm = 1200, h_mm = 750, d_mm = 600): StructuralModel {
+  const box = {
+    x: 0, y: 0, z: 0,
+    w: Math.max(1, Math.round(w_mm)) * 10,
+    h: Math.max(1, Math.round(h_mm)) * 10,
+    d: Math.max(1, Math.round(d_mm)) * 10,
+  };
+  const root: Section = { id: "sec_root", box: { ...box }, dividers: [], children: [], instanceIds: [], purpose: null };
+  const block: Block = {
+    id: "blk", name: "Mebel", box, bare: true,
+    zones: [{ id: "z_body", name: "Korpus", rule: "manual", root }],
+    components: [], instances: [], lines: [], rows: [],
+    freeParts: [],
+  };
+  return { id: "empty", name: "Yangi loyiha", blocks: [block], parts: [] };
+}
+
 export function buildDemoModel(): StructuralModel {
   const line: Line = {
     id: "ln_mid",

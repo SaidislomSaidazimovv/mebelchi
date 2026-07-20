@@ -25,7 +25,7 @@ import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
 import { layoutBounds, layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
-import { snapBox, snapCandidates, snapSpan } from "../../../../engine/structure/snap.js";
+import { snapCandidates, snapSpan, type SnapCandidate } from "../../../../engine/structure/snap.js";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, type MaterialPlan } from "./materials";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
@@ -404,9 +404,21 @@ const SNAP_PULL = 400; // mm10
  */
 function freeSnapTargets(block: Block, excludeFreeId?: string): Box3D[] {
   const out: Box3D[] = [];
-  for (const z of block.zones) for (const sec of leafSections(z.root)) out.push(sec.box);
+  // Compartments are real surfaces to click against — but ONLY in a cabinet. In a BARE block the single
+  // root section is just the working envelope: an invisible box the master never drew. Offering its faces
+  // made them compete with real ones — a leg pushed up under a table top was pulled to the envelope's
+  // ceiling instead, and left floating clear of the floor.
+  if (!block.bare) for (const z of block.zones) for (const sec of leafSections(z.root)) out.push(sec.box);
   for (const f of block.freeParts ?? []) if (f.id !== excludeFreeId) out.push(f.box);
   return out;
+}
+
+/** Snap candidates for one axis: the boards/compartments above, plus the FLOOR — the one face of the
+ *  envelope that is physically real, so a board can always be set down on the ground. */
+function freeSnapCandidates(block: Block, axis: "x" | "y" | "z", excludeFreeId?: string): SnapCandidate[] {
+  const cands = snapCandidates(freeSnapTargets(block, excludeFreeId), axis);
+  if (axis === "y") cands.push({ at: 0, kind: "edge" });
+  return cands;
 }
 
 /** U3.3 fix — keep a free board's box sane relative to its block `B` so a drag/resize can never explode the
@@ -703,7 +715,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const pick = (b: XBox, hi: boolean) => (axis === "x" ? (hi ? b.x + b.w : b.x) : axis === "y" ? (hi ? b.y + b.h : b.y) : hi ? b.z + b.d : b.z);
       const size = pick(fp.box, true) - pick(fp.box, false);
       // same targets and same rule as the drop-snap — one magnet, not two that drift apart
-      const t = snapSpan(idealPos, size, snapCandidates(freeSnapTargets(block, fpId), axis), SNAP_PULL);
+      const t = snapSpan(idealPos, size, freeSnapCandidates(block, axis, fpId), SNAP_PULL);
       const delta = { x: 0, y: 0, z: 0 };
       delta[axis] = t.pos - pick(fp.box, false);
       if (delta[axis] !== 0) get().moveFreePart(fpId, delta, first);
@@ -717,7 +729,12 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!block?.freeParts) return;
       const fp = block.freeParts.find((f) => f.id === fpId);
       if (!fp) return;
-      const snapped = snapBox(fp.box, freeSnapTargets(block, fpId), SNAP_PULL);
+      // per-axis, so the floor candidate can join the Y axis only
+      const snapped = {
+        x: snapSpan(fp.box.x, fp.box.w, freeSnapCandidates(block, "x", fpId), SNAP_PULL).pos,
+        y: snapSpan(fp.box.y, fp.box.h, freeSnapCandidates(block, "y", fpId), SNAP_PULL).pos,
+        z: snapSpan(fp.box.z, fp.box.d, freeSnapCandidates(block, "z", fpId), SNAP_PULL).pos,
+      };
       if (snapped.x === fp.box.x && snapped.y === fp.box.y && snapped.z === fp.box.z) return; // already flush
       const model: StructuralModel = {
         ...s.model,

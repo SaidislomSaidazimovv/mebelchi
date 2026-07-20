@@ -14,7 +14,7 @@ import type { Box3D } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
-import { buildDemoModel, buildLCornerModel, buildTable } from "../../../../engine/structure/demoModel.js";
+import { buildDemoModel, buildEmptyModel, buildLCornerModel, buildTable } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008, solveModelToParts, defaultJointProfile } from "../../../../engine/cnc.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { kromkaMetersByVariable } from "../../../../engine/structure/features.js";
@@ -1333,6 +1333,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     <button style={popItem} onClick={() => { setSelMode("block"); setRpanel("none"); setMenu(null); }} type="button">⬛ Bloklarni guruhlash</button>
                   </>
                 )}
+                <div style={popSep} />
+                {/* Start from NOTHING. Every other entry hands over a finished cabinet, which is the
+                    wrong beginning for anything that is not a cabinet. */}
+                <button style={popItem} onClick={() => setModel(buildEmptyModel())} type="button">✦ Yangi — bo'sh</button>
                 <div style={popSep} />
                 <button style={popItem} onClick={() => setModel(buildDemoModel())} type="button">▢ Namuna: Тумба</button>
                 <button style={popItem} onClick={() => setModel(buildLCornerModel())} type="button">⌐ Namuna: L-burchak</button>
