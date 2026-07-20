@@ -458,7 +458,7 @@ export function buildGizmo(
   size: [number, number, number],
   // `axes` limits which arrows appear: a shelf spans its bay, so only its HEIGHT is really its own and
   // offering X/Z arrows would promise a move the solver would immediately undo.
-  opts: { resize?: boolean; rotate?: boolean; axes?: readonly ("x" | "y" | "z")[] } = {},
+  opts: { resize?: boolean; rotate?: boolean; axes?: readonly ("x" | "y" | "z")[]; biDir?: boolean } = {},
 ): THREE.Group {
   const withResize = opts.resize !== false; // a whole cabinet is move-only — it already resizes by face-drag
   const withRotate = opts.rotate !== false; // only a free board turns from its own gizmo (see KarkasEditor)
@@ -498,19 +498,25 @@ export function buildGizmo(
       g.add(handle, handleHit);
     }
     const base = a.half + hs * 1.8; // arrows begin past the handle (and past its hit proxy)
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftR, shaftR, shaftL, 12), mat());
-    shaft.quaternion.copy(q);
-    shaft.position.copy(a.dir).multiplyScalar(base + shaftL / 2);
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(coneR, coneH, 16), mat());
-    cone.quaternion.copy(q);
-    cone.position.copy(a.dir).multiplyScalar(base + shaftL + coneH / 2);
-    shaft.userData.gizmoAxis = a.axis; cone.userData.gizmoAxis = a.axis;
-    shaft.renderOrder = 1000; cone.renderOrder = 1000;
-    const arrowHit = new THREE.Mesh(new THREE.CylinderGeometry(coneR * 1.5, coneR * 1.5, shaftL + coneH, 8), hitMat());
-    arrowHit.quaternion.copy(q);
-    arrowHit.position.copy(a.dir).multiplyScalar(base + (shaftL + coneH) / 2);
-    arrowHit.userData.gizmoAxis = a.axis;
-    g.add(shaft, cone, arrowHit);
+    // A move arrow drawn only up the + direction reads as «this only goes up», which is wrong for a
+    // shelf: it slides both ways inside its bay. `biDir` mirrors the arrow so the gesture is honest.
+    for (const sign of opts.biDir ? [1, -1] : [1]) {
+      const dir = a.dir.clone().multiplyScalar(sign);
+      const rot = new THREE.Quaternion().setFromUnitVectors(up, dir);
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftR, shaftR, shaftL, 12), mat());
+      shaft.quaternion.copy(rot);
+      shaft.position.copy(dir).multiplyScalar(base + shaftL / 2);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(coneR, coneH, 16), mat());
+      cone.quaternion.copy(rot);
+      cone.position.copy(dir).multiplyScalar(base + shaftL + coneH / 2);
+      shaft.userData.gizmoAxis = a.axis; cone.userData.gizmoAxis = a.axis;
+      shaft.renderOrder = 1000; cone.renderOrder = 1000;
+      const arrowHit = new THREE.Mesh(new THREE.CylinderGeometry(coneR * 1.5, coneR * 1.5, shaftL + coneH, 8), hitMat());
+      arrowHit.quaternion.copy(rot);
+      arrowHit.position.copy(dir).multiplyScalar(base + (shaftL + coneH) / 2);
+      arrowHit.userData.gizmoAxis = a.axis;
+      g.add(shaft, cone, arrowHit);
+    }
   }
   // ROTATE ring — a horizontal hoop around the object; dragging it turns it about the vertical axis
   // (FreePart.rotY_deg for a board, Block.rotY_deg for a whole cabinet — both placement-only).
