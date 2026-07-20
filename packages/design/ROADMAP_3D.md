@@ -1,0 +1,101 @@
+# 3D Construction App — roadmap (small, verifiable steps)
+
+Task: `TASK_3D_CONSTRUCTION.md`. Law: `27_DESIGN_CONSTRUCTION_SEPARATION.md`.
+Foundation: `packages/render-spike/`. Engine: `packages/construction/` (read-only).
+
+**Working rules (every step obeys these):**
+- Before each step, re-read TASK + §27. Ask: *does this step ever set a panel directly?*
+  If yes, stop.
+- Never touch `packages/construction/**`, `engine/**`, `tests/**`, the render rules.
+- After each step: **watcher review** (diff vs the law) → **report to Saidislom** → next.
+- Small steps only. If a step can't be verified in one sitting, split it.
+
+Legend: ⬜ todo · 🔨 in progress · ✅ done (verified) · 👀 watcher-reviewed
+
+---
+
+## Phase 0 — Shared core (the seam that makes the 3 variants cheap)
+
+All three variants import this. Only the interaction layer will differ.
+
+| # | Step | Verify | State |
+|---|---|---|---|
+| 0.1 | Vite skeleton in `packages/design/`: 3 entry points (`main-a/b/c.ts`) + shared `index.html` per variant | `npm run build` produces 3 bundles | ✅ 👀 |
+| 0.2 | `core/designModel.ts` — `DesignProject`/`DesignNode` state + **pure** mutations: `resize`, `addShelf`, `addDivider`, `toggleDoor`. Types from `@mebelchi/construction/design`. | unit-free: a mutation returns a new tree, old tree unchanged | ✅ 👀 |
+| 0.3 | `core/decompose.ts` — call `panelDecomposition(design, profile)`, memoized on the design snapshot | logs N parts for a demo cabinet | ✅ 👀 |
+| 0.4 | `render/layout.ts` (0.4a) + `render/scene.ts` (0.4b) — layout by role/orientation, then instanced render driven by decompose output (NOT by hand) | a cabinet renders from a `DesignProject` | ✅ 👀 |
+| 0.5 | `render/overlay.ts` — fps + draw-call overlay (from render-spike) | overlay shows draws 1 / geom 1 | ✅ 👀 |
+| 0.6 | `core/undo.ts` — snapshot the **design**, not parts; undo/redo restores it | undo returns the exact previous tree | ✅ 👀 |
+| 0.7 | Phase gate: one cabinet, renders via decompose, ≥30fps, one build opens | all 3 variants render, 0 errors, draws 1 / geom 1, fps green. **agy review now.** | ✅ |
+
+**Deliverable:** a static build that shows one cabinet from a DesignProject. No editing yet.
+
+---
+
+## Phase 1 — Variant A · Direct-manipulation handles
+
+Edit by grabbing handles on the 3D.
+
+| # | Step | Verify | State |
+|---|---|---|---|
+| 1.1 | Selection: tap a panel → `provenance[part.id].nodeId` → highlight the node | tap logs the right nodeId | ✅ 👀 |
+| 1.2 | Resize handle: drag → mutate node `size` → re-decompose → **matrices only** | width changes, `geometries` count constant | ✅ 👀 |
+|  | ↳ Watcher 0.4b #2: `setPanels` re-stamps ALL matrices per call. For a live drag, add a targeted update (only the changed cabinet's panels, like the spike's `applyWidth`) so drag cost is O(changed), not O(all). Do it here. | — | ⬜ |
+|  | ↳ Watcher 0.5 #1: call `metrics.reset()` at drag START so the headline FPS reflects the edit being tested, not the preceding idle-orbit mean (the founder's "≥30 fps during every edit" bar). | — | ⬜ |
+|  | ↳ Watcher 1.1 note: do NOT route drag frames through `commit` (one undo entry + full engine per frame). Use a PREVIEW path — live rerender WITHOUT `history.push` during the drag, then `commit` a single snapshot on pointerup. The `rerender`/`commit` split already supports this. Call controller methods as `app.method()` ( `this` binding). | — | ⬜ |
+| 1.3 | Add shelf / divider / door via on-3D affordances | each appears, priced from the profile | ✅ 👀 |
+| 1.4 | Undo wired to the gizmo edits | undo steps back exactly | ✅ 👀 |
+| 1.5 | Build URL A · watcher + agy review · report | founder can open on Redmi | 🔨 build ✅ · watcher ✅ · agy pending · deploy deferred to A/B/C |
+
+---
+
+## Phase 2 — Variant B · Tap-then-numpad
+
+Same edits, same data. Tap a panel, type the number.
+
+| # | Step | Verify | State |
+|---|---|---|---|
+| 2.1 | Reuse core + render + selection from Phase 0/1 | no engine/render change | ✅ (main-b: startApp+createActionBar, zero core change) |
+| 2.2 | Tap panel → numeric pad → set node size by number | width set by typing | ✅ (numpad.ts: W/H/D chips + keypad → resize→commit) |
+| 2.3 | Add shelf/divider/door from a menu | same result as A | ✅ (shared action bar; +Polka works in B) |
+| 2.4 | Undo | steps back | ✅ (shared bar undo/redo; Boʻyi 800→720 reverts) |
+| 2.5 | Build URL B · watcher + agy review · report | Redmi | 🔨 build ✅ · watcher ✅ (no blockers) · agy pending · deploy deferred to A/B/C |
+|  | ↳ Watcher B #3 (cosmetic, deferred): the 210px top-right numpad panel occludes the canvas corner while visible — a panel directly beneath it can't be tapped there (orbit to reach). Founder judges UI feel across variants; "don't mind the UI now". Revisit if it bites the compare. | — | ⬜ |
+
+---
+
+## Phase 3 — Variant C · Line/seam dragging
+
+Same edits. Drag the seams between compartments.
+
+| # | Step | Verify | State |
+|---|---|---|---|
+| 3.1 | Reuse core + render + selection | no engine/render change | ✅ (main-c: startApp+createActionBar, shared core unchanged) |
+| 3.2 | Draw seam handles between compartments; drag a seam → re-flow via division rules | compartments resize | ✅ (seam.ts: grab divider → setDivision fixed mm; layout honours it; grab side → resize) |
+| 3.3 | Add shelf/divider/door by tapping a seam/zone | same result | ✅ (shared action bar; +Toʻsiq then drag the seam) |
+| 3.4 | Undo | steps back | ✅ (shared bar undo; divider X reverts to centre) |
+| 3.5 | Build URL C · watcher + agy review · report | Redmi | ✅ build · watcher ✅ · **agy ✅ ("TO'LIQ TAYYOR", all 3 variants deploy-ready)** · deploy next |
+|  | ↳ Watcher C #3 (CROSS-FILE, deferred by user — Variant A is agy-approved, do not touch): `resize.ts:99,116` (Variant A) still uses `((world.x-startX)/mmScale)*10` — the 10× over-sensitivity Variant C moved away from. A's drag feels ~10× twitchier than C's. Founder-facing inconsistency for the Redmi compare; fix = drop the `*10` in resize.ts if/when the founder OKs touching A. | — | ⬜ |
+|  | ↳ Watcher C #2 (minor): seam side-drag always maps drag-right → widen regardless of which outer seam is grabbed (left side feels inverted) — same width-only simplification as Variant A. | — | ⬜ |
+|  | ↳ Watcher C #1/#4 (notes): `mmPerPx` sampled once at grab, drifts slightly during a side resize (preview still tracks); single-cabinet assumption (xOffset 0) documented in seam.ts header. | — | ⬜ |
+
+---
+
+## After all three
+
+- Founder opens A / B / C on the Redmi, picks one.
+- Losers deleted. No PR merges until he picks (DB/29 §4 Way 3).
+- X-ray holes stay empty until the founder wires primitives into the decomposer
+  (his seam work, DB/30) — expected, not a bug.
+
+## Progress log (append one line per completed step)
+
+- 2026-07-17 · Phase 0 setup: engine placed at `packages/construction` (Option A), brief written.
+- 2026-07-17 · Phase 0 COMPLETE (0.1–0.7): shared core done — design model, decompose bridge, layout, instanced render, fps/draw-call overlay, undo/redo. All watcher-reviewed, all fixes applied. Gate: 3 variants render one cabinet, 0 errors, draws 1 / geom 1, fps green. Ready for agy phase review, then Phase 1 (Variant A).
+- 2026-07-17 · Phase 1.1 — tap-to-select + highlight (nodeId, not part id). Watcher-reviewed. Commit 828a095.
+- 2026-07-17 · Phase 1.2 — Variant A resize by direct manipulation (preview-during-drag, one commit on release). Watcher-reviewed. Commit c6a56ab (scene.ts support committed later with 1.3 — c6a56ab alone was missing it).
+- 2026-07-17 · Phase 1.3 — add shelf/divider/door via on-screen action bar; findCabinetOf targets owning cabinet by nodeId; geom stays 1 on add. Watcher-reviewed, no blockers. Commit a8f1a9c.
+- 2026-07-17 · Phase 1.4 — undo/redo buttons wired to History; app.undo/redo rerender + emitChange so bar refreshes. In-browser: undo steps back exactly, geom stays 1, 0 errors. Watcher-reviewed, no blockers. Commit 47c5595.
+- 2026-07-17 · Phase 1.5 — clean production build (a/b/c.html); phase-gate smoke test on dist (select+resize+add+undo+redo: FPS 44 green, draws 1, geom 1, 0 errors). Holistic watcher (integration): gesture compose, stale-selection, preview/commit, dispose, law — all pass, no blockers. Two minors FIXED: (#1) shared app.pointerConsumed flag — a variant's drag claims the pointer so tap-select skips the release, closing the dead-zone/tap-threshold overlap for ALL variants (C reuses it); (#2) dispose teardown loop wrapped in try/catch. Verified: tap select+deselect+reselect and resize all work post-fix, 0 errors. URL deploy DEFERRED — founder opens A/B/C together after Phases 2–3. Phase 1 agy-reviewed: PASS ("TO'LIQ TAYYOR" for Phase 2).
+- 2026-07-18 · Phase 3 COMPLETE — Variant C (line/seam dragging). seam.ts: grab a DIVIDER (inner seam) → drag → setDivision {fixed mm} → layout.ts places it there (position is app-owned per header + CONTRACT_NOTES); grab a SIDE (outer seam) → resize width. Adds/undo via shared bar. New pure setDivision mutation; layout divider branch reads fixed Division (backward-compatible even-spread fallback → A/B render bit-identical). Two REAL bugs found+fixed while building: (a) the drag conversion had a 10× over-scale (inherited from resize.ts) that slammed the divider into the wall on the first pixel; (b) a camera-facing plane inverted screen→world X. Replaced with screen-axis mapping (project the cabinet's X axis to screen; mmPerPx = cabW/span) — direction and scale both correct, seam tracks the finger. Watcher: NO blockers. Verified in-browser: divider drags right/left correctly, green highlight, undo reverts to centre, side-drag widens, geom 1, FPS 49, 0 errors. FINDING (deferred by user): resize.ts (Variant A, agy-approved — NOT touched) has the same 10× over-sensitivity; logged for the founder. agy phase-review pending. All 3 variants now built → next is DEPLOY A/B/C together (3 URLs for the Redmi).
+- 2026-07-17 · Phase 2 COMPLETE — Variant B (tap-then-numpad). numpad.ts: W/H/D chips + on-screen keypad → type mm → OK → resize→commit (one OK = one undo entry, no per-digit commits). Adds + undo/redo via the SHARED action bar (app.ts/designModel/actionbar reused with ZERO change — architecture bet validated). Watcher: no blockers; two minors FIXED via one change — onChange now clears a half-typed entry so an external undo/redo/select can't leave stale digits and OK always reads the committed value (#1+#2). #3 (panel occludes canvas corner) deferred as cosmetic. Verified in-browser: type 900→OK (geom 1), switch dim, undo reverts + clears half-entry, +Polka works in B, FPS 48, draws 1, 0 errors. agy phase-review pending (user action). Next: Phase 3 (Variant C — line/seam drag).

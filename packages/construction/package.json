@@ -1,0 +1,17 @@
+{
+  "name": "@mebelchi/construction",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The construction world (DB/29 §3 Option A): ConstructionProfile + panelDecomposition + engine. Owned by the founder, PR-gated. The design world reads it; never writes it.",
+  "main": "engine/index.ts",
+  "exports": {
+    ".": "./engine/index.ts",
+    "./design": "./engine/contracts/design.ts",
+    "./profiles": "./engine/catalogs/profiles.ts",
+    "./decompose": "./engine/solver/panelDecomposition.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
