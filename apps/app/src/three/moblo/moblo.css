@@ -509,6 +509,25 @@
 .mob-ar-title { font-size: 16px; }
 .mob-ar-text { font-size: 13.5px; line-height: 1.5; color: var(--mob-muted); }
 .mob-ar-note { font-size: 11.5px; color: var(--mob-faint); }
+/* ── Mobile property bar — the selected part's own fields, always on screen ──
+   Sits just above the bottom dims bar and scrolls sideways when a part has several fields, so it never
+   pushes the 3D view around or wraps onto a second line. */
+.mob-props {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 118px; z-index: 61;
+  display: flex; align-items: center; gap: 10px;
+  max-width: 94vw; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  padding: 7px 12px; border-radius: 12px;
+  background: var(--mob-surface); border: 1px solid var(--mob-border);
+  box-shadow: var(--mob-shadow-sm); white-space: nowrap;
+}
+.mob-props::-webkit-scrollbar { display: none; }
+.mob-props-name {
+  font: 700 12px Inter, system-ui, sans-serif; color: var(--mob-accent);
+  padding-right: 10px; border-right: 1px solid var(--mob-border); flex: none;
+}
+.mob-props-f { display: flex; align-items: center; gap: 6px; flex: none; }
+.mob-props-f > span { font: 600 11px Inter, system-ui, sans-serif; color: var(--mob-muted); }
+
 .mob-ar-err { font-size: 12.5px; color: #a01a2e; background: #fbe4e8; border-radius: 8px; padding: 8px 10px; }
 /* Device's own WebXR report — folded away by default; only opened when we ask for it. */
 .mob-ar-diag { font-size: 12.5px; border: 1px solid var(--mob-border); border-radius: 8px; padding: 8px 10px; }

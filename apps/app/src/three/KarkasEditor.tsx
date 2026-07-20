@@ -142,6 +142,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setRunMemberRule = useKarkas((s) => s.setRunMemberRule);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
+  const rotateBlockTo = useKarkas((s) => s.rotateBlockTo);
   const duplicateSelected = useKarkas((s) => s.duplicateSelected);
   const applyToAllIdentical = useKarkas((s) => s.applyToAllIdentical);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -310,6 +311,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const nestDrawerInSelected = useKarkas((s) => s.nestDrawerInSelected);
   const setDrawerHeight = useKarkas((s) => s.setDrawerHeight);
   const drawerHeightMm = useKarkas((s) => s.selectedDrawerHeight());
+  /**
+   * What the mobile property bar shows for the current selection, or null when it should not appear.
+   * Hoisted out of the JSX because the zone pill-row has to move up to make room for it — the two sat
+   * at the same height and overlapped.
+   */
+  const mobileProps = useMemo(() => {
+    if (!(tab === "build" && compact && !toolsOpen && selectedId && !selFreeBoard && rpanel === "none")) return null;
+    if (selComp) return { comp: selComp, blk: null };
+    const isCarcass = (parts.find((p) => p.id === selectedId)?.role ?? "").startsWith("carcass") && !selectedId.includes("__div_");
+    const blk = isCarcass ? blockOfPart(model, selectedId) : null;
+    return blk ? { comp: null, blk } : null;
+  }, [tab, compact, toolsOpen, selectedId, selFreeBoard, rpanel, selComp, parts, model]);
   const setThickness = useKarkas((s) => s.setThickness);
   const setAngle = useKarkas((s) => s.setAngle);
   const shelfMaxAngle = useKarkas((s) => s.selectedShelfMaxAngle());
@@ -1003,7 +1016,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const r2 = resolveInstanceIdOfPart(st.model, selectedId);
         if (r2) {
           // A shelf spans its bay — X and Z come from the section, so HEIGHT is the only honest handle.
-          r.gizmoGroup = buildGizmo(bd.pos, bd.size, { resize: false, rotate: false, axes: ["y"] });
+          r.gizmoGroup = buildGizmo(bd.pos, bd.size, { resize: false, rotate: false, axes: ["y"], biDir: true });
           r.gizmoGroup.userData.target = { kind: "shelf", id: r2 };
         }
       } else if (bd && role.startsWith("carcass")) {
@@ -1057,7 +1070,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
       const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
       r.controls.target.copy(ctr);
-      r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z + dist * 0.95);
+      // Stand in FRONT of the cabinet (−Z). The back panel sits at +Z, so framing from +Z showed the
+      // master the closed back: a tap in the middle of the screen selected `__back`, and dividers and
+      // shelves could not be reached at all until they thought to orbit.
+      r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z - dist * 0.95);
       r.camera.lookAt(ctr);
       r.controls.update();
     }
@@ -1199,7 +1215,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
     const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
     r.controls.target.copy(ctr);
-    r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z + dist * 0.95);
+    r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z - dist * 0.95); // front (−Z), as above
     r.camera.lookAt(ctr);
     r.controls.update();
     r.framedKey = ""; // let the next bounds change reframe again
@@ -1707,8 +1723,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* Step 4 (v4 §4, fixture 04-shelf-ratios) — the ratio pill-row editor for the active divided
           section: one pill per zone (Ratio weight / Fixed mm / Flex ↔), edit a value → all zones reflow
           together; the chip cycles the rule; «＋» splits the last zone. Appears when a divider/zone is active. */}
+      {/* Stacked ABOVE the mobile property bar when that is showing — the two sat at the same height,
+          so the ratio pills vanished behind it. */}
       {tab === "build" && !(compact && (toolsOpen || rpanel !== "none")) && zoneRow && (selectedId || showDivide) && (
-        <div style={{ position: "fixed", bottom: compact ? 122 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(238,240,243,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
+        <div style={{ position: "fixed", bottom: compact ? (mobileProps ? 176 : 122) : 70, left: "50%", transform: "translateX(-50%)", zIndex: 59, background: "rgba(238,240,243,0.97)", borderRadius: 12, padding: "8px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 6, alignItems: "center", whiteSpace: "nowrap" }}>
           {zoneRow.zones.map((z, i) => (
             <Fragment key={z.id}>
               {i > 0 && <div style={{ width: 3, height: 34, borderRadius: 2, background: "#9aa6b2" }} />}
@@ -1740,6 +1758,49 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             style={{ padding: "5px 9px", borderRadius: 9, cursor: "pointer", border: activeKromka === null ? "2px solid #1f5570" : "1px solid #ddd", background: activeKromka === null ? "#eaf2f6" : "#fff", fontSize: 12, fontWeight: 600 }}>✕ Yo'q</button>
         </div>
       )}
+      {/* ── Mobile property bar ────────────────────────────────────────────────────────────────────
+          On a phone the ONLY always-visible fields were the cabinet's W/H/D chips: thickness, angle,
+          lip and drawer height lived inside the «Asboblar» sheet behind the ⋯ button, so a master had
+          to know to open it before he could change the part he had just tapped. This puts the fields
+          for the CURRENT selection on screen, scrolling sideways if there are several. It hides while
+          that sheet is open (the same fields are in there) and for a free board (which has its own
+          bar), so nothing is ever shown twice. */}
+      {mobileProps && (() => {
+        const { blk } = mobileProps;
+        return (
+          <div className="mob-props">
+            <span className="mob-props-name">{selComp?.name ?? "Shkaf"}</span>
+            {selComp && (
+              <label className="mob-props-f"><span>Qalinlik</span>
+                <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
+              </label>
+            )}
+            {selComp?.role === "internal_shelf" && (
+              <>
+                <label className="mob-props-f"><span>Burchak</span>
+                  <DimField label="°" value={selComp.angle_deg ?? 0} onCommit={setAngle} min={0} suffix="°" />
+                </label>
+                <label className="mob-props-f"><span>Bort</span>
+                  <DimField label="mm" value={Math.round((selComp.lip_mm10 ?? 0) / 10)} onCommit={setLip} min={0} />
+                </label>
+              </>
+            )}
+            {drawerHeightMm != null && (
+              <label className="mob-props-f"><span>Yashik b.</span>
+                <DimField label="mm" value={drawerHeightMm} onCommit={setDrawerHeight} min={50} units={units} />
+              </label>
+            )}
+            {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
+                menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
+                be nudged by accident while dragging something else. */}
+            {blk && (
+              <label className="mob-props-f"><span>Burilish</span>
+                <DimField label="°" value={Math.round(blk.rotY_deg ?? 0)} onCommit={(d) => rotateBlockTo(blk.id, ((d % 360) + 360) % 360, true)} min={0} suffix="°" />
+              </label>
+            )}
+          </div>
+        );
+      })()}
       {/* ── U3.3 — free-board editor: appears when a free board is selected (resize W/H/D · delete) ── */}
       {tab === "build" && !(compact && toolsOpen) && selFreeBoard && rpanel === "none" && (
         <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 62, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
