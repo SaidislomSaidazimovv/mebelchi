@@ -1680,6 +1680,51 @@ export function applyToFamily(model: StructuralModel, instanceId: InstanceId): S
   return changed ? { ...model, blocks } : model;
 }
 
+/**
+ * The two child sections a divider sits BETWEEN, with their extents along the divider's own axis.
+ *
+ * Dragging a divider is the one edit where the number that matters is not the thing being dragged but
+ * the two compartments either side of it — a master sizing a bay wants "480 | 620", not the line's
+ * absolute coordinate. A section lists its `dividers` in the same order as the `children` they split,
+ * so divider i separates child i from child i+1.
+ *
+ * Returns null when the line is unknown, or when the tree does not yet have both neighbours solved.
+ */
+export function lineNeighbours(
+  model: StructuralModel,
+  lineId: LineId,
+): { axis: Axis; before: Section; after: Section } | null {
+  const walk = (sec: Section): { axis: Axis; before: Section; after: Section } | null => {
+    const i = sec.dividers.indexOf(lineId);
+    if (i !== -1) {
+      const before = sec.children[i], after = sec.children[i + 1];
+      if (!before || !after) return null;
+      for (const block of model.blocks) {
+        const line = block.lines.find((l) => l.id === lineId);
+        if (line) return { axis: line.axis, before, after };
+      }
+      return null;
+    }
+    for (const child of sec.children) {
+      const hit = walk(child);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  for (const block of model.blocks) {
+    for (const zone of block.zones) {
+      const hit = walk(zone.root);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+/** The extent of a box along one axis — the side a divider on that axis actually changes. */
+export function extentAlong(box: Box3D, axis: Axis): mm10 {
+  return axis === "x" ? box.w : axis === "y" ? box.h : box.d;
+}
+
 export function setLoadBearing(
   model: StructuralModel,
   componentId: ComponentId,

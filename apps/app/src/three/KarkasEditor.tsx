@@ -3,13 +3,15 @@
 // the 3D group when the model changes and re-tints on selection change; taps write back to the
 // store. Opened as a focused overlay from the Biblioteka (Phase 3.3) or the /#karkas dev route —
 // entirely parallel to the kitchen constructor, which it never touches.
-import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
+import type { Box3D } from "../../../../engine/contracts/structure";
+import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
 import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
@@ -19,7 +21,7 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, buildGizmo, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
@@ -62,6 +64,9 @@ interface RT {
   holeGroup: THREE.Group | null; // «Teshiklar» — drill-hole markers, toggled on/off
   kromkaGroup: THREE.Group | null; // Step 8.2 — coloured banded-edge lines, shown in Frame view
   ghostGroup: THREE.Group | null; // Step 9 — Application-view ghost props (boiler / clothes / …)
+  // Live 3D dimension lines, built on drag-start and torn down on pointer-up. A list because a divider
+  // drag needs TWO at once — the bay either side of it.
+  dimLines: DimLine[];
   raf: number;
   labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
   aabb: THREE.Box3 | null;
@@ -101,7 +106,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [rpanel, setRpanel] = useState<"none" | "add" | "material">("none"); // U2.3 right panel
   // #3 — tap-a-dimension math keypad: an usta-friendly calculator (600+18, 1200/2…) that opens on tapping
   // a W/H/D chip on mobile, so no fiddly native keyboard. `mm` is always in mm; the pad handles cm display.
-  const [keypad, setKeypad] = useState<{ label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void } | null>(null);
+  const [keypad, setKeypad] = useState<{ label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void; min?: number; suffix?: string } | null>(null);
   // AR — what this device can actually do (WebXR is Android-only in practice), plus the last failure so
   // a refused session tells the usta WHY instead of doing nothing.
   const [arSupport, setArSupport] = useState<ArSupport>("checking");
@@ -538,7 +543,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
     const grid = makeGrid("light"); scene3.add(grid); // U2.1b — Moblo floor grid (theme-swapped by the effect below)
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, ghostGroup: null, raf: 0, labels, aabb: null, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
+    // dev-only: expose the three runtime so local tooling (puppeteer) can assert on the SCENE GRAPH — a
+    // 3D overlay like the dimension line has no DOM to query. Stripped from prod builds, like __karkas.
+    if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+      (globalThis as unknown as { __karkas3d: unknown }).__karkas3d = rt.current;
+    }
 
     const raycaster = new THREE.Raycaster();
     const ndc = (e: PointerEvent) => {
@@ -559,6 +569,47 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       | { kind: "blockmove"; blockId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
       | { kind: "gizmorotate"; target: "free" | "block"; id: string; centre: THREE.Vector3; plane: THREE.Plane; startAng: number; startDeg: number; first: boolean }
       | null = null;
+    // ── live 3D dimension line ──────────────────────────────────────────────────────────────────────
+    // Where the figure hangs: alongside the axis being measured, pushed just OUTSIDE the box (front and
+    // below/right), so the shaft never disappears inside the panel it is measuring.
+    const dimEnds = (
+      c: readonly [number, number, number],
+      s: readonly [number, number, number],
+      axis: "x" | "y" | "z",
+    ): [[number, number, number], [number, number, number]] => {
+      const o = 0.035; // clearance from the surface (m)
+      const [cx, cy, cz] = c, [sx, sy, sz] = s;
+      if (axis === "x") {
+        const y = cy - sy / 2 - o, z = cz + sz / 2 + o;
+        return [[cx - sx / 2, y, z], [cx + sx / 2, y, z]];
+      }
+      if (axis === "y") {
+        const x = cx + sx / 2 + o, z = cz + sz / 2 + o;
+        return [[x, cy - sy / 2, z], [x, cy + sy / 2, z]];
+      }
+      const x = cx + sx / 2 + o, y = cy - sy / 2 - o;
+      return [[x, y, cz - sz / 2], [x, y, cz + sz / 2]];
+    };
+    const showDim = (
+      slot: number,
+      centre: readonly [number, number, number],
+      size: readonly [number, number, number],
+      axis: "x" | "y" | "z",
+      label: string,
+    ): void => {
+      const r = rt.current;
+      if (!r) return;
+      let dl = r.dimLines[slot];
+      if (!dl) { dl = createDimLine(); r.dimLines[slot] = dl; r.scene.add(dl.group); }
+      const [from, to] = dimEnds(centre, size, axis);
+      dl.update(from, to, label);
+    };
+    const hideDim = (): void => {
+      const r = rt.current;
+      if (!r) return;
+      for (const dl of r.dimLines) { r.scene.remove(dl.group); dl.dispose(); }
+      r.dimLines = [];
+    };
     const alongAxis = (e: PointerEvent, axis: "x" | "y" | "z", plane: THREE.Plane): number | null => {
       raycaster.setFromCamera(ndc(e), camera);
       const pt = new THREE.Vector3();
@@ -575,10 +626,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       const gz = rt.current?.gizmoGroup;
       const gTarget = gz?.userData.target as { kind: "free" | "block"; id: string } | undefined;
       if (gz && gTarget) {
-        // The rotate hoop necessarily crosses the +X / +Z arrows, so give it PRIORITY among the hits —
-        // its band is narrow, leaving most of each arrow grabbable (how real gizmos disambiguate).
+        // Pick order: RESIZE HANDLE → ROTATE RING → arrow. The ring needs priority over the ARROWS,
+        // because the hoop necessarily crosses the long +X / +Z shafts and the shaft would otherwise
+        // always win. It must NOT outrank the resize handles: the hoop is a closed loop that a ray aimed
+        // square at a handle also pierces (near side or far), and letting that win meant grabbing the +X
+        // handle started a ROTATE instead of a resize. The handles are the smallest, most deliberate
+        // targets on the gizmo, so they outrank everything.
         const gHits = raycaster.intersectObjects(gz.children, false);
-        const gHit = gHits.find((h) => h.object.userData.rotateAxis === "y") ?? gHits[0];
+        const gHit = gHits.find((h) => h.object.userData.resizeAxis)
+          ?? gHits.find((h) => h.object.userData.rotateAxis === "y")
+          ?? gHits[0];
         const rAxis = gHit?.object.userData.resizeAxis as "x" | "y" | "z" | undefined; // handle cube → resize
         const mAxis = gHit?.object.userData.gizmoAxis as "x" | "y" | "z" | undefined; // arrow → move
         // ring → rotate about the vertical axis: track the pointer's bearing around the gizmo centre
@@ -712,9 +769,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const step = e.shiftKey ? 10 : 50; // mm10 (1 mm / 5 mm)
         const next = Math.max(30, Math.round((drag.startSize + Math.round((cur - drag.start) * 10000)) / step) * step);
         const dim = drag.axis === "x" ? "w" : drag.axis === "y" ? "h" : "d";
-        useKarkas.getState().resizeFreeBoard(drag.fpId, dim, Math.round(next / 10), drag.first);
+        // read these out BEFORE the store calls: `drag` is a mutable capture, so TS drops the narrowing
+        // the moment any function that could reassign it runs.
+        const { fpId, axis } = drag;
+        useKarkas.getState().resizeFreeBoard(fpId, dim, Math.round(next / 10), drag.first);
         drag.first = false;
-        measureRef.current({ dim, mm: Math.round(next / 10) }); // a SIZE readout (no `move` flag)
+        const mm = Math.round(next / 10);
+        measureRef.current({ dim, mm }); // a SIZE readout (no `move` flag)
+        // the board has just been re-solved, so read its NEW box rather than extrapolating the drag
+        const bd = useKarkas.getState().scene.boards.find((x) => x.id.endsWith(`__free_${fpId}`));
+        if (bd) showDim(0, bd.pos, bd.size, axis, `${mm} mm`);
         return;
       }
       // gizmos — move the WHOLE cabinet along one axis, clicking FLUSH to a neighbouring cabinet (or the
@@ -737,16 +801,45 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const raw = Math.round((cur - drag.last) * 10000);
         const snapped = Math.round(raw / step) * step; // emit whole grid steps → the divider clicks to 5 mm
         if (snapped !== 0) { useKarkas.getState().moveLine(drag.lineId, snapped, "line", drag.first); drag.first = false; drag.last += snapped / 10000; }
+        // Live measure for a divider: the number that matters is the BAY EITHER SIDE, not the line's own
+        // coordinate — so draw a dimension figure across each neighbouring compartment.
+        const n = lineNeighbours(useKarkas.getState().model, drag.lineId);
+        if (n) {
+          const M = (v: number) => v / 10000; // mm10 → metres
+          const bx = (b: Box3D): [[number, number, number], [number, number, number]] => [
+            [M(b.x + b.w / 2), M(b.y + b.h / 2), M(b.z + b.d / 2)],
+            [M(b.w), M(b.h), M(b.d)],
+          ];
+          [n.before, n.after].forEach((sec, i) => {
+            const [c, s2] = bx(sec.box);
+            showDim(i, c, s2, n.axis, `${Math.round(extentAlong(sec.box, n.axis) / 10)} mm`);
+          });
+          measureRef.current(null); // the two figures ARE the readout; a pill would repeat them
+        }
       } else {
         // absolute extent = start extent + outward drag distance (world m → mm10 ×10000), min-side inverted
         const raw = drag.startExtent + drag.sign * Math.round((cur - drag.startWorld) * 10000);
         const nextExtent = Math.round(raw / step) * step; // snap the absolute extent to the grid
         if (Math.abs(nextExtent - drag.startExtent) >= 1) { useKarkas.getState().resizeDrag(drag.dim, nextExtent, drag.first); drag.first = false; }
-        measureRef.current({ dim: drag.dim, mm: Math.round(nextExtent / 10) }); // #4 — live measure readout
+        const mm = Math.round(nextExtent / 10);
+        measureRef.current({ dim: drag.dim, mm }); // #4 — live measure readout
+        // …and the same figure drawn ON the cabinet, read off the block box the resize just produced
+        const stt = useKarkas.getState();
+        const blk = blockOfPart(stt.model, stt.selectedId);
+        if (blk) {
+          const M = (v: number) => v / 10000; // mm10 → metres (the scale layoutToScene uses)
+          showDim(
+            0,
+            [M(blk.box.x + blk.box.w / 2), M(blk.box.y + blk.box.h / 2), M(blk.box.z + blk.box.d / 2)],
+            [M(blk.box.w), M(blk.box.h), M(blk.box.d)],
+            drag.axis,
+            `${mm} mm`,
+          );
+        }
       }
     };
     const onUp = (e: PointerEvent) => {
-      if (drag) { if (drag.kind === "freemove") useKarkas.getState().snapFreePart(drag.fpId); drag = null; controls.enabled = true; measureRef.current(null); return; } // finished a move / resize (free board snaps to a face)
+      if (drag) { if (drag.kind === "freemove") useKarkas.getState().snapFreePart(drag.fpId); drag = null; controls.enabled = true; measureRef.current(null); hideDim(); return; } // finished a move / resize (free board snaps to a face)
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return; // a camera orbit, not a tap
       raycaster.setFromCamera(ndc(e), camera);
       // Step 7c — a tap on a drill marker selects that individual hole (markers sit proud of the face)
@@ -818,6 +911,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.grid) { rt.current.grid.geometry.dispose(); (rt.current.grid.material as THREE.Material).dispose(); }
       if (rt.current?.sectionGroup) disposeStructureGroup(rt.current.sectionGroup);
       if (rt.current?.gizmoGroup) disposeStructureGroup(rt.current.gizmoGroup);
+      for (const dl of rt.current?.dimLines ?? []) dl.dispose(); // a drag can be interrupted by an unmount
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
       if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
       if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
@@ -878,7 +972,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         r.gizmoGroup = buildGizmo(bd.pos, bd.size);
         r.gizmoGroup.userData.target = { kind: "free", id: selectedId.slice(selectedId.indexOf("__free_") + "__free_".length) };
       }
-    } else if (selectedId && (st.parts.find((p) => p.id === selectedId)?.role ?? "").startsWith("carcass")) {
+    } else if (
+      selectedId
+      && (st.parts.find((p) => p.id === selectedId)?.role ?? "").startsWith("carcass")
+      // …but NOT a divider. A divider's part role is `carcass_side`, so it used to raise the whole-cabinet
+      // gizmo, whose rotate ring then swallowed the pointer — pressing a selected divider TURNED THE
+      // CABINET instead of moving the divider, killing the divider drag entirely. A divider has its own
+      // gesture and needs no gizmo.
+      && !selectedId.includes("__div_")
+    ) {
       // a CARCASS panel — the whole cabinet gets MOVE arrows (it already resizes by dragging a face), so
       // several cabinets can be laid out freely instead of only tiled by grouping.
       const blk = blockOfPart(st.model, selectedId);
@@ -1160,6 +1262,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const activeBlock = blockOfPart(model, selectedId);
   const dims = activeBlock ? { w: Math.round(activeBlock.box.w / 10), h: Math.round(activeBlock.box.h / 10), d: Math.round(activeBlock.box.d / 10) } : sceneDimsMm(scene);
   return (
+    <KeypadCtx.Provider value={compact ? (o) => setKeypad(o) : null}>
     <div className="mob-root" data-theme={theme}>
       {/* ── U2.1 — Moblo top bar (home · document · tabs · theme · menu) ── */}
       <header className="mob-topbar">
@@ -1236,7 +1339,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       )}
 
       {/* #3 — math keypad: tap a W/H/D chip on mobile to enter a size with a calculator (600+18, 1200/2…) */}
-      {keypad && <MathKeypad label={keypad.label} value={keypad.value} units={keypad.units} onCommit={keypad.onCommit} onClose={() => setKeypad(null)} />}
+      {keypad && <MathKeypad label={keypad.label} value={keypad.value} units={keypad.units} min={keypad.min} suffix={keypad.suffix} onCommit={keypad.onCommit} onClose={() => setKeypad(null)} />}
 
       {/* #4 — live readout: SIZE while resizing a face · MOVE (displacement) while dragging a gizmo arrow.
           The two are labelled distinctly so a gizmo move never reads like a dimension change. */}
@@ -1264,6 +1367,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             </div>
           );
         }
+        // A SIZE readout now has a real dimension line drawn on the model itself, so repeating the number
+        // in a pill (on top of the persistent block-dim chips) put the same «1365» on screen three times.
+        // Move and rotate keep their pill — neither draws a figure in the scene.
+        if (rt.current?.dimLines.length) return null;
         const arrow = measure.dim === "w" ? "↔" : measure.dim === "h" ? "↕" : "⤢";
         const label = measure.dim === "w" ? "Eni" : measure.dim === "h" ? "Bo'yi" : "Chuqurligi";
         return (
@@ -1756,7 +1863,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           {selComp.role === "internal_shelf" && (
             <>
               <span style={mono}>Burchak:</span>
-              <DimField label="°" value={selComp.angle_deg ?? 0} onCommit={setAngle} min={0} />
+              <DimField label="°" value={selComp.angle_deg ?? 0} onCommit={setAngle} min={0} suffix="°" />
               {shelfMaxAngle != null && <span style={{ ...mono, opacity: 0.55, fontSize: 11 }} title="Bu bo'yga sig'adigan eng katta burchak">max {shelfMaxAngle}°</span>}
               {/* Display shelf (imos CP_O_1_Angle_Shelf): front lip/border height in mm — 0 = tekis */}
               <span style={mono}>Bort:</span>
@@ -1965,6 +2072,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         {showSpec && <SpecPanel onClose={() => setActivePanel(null)} />}
       </div>
     </div>
+    </KeypadCtx.Provider>
   );
 }
 
@@ -2046,7 +2154,16 @@ function JointDiagram({ profile }: { profile: JointProfile }) {
   );
 }
 
-function DimField({ label, value, onCommit, min = 1, units = "mm" }: { label: string; value: number; onCommit: (mm: number) => void; min?: number; units?: "mm" | "cm" }) {
+/**
+ * How a numeric field asks for the math keypad. Supplied by the editor only on MOBILE — on desktop the
+ * fields keep their normal typing behaviour. Routed through context rather than a prop so EVERY DimField
+ * gets the keypad (there are a dozen-plus of them, and any new one should not have to remember).
+ */
+const KeypadCtx = createContext<null | ((o: {
+  label: string; value: number; units: "mm" | "cm"; min: number; suffix?: string; onCommit: (v: number) => void;
+}) => void)>(null);
+
+function DimField({ label, value, onCommit, min = 1, units = "mm", suffix }: { label: string; value: number; onCommit: (mm: number) => void; min?: number; units?: "mm" | "cm"; suffix?: string }) {
   // `value`/`onCommit` are always in mm; `units="cm"` only changes the display + parse (÷/×10). Fields
   // that aren't lengths (angle °, count) never pass `units`, so they keep their integer-mm behaviour.
   const toDisp = (mm: number) => (units === "cm" ? String(+(mm / 10).toFixed(1)) : String(mm));
@@ -2059,6 +2176,9 @@ function DimField({ label, value, onCommit, min = 1, units = "mm" }: { label: st
     if (Number.isFinite(mm) && mm >= min && mm !== value) onCommit(mm);
     else setV(toDisp(value)); // reject empty / below-min / unchanged
   };
+  // On mobile the field is a keypad TRIGGER, not a text box: readOnly so no caret and no native keyboard
+  // (which would cover the model and cannot do 600+18 anyway).
+  const openKeypad = useContext(KeypadCtx);
   return (
     <label style={dimField}>
       <span style={dimLabel}>{label}</span>
@@ -2066,8 +2186,10 @@ function DimField({ label, value, onCommit, min = 1, units = "mm" }: { label: st
         style={dimInput}
         value={v}
         inputMode="decimal"
+        readOnly={!!openKeypad}
+        onClick={openKeypad ? () => openKeypad({ label, value, units, min, suffix, onCommit }) : undefined}
         onChange={(e) => setV(e.target.value.replace(/[^\d.,]/g, ""))}
-        onBlur={commit}
+        onBlur={openKeypad ? undefined : commit}
         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
       />
     </label>
@@ -2345,7 +2467,11 @@ function evalExpr(src: string): number | null {
 
 /** #3 — usta-friendly numeric keypad with + − × ÷. Opens over a tapped dimension; commits the evaluated
  *  result (in mm). Accepts on-screen taps AND the physical keyboard (digits / operators / Enter / ⌫ / Esc). */
-function MathKeypad({ label, value, units, onCommit, onClose }: { label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void; onClose: () => void }) {
+function MathKeypad({ label, value, units, onCommit, onClose, min = 1, suffix }: { label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void; onClose: () => void; min?: number; suffix?: string }) {
+  // `min` because not every field bottoms out at 1 — a corner radius or a shelf angle may legitimately be
+  // 0 (flat / square), and hard-coding 1 silently refused those. `suffix` because not every field is a
+  // length: the tilt field is degrees and must not read «mm».
+  const unitText = suffix ?? units;
   const toDisp = (mm: number) => (units === "cm" ? String(+(mm / 10).toFixed(1)) : String(mm));
   const [expr, setExpr] = useState(toDisp(value));
   const [fresh, setFresh] = useState(true); // first digit replaces the prefilled value; an operator keeps it
@@ -2360,7 +2486,7 @@ function MathKeypad({ label, value, units, onCommit, onClose }: { label: string;
   const ok = () => {
     if (preview === null) return;
     const mm = units === "cm" ? Math.round(preview * 10) : Math.round(preview);
-    if (mm >= 1) onCommit(mm);
+    if (mm >= min) onCommit(mm);
     onClose();
   };
   useEffect(() => {
@@ -2382,7 +2508,7 @@ function MathKeypad({ label, value, units, onCommit, onClose }: { label: string;
         <div className="mob-kp-head"><span>{label}</span><button type="button" className="mob-x" onClick={onClose} aria-label="Yopish">×</button></div>
         <div className="mob-kp-display">
           <span className="mob-kp-expr">{expr || "0"}</span>
-          <span className="mob-kp-eq">{preview !== null && /[-+*/]/.test(expr) ? `= ${+preview.toFixed(2)} ${units}` : units}</span>
+          <span className="mob-kp-eq">{preview !== null && /[-+*/]/.test(expr) ? `= ${+preview.toFixed(2)} ${unitText}` : unitText}</span>
         </div>
         <div className="mob-kp-grid">
           {KEYS.map((k) => <button key={k} type="button" className={"mob-kp-key" + ("÷×−+".includes(k) ? " is-op" : "") + (k === "⌫" ? " is-back" : "")} onClick={() => send(k)}>{k}</button>)}

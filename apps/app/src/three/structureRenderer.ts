@@ -297,28 +297,123 @@ const GHOST_COLOR: Record<string, number> = {
  * holds (a cylinder for a boiler / appliance-ish box, a rail for hanging, stacked boxes for storage),
  * centred in the space and sized to ~70%. Purely illustrative for the client; never machined.
  */
+/** A tagged space's own dimensions (metres), local to its centre. */
+interface GhostSpace { w: number; h: number; d: number }
+
+/**
+ * Which silhouette a tagged space gets. The purpose alone is too coarse — a 2 m «hanging» space holds
+ * coats while a 0.6 m one holds shirts, and an «appliance» space is a fridge, an oven or a microwave
+ * depending on how big it is. Reading the size lets one tag produce the figure the master actually
+ * pictures, which is the whole point of the Application view.
+ */
+export function ghostVariant(purpose: string, s: GhostSpace): string {
+  if (purpose === "hanging") return s.h >= 1.0 ? "hanging_long" : "hanging_short";
+  if (purpose === "storage") return s.h >= 0.35 ? "storage_boxes" : "storage_baskets";
+  if (purpose === "appliance") return s.h >= 1.0 ? "appliance_fridge" : s.h >= 0.4 ? "appliance_oven" : "appliance_micro";
+  if (purpose === "display") return s.d >= 0.25 ? "display_plates" : "display_glasses";
+  return purpose; // boiler · drawer · structural have one form each
+}
+
+/**
+ * Step 9 / #19 — the ghost-prop silhouette library. Each figure is a small assembly of primitives
+ * (a body, a door, a handle) rather than one block, so a client can tell a fridge from an oven at a
+ * glance. Purely illustrative: never machined, never raycast (a ghost must not swallow a tap meant for
+ * the panel behind it), and always sized well inside its space so it cannot poke through the carcass.
+ */
 export function buildGhostProps(
   items: readonly { purpose: string; cx: number; cy: number; cz: number; w: number; h: number; d: number }[],
 ): THREE.Group {
   const g = new THREE.Group();
   for (const it of items) {
     const mat = new THREE.MeshStandardMaterial({ color: GHOST_COLOR[it.purpose] ?? 0x8892a0, transparent: true, opacity: 0.6, roughness: 0.75, metalness: 0 });
-    let mesh: THREE.Mesh;
-    if (it.purpose === "boiler") {
-      const r = Math.min(it.w, it.d) * 0.34;
-      mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, it.h * 0.82, 18), mat);
-    } else if (it.purpose === "hanging") {
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(it.w * 0.78, it.h * 0.08, it.d * 0.5), mat); // a rail near the top
-      mesh.position.set(it.cx, it.cy + it.h * 0.34, it.cz);
-      mesh.raycast = () => {};
-      g.add(mesh);
-      continue;
-    } else {
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(it.w * 0.72, it.h * 0.72, it.d * 0.72), mat);
+    const group = new THREE.Group();
+    group.position.set(it.cx, it.cy, it.cz);
+    const add = (geom: THREE.BufferGeometry, x = 0, y = 0, z = 0, rot?: [number, number, number]): void => {
+      const m = new THREE.Mesh(geom, mat);
+      m.position.set(x, y, z);
+      if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+      m.raycast = () => {}; // ghosts are scenery — taps must reach the cabinet behind them
+      group.add(m);
+    };
+    const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
+    const cyl = (r: number, h: number, seg = 16) => new THREE.CylinderGeometry(r, r, h, seg);
+    const { w, h, d } = it;
+    const half = h / 2;
+
+    switch (ghostVariant(it.purpose, it)) {
+      case "boiler": { // tank + the flue and feed pipes that make it read as a boiler, not a barrel
+        const r = Math.min(w, d) * 0.34;
+        add(cyl(r, h * 0.7, 18));
+        add(cyl(r * 0.16, h * 0.16, 10), 0, h * 0.43, 0);
+        add(cyl(r * 0.12, h * 0.14, 10), r * 0.55, -h * 0.42, 0);
+        break;
+      }
+      case "hanging_long": { // rail + full-length coats
+        add(cyl(h * 0.012, w * 0.78, 10), 0, half - h * 0.06, 0, [0, 0, Math.PI / 2]);
+        for (const x of [-w * 0.2, 0, w * 0.2]) add(box(w * 0.14, h * 0.72, d * 0.34), x, -h * 0.07, 0);
+        break;
+      }
+      case "hanging_short": { // rail + shirts, with the hanger hooks showing above them
+        add(cyl(h * 0.02, w * 0.78, 10), 0, half - h * 0.08, 0, [0, 0, Math.PI / 2]);
+        for (const x of [-w * 0.22, 0, w * 0.22]) {
+          add(new THREE.ConeGeometry(w * 0.07, h * 0.1, 3), x, half - h * 0.16, 0);
+          add(box(w * 0.17, h * 0.5, d * 0.3), x, -h * 0.02, 0);
+        }
+        break;
+      }
+      case "storage_boxes": { // a stack that narrows upward — instantly reads as boxes
+        const n = h >= 0.6 ? 3 : 2;
+        for (let i = 0; i < n; i++) {
+          const t = i / n;
+          add(box(w * (0.74 - t * 0.14), h / n * 0.82, d * (0.74 - t * 0.1)), 0, -half + (i + 0.5) * (h / n), 0);
+        }
+        break;
+      }
+      case "storage_baskets": { // shallow space → trays side by side
+        for (const x of [-w * 0.2, w * 0.2]) add(box(w * 0.36, h * 0.55, d * 0.72), x, 0, 0);
+        break;
+      }
+      case "appliance_fridge": { // tall body + the split between the two doors + both handles
+        add(box(w * 0.8, h * 0.9, d * 0.78));
+        add(box(w * 0.82, h * 0.012, d * 0.02), 0, h * 0.1, d * 0.4);
+        for (const y of [h * 0.28, -h * 0.1]) add(cyl(w * 0.022, h * 0.16, 8), w * 0.28, y, d * 0.41);
+        break;
+      }
+      case "appliance_oven": { // body + a door panel proud of the front + a horizontal handle bar
+        add(box(w * 0.8, h * 0.78, d * 0.76));
+        add(box(w * 0.62, h * 0.44, d * 0.03), 0, -h * 0.06, d * 0.39);
+        add(cyl(w * 0.028, w * 0.66, 8), 0, h * 0.22, d * 0.41, [0, 0, Math.PI / 2]);
+        break;
+      }
+      case "appliance_micro": { // small body + a viewing window offset to one side
+        add(box(w * 0.72, h * 0.72, d * 0.66));
+        add(box(w * 0.42, h * 0.42, d * 0.03), -w * 0.08, 0, d * 0.34);
+        break;
+      }
+      case "display_plates": { // a stack of discs
+        const r = Math.min(w, d) * 0.3;
+        for (let i = 0; i < 3; i++) add(cyl(r, h * 0.07, 20), 0, -half + h * (0.22 + i * 0.2), 0);
+        break;
+      }
+      case "display_glasses": { // a row of tumblers
+        const r = Math.min(w, d) * 0.12;
+        for (const x of [-w * 0.24, 0, w * 0.24]) add(cyl(r, h * 0.42, 14), x, -h * 0.12, 0);
+        break;
+      }
+      case "drawer": { // a front panel + its handle — what a closed drawer looks like from outside
+        add(box(w * 0.82, h * 0.7, d * 0.72));
+        add(cyl(w * 0.026, w * 0.4, 8), 0, 0, d * 0.38, [0, 0, Math.PI / 2]);
+        break;
+      }
+      case "structural": { // a post with a diagonal brace
+        add(box(w * 0.16, h * 0.86, d * 0.16));
+        add(box(w * 0.5, h * 0.06, d * 0.14), w * 0.16, h * 0.2, 0, [0, 0, -Math.PI / 5]);
+        break;
+      }
+      default:
+        add(box(w * 0.72, h * 0.72, d * 0.72));
     }
-    mesh.position.set(it.cx, it.cy, it.cz);
-    mesh.raycast = () => {};
-    g.add(mesh);
+    g.add(group);
   }
   return g;
 }
@@ -424,6 +519,139 @@ export function buildGizmo(
     g.add(ring, ringHit);
   }
   return g;
+}
+
+/**
+ * A live DIMENSION LINE for the 3D view — the drafting figure a furniture master already reads on a
+ * paper sheet: a shaft between two points, an arrowhead at each end, and the measurement floating at
+ * the middle. Shown while a face/handle is being dragged, so the size is read ON the thing being
+ * resized instead of in a corner pill.
+ *
+ * Built ONCE per drag and mutated per frame — a drag emits ~60 updates a second, so re-creating the
+ * geometry and re-rasterising the label text every time would be pure waste. The label canvas is only
+ * redrawn when the text actually changes (during a drag most frames repeat the previous millimetre).
+ */
+/** The slice of `<canvas>` the label needs — spelled out so the engine's DOM-less tsc still compiles. */
+interface CanvasLike {
+  width: number;
+  height: number;
+  getContext(id: "2d"): {
+    font: string; textAlign: string; textBaseline: string; fillStyle: string;
+    clearRect(x: number, y: number, w: number, h: number): void;
+    measureText(t: string): { width: number };
+    beginPath(): void;
+    roundRect(x: number, y: number, w: number, h: number, r: number): void;
+    fill(): void;
+    fillText(t: string, x: number, y: number): void;
+  } | null;
+}
+
+export interface DimLine {
+  readonly group: THREE.Group;
+  /** Re-aim the line between two world points and set its caption. Cheap enough to call every frame. */
+  update(from: readonly [number, number, number], to: readonly [number, number, number], label: string): void;
+  dispose(): void;
+}
+
+export function createDimLine(color = 0xf5a623): DimLine {
+  const group = new THREE.Group();
+  group.renderOrder = 1002;
+
+  const lineGeom = new THREE.BufferGeometry().setAttribute(
+    "position",
+    new THREE.BufferAttribute(new Float32Array(6), 3),
+  );
+  const lineMat = new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true });
+  const line = new THREE.Line(lineGeom, lineMat);
+  line.renderOrder = 1002;
+
+  const headMat = new THREE.MeshBasicMaterial({ color, depthTest: false });
+  const heads = [0, 1].map(() => {
+    const m = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 12), headMat);
+    m.renderOrder = 1002;
+    return m;
+  });
+
+  // The label is rasterised into a canvas texture. Reached through globalThis because this file is also
+  // type-checked by the engine's node-only tsc (no DOM lib) — the same dodge karkasStore uses for its
+  // dev hook; in the browser globalThis IS window, so this resolves to the real document.
+  const canvas = (globalThis as unknown as { document: { createElement(t: string): CanvasLike } })
+    .document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  // CanvasLike is the DOM-less stand-in above; at runtime this IS a real <canvas>. The target type is
+  // borrowed from three rather than spelled out, so no DOM type NAME appears in this file.
+  const texture = new THREE.CanvasTexture(canvas as unknown as ConstructorParameters<typeof THREE.CanvasTexture>[0]);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
+  sprite.renderOrder = 1003;
+
+  group.add(line, sprite, ...heads);
+
+  let lastLabel = "";
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), dir = new THREE.Vector3(), mid = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  const quat = new THREE.Quaternion();
+
+  return {
+    group,
+    update(from, to, label) {
+      a.set(from[0], from[1], from[2]);
+      b.set(to[0], to[1], to[2]);
+      const pos = lineGeom.getAttribute("position") as THREE.BufferAttribute;
+      pos.setXYZ(0, a.x, a.y, a.z);
+      pos.setXYZ(1, b.x, b.y, b.z);
+      pos.needsUpdate = true;
+      lineGeom.computeBoundingSphere();
+
+      const len = a.distanceTo(b);
+      dir.subVectors(b, a).normalize();
+      mid.addVectors(a, b).multiplyScalar(0.5);
+
+      // arrowheads point OUTWARD at each end, like a drafting dimension
+      const hs = Math.min(0.035, Math.max(0.008, len * 0.09));
+      quat.setFromUnitVectors(up, dir);
+      heads[0]!.scale.set(hs * 0.5, hs, hs * 0.5);
+      heads[0]!.quaternion.copy(quat);
+      heads[0]!.position.copy(a).addScaledVector(dir, hs / 2);
+      heads[0]!.rotateX(Math.PI); // flip so it aims back down the line
+      heads[1]!.scale.set(hs * 0.5, hs, hs * 0.5);
+      heads[1]!.quaternion.copy(quat);
+      heads[1]!.position.copy(b).addScaledVector(dir, -hs / 2);
+
+      if (label !== lastLabel && ctx) {
+        lastLabel = label;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = "bold 40px ui-monospace, Menlo, Consolas, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const w = Math.min(canvas.width - 8, ctx.measureText(label).width + 30);
+        ctx.fillStyle = "rgba(20,24,32,0.88)"; // a plate behind the text — the model behind it can be any colour
+        const x0 = (canvas.width - w) / 2;
+        ctx.beginPath();
+        ctx.roundRect(x0, 6, w, canvas.height - 12, 12);
+        ctx.fill();
+        ctx.fillStyle = "#ffd479";
+        ctx.fillText(label, canvas.width / 2, canvas.height / 2 + 2);
+        texture.needsUpdate = true;
+      }
+      // Float the caption clear of the shaft (and off to the side for a vertical dimension). Sized as an
+      // ANNOTATION, not a banner: an earlier pass scaled it at 0.3× the span and capped at 0.2 m, which on
+      // a 1.4 m cabinet produced a 0.8 m-wide plate covering the model it was measuring.
+      const off = Math.abs(dir.y) > 0.9 ? new THREE.Vector3(0.075, 0, 0) : new THREE.Vector3(0, 0.075, 0);
+      sprite.position.copy(mid).add(off);
+      const ss = Math.min(0.085, Math.max(0.045, len * 0.09));
+      sprite.scale.set(ss * (canvas.width / canvas.height), ss, 1);
+    },
+    dispose() {
+      lineGeom.dispose();
+      lineMat.dispose();
+      heads.forEach((h) => h.geometry.dispose());
+      headMat.dispose();
+      texture.dispose();
+      sprite.material.dispose();
+    },
+  };
 }
 
 /** Free the GPU resources of a structure group (call on unmount / before rebuild). */
