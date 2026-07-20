@@ -567,6 +567,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       | { kind: "gizmomove"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
       | { kind: "gizmoresize"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startSize: number; first: boolean }
       | { kind: "blockmove"; blockId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
+      | { kind: "shelfmove"; instId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
       | { kind: "gizmorotate"; target: "free" | "block"; id: string; centre: THREE.Vector3; plane: THREE.Plane; startAng: number; startDeg: number; first: boolean }
       | null = null;
     // ── live 3D dimension line ──────────────────────────────────────────────────────────────────────
@@ -624,7 +625,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       // gizmos — a move-arrow of the selected free board takes priority: start an axis-CONSTRAINED drag
       // (the arrows sit on top, so this catches before the board hit-test below).
       const gz = rt.current?.gizmoGroup;
-      const gTarget = gz?.userData.target as { kind: "free" | "block"; id: string } | undefined;
+      const gTarget = gz?.userData.target as { kind: "free" | "block" | "shelf"; id: string } | undefined;
       if (gz && gTarget) {
         // Pick order: RESIZE HANDLE → ROTATE RING → arrow. The ring needs priority over the ARROWS,
         // because the hoop necessarily crosses the long +X / +Z shafts and the shaft would otherwise
@@ -639,7 +640,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const rAxis = gHit?.object.userData.resizeAxis as "x" | "y" | "z" | undefined; // handle cube → resize
         const mAxis = gHit?.object.userData.gizmoAxis as "x" | "y" | "z" | undefined; // arrow → move
         // ring → rotate about the vertical axis: track the pointer's bearing around the gizmo centre
-        if (gHit && gHit.object.userData.rotateAxis === "y") {
+        // A shelf never rotates; a cabinet only does so in Blok mode (the ring is not built otherwise),
+        // which is what stopped ordinary panel editing from spinning the whole cabinet by accident.
+        if (gHit && gHit.object.userData.rotateAxis === "y" && gTarget.kind !== "shelf") {
           const centre = gz.position.clone();
           const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -centre.y); // horizontal plane at the object
           const pt = new THREE.Vector3();
@@ -648,7 +651,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               ? st.model.blocks.find((bb) => bb.id === gTarget.id)?.rotY_deg ?? 0
               : blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === gTarget.id)?.rotY_deg ?? 0;
             drag = {
-              kind: "gizmorotate", target: gTarget.kind, id: gTarget.id, centre, plane,
+              kind: "gizmorotate", target: gTarget.kind === "block" ? "block" : "free", id: gTarget.id, centre, plane,
               startAng: Math.atan2(pt.x - centre.x, pt.z - centre.z), startDeg, first: true,
             };
             controls.enabled = false;
@@ -662,7 +665,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           const start = alongAxis(e, axis, plane);
           const lo = (bx: { x: number; y: number; z: number }) => (axis === "x" ? bx.x : axis === "y" ? bx.y : bx.z);
           if (start != null) {
-            if (gTarget.kind === "block") {
+            if (gTarget.kind === "shelf") {
+              // a shelf slides inside its own bay — the anchor is block-local, so the drag works in the
+              // same mm10 space as the block box the other gizmos use
+              const found = st.model.blocks.flatMap((bb) => bb.instances.map((i) => ({ bb, i }))).find((x) => x.i.id === gTarget.id);
+              if (found) drag = { kind: "shelfmove", instId: gTarget.id, axis, plane, start, startPos: found.i.anchor[axis], first: true };
+            } else if (gTarget.kind === "block") {
               const blk = st.model.blocks.find((bb) => bb.id === gTarget.id);
               if (blk) drag = { kind: "blockmove", blockId: gTarget.id, axis, plane, start, startPos: lo(blk.box), first: true };
             } else {
@@ -779,6 +787,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         // the board has just been re-solved, so read its NEW box rather than extrapolating the drag
         const bd = useKarkas.getState().scene.boards.find((x) => x.id.endsWith(`__free_${fpId}`));
         if (bd) showDim(0, bd.pos, bd.size, axis, `${mm} mm`);
+        return;
+      }
+      // gizmos — slide a SHELF up or down inside its bay (the engine clamps it to the section, so it can
+      // never be dragged out through the carcass).
+      if (drag.kind === "shelfmove") {
+        const cur = alongAxis(e, drag.axis, drag.plane);
+        if (cur == null) return;
+        const step = e.shiftKey ? 10 : 50; // mm10 (1 mm / 5 mm)
+        const ideal = Math.round((drag.startPos + Math.round((cur - drag.start) * 10000)) / step) * step;
+        const at = useKarkas.getState().moveInstanceTo(drag.instId, drag.axis, ideal, drag.first);
+        drag.first = false;
+        measureRef.current({ dim: drag.axis === "x" ? "w" : drag.axis === "y" ? "h" : "d", mm: Math.round(at / 10), move: true });
         return;
       }
       // gizmos — move the WHOLE cabinet along one axis, clicking FLUSH to a neighbouring cabinet (or the
@@ -972,32 +992,37 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         r.gizmoGroup = buildGizmo(bd.pos, bd.size);
         r.gizmoGroup.userData.target = { kind: "free", id: selectedId.slice(selectedId.indexOf("__free_") + "__free_".length) };
       }
-    } else if (
-      selectedId
-      && (st.parts.find((p) => p.id === selectedId)?.role ?? "").startsWith("carcass")
-      // …but NOT a divider. A divider's part role is `carcass_side`, so it used to raise the whole-cabinet
-      // gizmo, whose rotate ring then swallowed the pointer — pressing a selected divider TURNED THE
-      // CABINET instead of moving the divider, killing the divider drag entirely. A divider has its own
-      // gesture and needs no gizmo.
-      && !selectedId.includes("__div_")
-    ) {
-      // a CARCASS panel — the whole cabinet gets MOVE arrows (it already resizes by dragging a face), so
-      // several cabinets can be laid out freely instead of only tiled by grouping.
-      const blk = blockOfPart(st.model, selectedId);
-      if (blk) {
-        const M = (v: number) => v / 10000; // mm10 → metres (same scale layoutToScene uses)
-        r.gizmoGroup = buildGizmo(
-          [M(blk.box.x + blk.box.w / 2), M(blk.box.y + blk.box.h / 2), M(blk.box.z + blk.box.d / 2)],
-          [M(blk.box.w), M(blk.box.h), M(blk.box.d)],
-          { resize: false },
-        );
-        r.gizmoGroup.userData.target = { kind: "block", id: blk.id };
+    } else if (selectedId && !selectedId.includes("__div_")) {
+      // Everything else that is a solved board gets its gizmo ON THE PART the master tapped, sized to
+      // that part. It used to be drawn at the whole BLOCK's centre and sized to the block, so tapping the
+      // top panel put the arrows a third of a metre away and reaching 0.84 m — on a 0.6 m cabinet.
+      // A divider is excluded: it has its own drag gesture, and a gizmo there swallowed the pointer.
+      const bd = scene.boards.find((b) => b.id === selectedId);
+      const role = st.parts.find((p) => p.id === selectedId)?.role ?? "";
+      if (bd && role === "internal_shelf") {
+        const r2 = resolveInstanceIdOfPart(st.model, selectedId);
+        if (r2) {
+          // A shelf spans its bay — X and Z come from the section, so HEIGHT is the only honest handle.
+          r.gizmoGroup = buildGizmo(bd.pos, bd.size, { resize: false, rotate: false, axes: ["y"] });
+          r.gizmoGroup.userData.target = { kind: "shelf", id: r2 };
+        }
+      } else if (bd && role.startsWith("carcass")) {
+        // A carcass panel is rule-driven, so its arrows slide the WHOLE cabinet — but they now sit on the
+        // panel you grabbed, like taking hold of the cabinet by its side. No rotate ring: it sat across
+        // these arrows and turned the whole cabinet by accident (cabinet rotation lives in Blok mode).
+        const blk = blockOfPart(st.model, selectedId);
+        if (blk) {
+          // Turning the cabinet stays possible, but only in BLOK mode — a deliberate act. In part mode the
+          // ring sat across these very arrows, so ordinary panel editing kept spinning the whole cabinet.
+          r.gizmoGroup = buildGizmo(bd.pos, bd.size, { resize: false, rotate: selMode === "block" });
+          r.gizmoGroup.userData.target = { kind: "block", id: blk.id };
+        }
       }
     }
     if (r.gizmoGroup) r.scene.add(r.gizmoGroup);
     r.renderer.render(r.scene, r.camera);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, selectedId]);
+  }, [scene, selectedId, selMode]);
 
   // ── rebuild the group + reframe when the model (scene) changes ──
   useEffect(() => {
@@ -2463,6 +2488,21 @@ function evalExpr(src: string): number | null {
     }
   }
   return acc === null || !Number.isFinite(acc) ? null : acc;
+}
+
+/**
+ * The instance a solved part belongs to. Part ids are `<block>__inst_<instance>` (plus a suffix for the
+ * pieces of a multi-part placement such as a drawer), which is the only link back from something the
+ * master tapped in 3D to the placement the engine can move.
+ */
+function resolveInstanceIdOfPart(model: { blocks: readonly { id: string; instances: readonly { id: string }[] }[] }, partId: string): string | null {
+  for (const b of model.blocks) {
+    for (const i of b.instances) {
+      const base = `${b.id}__inst_${i.id}`;
+      if (partId === base || partId.startsWith(`${base}__`)) return i.id;
+    }
+  }
+  return null;
 }
 
 /** #3 — usta-friendly numeric keypad with + − × ÷. Opens over a tapped dimension; commits the evaluated

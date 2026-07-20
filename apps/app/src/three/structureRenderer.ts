@@ -456,27 +456,34 @@ export function buildSectionHitboxes(
 export function buildGizmo(
   center: [number, number, number],
   size: [number, number, number],
-  opts: { resize?: boolean; rotate?: boolean } = {},
+  // `axes` limits which arrows appear: a shelf spans its bay, so only its HEIGHT is really its own and
+  // offering X/Z arrows would promise a move the solver would immediately undo.
+  opts: { resize?: boolean; rotate?: boolean; axes?: readonly ("x" | "y" | "z")[] } = {},
 ): THREE.Group {
   const withResize = opts.resize !== false; // a whole cabinet is move-only — it already resizes by face-drag
-  const withRotate = opts.rotate !== false; // both a free board and a cabinet can be turned about Y
+  const withRotate = opts.rotate !== false; // only a free board turns from its own gizmo (see KarkasEditor)
   const g = new THREE.Group();
   g.position.set(center[0], center[1], center[2]);
   const up = new THREE.Vector3(0, 1, 0);
   const maxS = Math.max(size[0], size[1], size[2]);
-  const hs = Math.min(0.03, Math.max(0.014, maxS * 0.07)); // handle cube edge (m) — kept finger-sized on mobile
-  const shaftL = maxS * 0.45 + 0.05;
+  // Sizing is CLAMPED, not proportional. Sized off the raw extent, a whole cabinet grew arrows reaching
+  // 0.84 m — bigger than the 0.6×0.72×0.56 m furniture they were pointing at. The handle stays
+  // finger-sized on mobile and the arrow stays a short, readable stub whatever it is attached to.
+  const hs = Math.min(0.024, Math.max(0.011, maxS * 0.05)); // handle cube edge (m)
+  const shaftL = Math.min(0.14, Math.max(0.05, maxS * 0.28));
   const shaftR = Math.max(0.004, shaftL * 0.05), coneR = shaftR * 2.6, coneH = shaftL * 0.28;
   const AXES = [
     { axis: "x", color: 0xe5484d, dir: new THREE.Vector3(1, 0, 0), half: size[0] / 2 },
     { axis: "y", color: 0x30a46c, dir: new THREE.Vector3(0, 1, 0), half: size[1] / 2 },
     { axis: "z", color: 0x2f6bff, dir: new THREE.Vector3(0, 0, 1), half: size[2] / 2 },
   ] as const;
+  const wanted = opts.axes ?? ["x", "y", "z"];
   // An invisible-but-pickable proxy: fully transparent, so it enlarges the TAP TARGET without changing
   // the look. Without it a finger that lands a few px off the small handle grabs the board underneath
   // and moves it instead of resizing — the classic thin-board miss.
   const hitMat = () => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false });
   for (const a of AXES) {
+    if (!wanted.includes(a.axis)) continue;
     const mat = () => new THREE.MeshBasicMaterial({ color: a.color, depthTest: false });
     const q = new THREE.Quaternion().setFromUnitVectors(up, a.dir); // default geoms point +Y → rotate to axis
     const handleAt = a.half + hs * 0.6;

@@ -61,7 +61,17 @@ interface RawBox {
  * Centre + metre-scale a set of min-corner mm10 boxes. three.js boxes are centred, so we add
  * half-size; the cabinet is recentred on X/Z and stood on the floor (minY → 0).
  */
-export function boxesToScene(boxes: RawBox[], features?: Readonly<Record<string, PanelFeatures>>): Scene {
+export function boxesToScene(
+  boxes: RawBox[],
+  features?: Readonly<Record<string, PanelFeatures>>,
+  /**
+   * Where to recentre. Normally the boxes' own bounds, but a caller that has APPLIED a placement-only
+   * transform (turning a cabinet) must pass the bounds from BEFORE it: a rotated box has a different
+   * AABB, so recentring on it slid the whole model sideways every time a cabinet was turned — the
+   * cabinet appeared to wander off under the finger that was only rotating it.
+   */
+  origin?: { cx: number; cz: number; minY: number },
+): Scene {
   if (boxes.length === 0) return { boards: [], center: [0, 0, 0], radius: 1 };
 
   let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -71,7 +81,8 @@ export function boxesToScene(boxes: RawBox[], features?: Readonly<Record<string,
     minY = Math.min(minY, b.y); maxY = Math.max(maxY, b.y + b.h);
     minZ = Math.min(minZ, b.z); maxZ = Math.max(maxZ, b.z + b.d);
   }
-  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+  let cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+  if (origin) { cx = origin.cx; cz = origin.cz; minY = origin.minY; }
   const boards: Board[] = boxes.map((b) => {
     const f = features?.[b.id];
     return {
@@ -127,7 +138,12 @@ export function rotateBlockPlacements(
   });
 }
 
-export function layoutToScene(panels: readonly PanelPlacement[], features?: Readonly<Record<string, PanelFeatures>>): Scene {
+export function layoutToScene(
+  panels: readonly PanelPlacement[],
+  features?: Readonly<Record<string, PanelFeatures>>,
+  /** Pass the UNROTATED bounds when `panels` have already been turned — see `boxesToScene`. */
+  origin?: { cx: number; cz: number; minY: number },
+): Scene {
   return boxesToScene(
     panels.map((p) => ({
       id: p.id,
@@ -138,6 +154,7 @@ export function layoutToScene(panels: readonly PanelPlacement[], features?: Read
       rotYDeg: p.rotY_deg,
     })),
     features,
+    origin,
   );
 }
 

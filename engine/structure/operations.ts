@@ -1681,6 +1681,49 @@ export function applyToFamily(model: StructuralModel, instanceId: InstanceId): S
 }
 
 /**
+ * Slide a placed instance inside its own section by moving its anchor.
+ *
+ * A shelf's X and Z come from the section it lives in (it spans the bay), so `anchor.y` is the only
+ * coordinate that is really its own — which is exactly the one a master wants to nudge when a shelf
+ * sits too low. The move is clamped to the section so a shelf can never be dragged out through the
+ * carcass. No-op (same model reference) when the instance is unknown or the clamp eats the whole delta.
+ */
+export function moveInstanceAnchor(
+  model: StructuralModel,
+  instanceId: InstanceId,
+  axis: Axis,
+  to_mm10: mm10,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst) return block;
+    const section = findSectionIn(block, inst.sectionId);
+    if (!section) return block;
+    const s = section.box;
+    const lo = axis === "x" ? s.x : axis === "y" ? s.y : s.z;
+    const span = axis === "x" ? s.w : axis === "y" ? s.h : s.d;
+    const next = Math.max(lo, Math.min(Math.round(to_mm10), lo + span));
+    if (next === inst.anchor[axis]) return block;
+    changed = true;
+    const instances = block.instances.map((i) => (i.id === instanceId ? { ...i, anchor: { ...i.anchor, [axis]: next } } : i));
+    return { ...block, instances };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/** Depth-first lookup of a section by id inside one block's zone trees. */
+function findSectionIn(block: Block, sectionId: SectionId): Section | null {
+  const walk = (sec: Section): Section | null => {
+    if (sec.id === sectionId) return sec;
+    for (const c of sec.children) { const hit = walk(c); if (hit) return hit; }
+    return null;
+  };
+  for (const z of block.zones) { const hit = walk(z.root); if (hit) return hit; }
+  return null;
+}
+
+/**
  * The two child sections a divider sits BETWEEN, with their extents along the divider's own axis.
  *
  * Dragging a divider is the one edit where the number that matters is not the thing being dragged but
