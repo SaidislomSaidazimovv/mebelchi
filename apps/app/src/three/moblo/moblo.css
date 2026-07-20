@@ -482,6 +482,22 @@
 .mob-measure-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .mob-measure-label { color: var(--mob-muted); font-weight: 600; }
 .mob-measure-val { color: var(--mob-ink); font-weight: 800; font-variant-numeric: tabular-nums; }
+/* Ortho thumbnails above the parts list (Top · Front · Side).
+   The spec panel is a PAPER sheet — it keeps its light background in dark mode — so these use fixed
+   paper-ink colours rather than the theme tokens, which would turn the cards dark on a light sheet. */
+.mob-ortho {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  padding: 10px 14px; border-bottom: 1px solid #e8e5db;
+}
+.mob-ortho-cell { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.mob-ortho-thumb {
+  width: 100%; aspect-ratio: 1; display: block;
+  background: #fff; border: 1px solid #e3e0d6; border-radius: 9px;
+  color: #1f2430; /* the SVG draws with currentColor — this is the drawing's ink */
+}
+.mob-ortho-thumb svg { display: block; width: 100%; height: 100%; }
+.mob-ortho-label { font-size: 11px; font-weight: 600; color: #6b6558; letter-spacing: .01em; }
+
 .mob-measure-snap {
   font-size: 12px; font-weight: 700; color: var(--mob-accent);
   background: var(--mob-accent-soft); border-radius: 999px; padding: 2px 8px;

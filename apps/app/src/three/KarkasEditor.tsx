@@ -18,7 +18,7 @@ import { solveLayout } from "../../../../engine/structure/layout.js";
 import { kromkaMetersByVariable } from "../../../../engine/structure/features.js";
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
-import { drawingSheetSvg } from "./drawingSvg";
+import { drawingSheetSvg, viewThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, buildGizmo, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
@@ -2026,6 +2026,18 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
     return acc;
   }, [parts, model.features]);
   const kromkaVars = Object.entries(kromkaByVar).filter(([, mm10]) => mm10 > 0);
+  // Ortho thumbnails (Moblo's Elements tab): the SAME three drafting views the «Chizma» sheet draws —
+  // plan / front / section — shrunk to read at a glance above the cut list. Rebuilt only with the model.
+  const ortho = useMemo(() => {
+    try {
+      const d = buildBlockDrawing(solveLayout(model, planThickness(plan)), solveModelToParts(model, planThickness(plan)));
+      return [
+        { key: "top", label: "Ustidan", svg: viewThumbSvg(d.plan, 120) },
+        { key: "front", label: "Oldidan", svg: viewThumbSvg(d.front, 120) },
+        { key: "side", label: "Yonidan", svg: viewThumbSvg(d.side, 120) },
+      ];
+    } catch { return []; } // a model the drawing can't project must never take the spec panel down
+  }, [model, plan]);
   return (
     <div style={variant === "tab"
       ? { position: "absolute", top: 62, bottom: 0, left: "50%", transform: "translateX(-50%)", width: "min(680px, 100%)", background: "#fbfaf6", display: "flex", flexDirection: "column", overflow: "auto", zIndex: 4 }
@@ -2034,6 +2046,18 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
         <b style={{ fontSize: 15 }}>Спецификация</b>
         <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
       </div>
+
+      {/* Ortho views — Top / Front / Side, so the usta sees WHAT is being cut before reading the list */}
+      {ortho.length > 0 && (
+        <div className="mob-ortho">
+          {ortho.map((v) => (
+            <figure key={v.key} className="mob-ortho-cell">
+              <div className="mob-ortho-thumb" dangerouslySetInnerHTML={{ __html: v.svg }} />
+              <figcaption className="mob-ortho-label">{v.label}</figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
 
       {/* material picker — role → decor */}
       <div style={picker}>
