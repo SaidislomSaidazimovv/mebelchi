@@ -116,6 +116,9 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
       mesh.position.y += ey - ry; // pin the front-top edge: position += (e − R·e)
       mesh.position.z += ez - rz;
     }
+    // A free board turned about the VERTICAL axis (rotY, radians) simply spins in place — its centre is
+    // the natural pivot for "face another way", so no edge-pinning offset is needed here.
+    if (b.rotY) mesh.rotation.y = b.rotY;
     mesh.userData.partId = b.id;
     // thin edge outline so adjacent panels read as separate boards
     const edges = new THREE.LineSegments(
@@ -405,6 +408,19 @@ export function buildGizmo(
     arrowHit.position.copy(a.dir).multiplyScalar(base + (shaftL + coneH) / 2);
     arrowHit.userData.gizmoAxis = a.axis;
     g.add(shaft, cone, arrowHit);
+  }
+  // ROTATE ring — a horizontal hoop around the board; dragging it turns the board about the vertical
+  // axis (render-only, see FreePart.rotY_deg). Only for free boards: a cabinet has no free rotation.
+  if (withResize) {
+    const rr = Math.max(size[0], size[2]) / 2 + hs * 2.4; // hugs the footprint, clear of the face handles
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.003, rr * 0.022), 8, 48), new THREE.MeshBasicMaterial({ color: 0x7a5cc9, depthTest: false }));
+    ring.rotation.x = Math.PI / 2; // lay the hoop flat in the XZ plane so it spins about Y
+    ring.userData.rotateAxis = "y";
+    ring.renderOrder = 1000;
+    const ringHit = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.012, rr * 0.09), 6, 32), hitMat());
+    ringHit.rotation.x = Math.PI / 2;
+    ringHit.userData.rotateAxis = "y";
+    g.add(ring, ringHit);
   }
   return g;
 }

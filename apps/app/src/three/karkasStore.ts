@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -196,6 +196,13 @@ interface KarkasState extends Derived {
   addBlock: () => void;
   /** gizmos — translate a whole cabinet by `delta` (mm10). `pushHistory` only on the first drag frame. */
   moveBlock: (blockId: string, delta: { x: number; y: number; z: number }, pushHistory: boolean) => void;
+  /** gizmos — put a cabinet's `axis` coord at `idealPos` (mm10), MAGNETICALLY clicking flush to another
+   *  cabinet's face (or the floor on Y) first — how a kitchen run gets laid out by hand. */
+  moveBlockTo: (blockId: string, axis: "x" | "y" | "z", idealPos: number, first: boolean) => { pos: number; snapped: boolean };
+  /** gizmos «duplicate» — copy the selection: a free board (copy gets selected) or its whole cabinet. */
+  duplicateSelected: () => void;
+  /** gizmos «rotate» — turn a free board about the vertical axis (deg, render-only). `first` = new undo step. */
+  rotateFreePartTo: (fpId: string, deg: number, first: boolean) => void;
   /** U4.2 — the set of whole blocks ticked in the block-navigator for grouping. */
   selectedBlockIds: string[];
   /** U4.2 — toggle a block in the group-selection (clears any part selection). */
@@ -213,6 +220,9 @@ interface KarkasState extends Derived {
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
   addFreeBoard: () => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
+  /** gizmos — put a free board's `axis` coord at `idealPos` (mm10), MAGNETICALLY clicking to a nearby
+   *  compartment face first. Absolute (no drift over a long drag); reports where it landed + whether it snapped. */
+  moveFreePartTo: (fpId: string, axis: "x" | "y" | "z", idealPos: number, first: boolean) => { pos: number; snapped: boolean };
   snapFreePart: (fpId: string) => void;
   /** Resize a free board along one axis (mm). `pushHistory: false` for live drag frames — they replace
    *  the current state instead of stacking one undo entry per pointer move (gizmo resize). */
@@ -376,6 +386,22 @@ function snapFreeBox(box: XBox, secBoxes: readonly XBox[], thr: number): { x: nu
   return { x: snap(box.x, box.w, xs), y: snap(box.y, box.h, ys), z: snap(box.z, box.d, zs) };
 }
 
+/** Magnetic pull for a gizmo drag — 40 mm, the same reach as the drop-snap (snapFreeBox). */
+const SNAP_PULL = 400; // mm10
+
+/** Nearest magnetic snap for a span `[pos, pos+size]` along ONE axis against candidate face coords —
+ *  the single-axis form of snapFreeBox's rule (either end may click to a face). Used live during a gizmo
+ *  drag so a board / cabinet clicks flush while you pull it, not only when you let go. */
+function snapAxis(pos: number, size: number, cands: readonly number[], thr: number): { pos: number; snapped: boolean } {
+  let best = pos, bestD = thr, hit = false;
+  for (const c of cands) {
+    const dLo = Math.abs(c - pos), dHi = Math.abs(c - (pos + size));
+    if (dLo < bestD) { best = c; bestD = dLo; hit = true; }
+    if (dHi < bestD) { best = c - size; bestD = dHi; hit = true; }
+  }
+  return { pos: best, snapped: hit };
+}
+
 /** U3.3 fix — keep a free board's box sane relative to its block `B` so a drag/resize can never explode the
  *  scene bounds (which would zoom the camera out until everything vanishes). Position stays near the block,
  *  each side ≥ 3 mm and ≤ 3× the block. */
@@ -490,6 +516,58 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (pushHistory) apply(model, true); // keepSel — the same panel stays selected through the drag
       else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
     },
+    moveBlockTo: (blockId, axis, idealPos, first) => {
+      const s = get();
+      const blk = s.model.blocks.find((b) => b.id === blockId);
+      if (!blk) return { pos: idealPos, snapped: false };
+      const pick = (b: XBox, hi: boolean) => (axis === "x" ? (hi ? b.x + b.w : b.x) : axis === "y" ? (hi ? b.y + b.h : b.y) : hi ? b.z + b.d : b.z);
+      const size = pick(blk.box, true) - pick(blk.box, false);
+      // candidates: every OTHER cabinet's two faces on this axis (so they click flush side-by-side),
+      // plus the floor on Y (a cabinet drops onto y=0).
+      const cands: number[] = axis === "y" ? [0] : [];
+      for (const o of s.model.blocks) { if (o.id !== blockId) cands.push(pick(o.box, false), pick(o.box, true)); }
+      const t = snapAxis(idealPos, size, cands, SNAP_PULL);
+      const delta = { x: 0, y: 0, z: 0 };
+      delta[axis] = t.pos - pick(blk.box, false);
+      if (delta[axis] !== 0) get().moveBlock(blockId, delta, first);
+      return t;
+    },
+    // gizmos «rotate» — turn a free board about the VERTICAL axis. Render-only (rotY_deg): the cut panel
+    // is unchanged, so the spec/CNC never sees it. Normalised to 0..359; `first` opens ONE undo step.
+    rotateFreePartTo: (fpId, deg, first) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const d = ((Math.round(deg) % 360) + 360) % 360;
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, rotY_deg: d })),
+        })),
+      };
+      if (first) apply(model, true);
+      else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
+    },
+    // gizmos «duplicate» — copy whatever is selected: a free board (copy lands beside it, and is SELECTED
+    // so the gizmo moves straight onto it) or, for any carcass panel, the WHOLE cabinet.
+    duplicateSelected: () => {
+      const s = get();
+      const sel = s.selectedId;
+      const block = sel ? blockOfPart(s.model, sel) : undefined;
+      if (!sel || !block) return;
+      const uid = Date.now().toString(36);
+      try {
+        if (sel.includes("__free_")) {
+          const fpId = sel.slice(sel.indexOf("__free_") + "__free_".length);
+          const newId = `fp_${uid}`;
+          apply(duplicateFreePart(s.model, block.id, fpId, newId));
+          set({ selectedId: `${block.id}__free_${newId}` });
+        } else {
+          apply(duplicateBlock(s.model, block.id, uid));
+        }
+      } catch { /* unknown id — ignore rather than crash the editor */ }
+    },
     // U4.2 — block navigator: tick whole blocks (clearing any part selection), then group ≥2 into a Run.
     // groupBlocks tiles the members end-to-end at their current widths (gaps removed); resolveRun (U4.4)
     // later fits the run to a wall. Guard <2 / an engine throw so a stray tap can't crash the editor.
@@ -594,6 +672,21 @@ export const useKarkas = create<KarkasState>((set, get) => {
       // `first` opens ONE undo step; later drag frames just replace it, so a drag isn't 100 undo entries.
       if (first) set((st) => ({ ...derive(model, st.plan), past: [...st.past.slice(-49), st.model], future: [] }));
       else set((st) => ({ ...derive(model, st.plan) }));
+    },
+    moveFreePartTo: (fpId, axis, idealPos, first) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      const fp = block?.freeParts?.find((f) => f.id === fpId);
+      if (!block || !fp) return { pos: idealPos, snapped: false };
+      const pick = (b: XBox, hi: boolean) => (axis === "x" ? (hi ? b.x + b.w : b.x) : axis === "y" ? (hi ? b.y + b.h : b.y) : hi ? b.z + b.d : b.z);
+      const size = pick(fp.box, true) - pick(fp.box, false);
+      const cands: number[] = [];
+      for (const z of block.zones) for (const sec of leafSections(z.root)) { cands.push(pick(sec.box, false), pick(sec.box, true)); }
+      const t = snapAxis(idealPos, size, cands, SNAP_PULL);
+      const delta = { x: 0, y: 0, z: 0 };
+      delta[axis] = t.pos - pick(fp.box, false);
+      if (delta[axis] !== 0) get().moveFreePart(fpId, delta, first);
+      return t;
     },
     // U3.2c — on drop, snap the board flush to any nearby compartment face (magnet). Part of the same
     // drag undo step (a plain set, no new past entry), so one drag = one undo.

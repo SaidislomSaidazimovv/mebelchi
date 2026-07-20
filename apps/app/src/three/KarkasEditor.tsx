@@ -95,7 +95,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [keypad, setKeypad] = useState<{ label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void } | null>(null);
   // #4 — live measure readout while dragging a face to resize: the active dim + its current size (mm), shown
   // as a floating callout so the usta sees the measurement change in real time. Cleared on pointer-up.
-  const [measure, setMeasure] = useState<{ dim: "w" | "h" | "d"; mm: number; move?: boolean } | null>(null);
+  const [measure, setMeasure] = useState<{ dim: "w" | "h" | "d"; mm: number; move?: boolean; snapped?: boolean; rot?: boolean } | null>(null);
   const measureRef = useRef(setMeasure); // stable handle for the once-mounted pointer effect
   measureRef.current = setMeasure;
   // Commit a pending DimField edit before a control hides/unmounts the editor: blur the focused input so
@@ -118,6 +118,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setRunMemberRule = useKarkas((s) => s.setRunMemberRule);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
+  const duplicateSelected = useKarkas((s) => s.duplicateSelected);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
   const removeFreeBoard = useKarkas((s) => s.removeFreeBoard);
   const divide = useKarkas((s) => s.divide);
@@ -525,9 +526,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       | { kind: "line"; lineId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; last: number; first: boolean }
       | { kind: "resize"; dim: "w" | "h" | "d"; axis: "x" | "y" | "z"; sign: number; plane: THREE.Plane; startWorld: number; startExtent: number; first: boolean }
       | { kind: "freemove"; fpId: string; plane: THREE.Plane; last: THREE.Vector3; first: boolean }
-      | { kind: "gizmomove"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; last: number; moved: number; first: boolean }
+      // gizmo drags are ABSOLUTE (startPos + pointer travel → ideal position) so a magnetic snap can pull
+      // the object without the incremental `last` accumulator drifting away from the pointer.
+      | { kind: "gizmomove"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
       | { kind: "gizmoresize"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startSize: number; first: boolean }
-      | { kind: "blockmove"; blockId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; last: number; moved: number; first: boolean }
+      | { kind: "blockmove"; blockId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
+      | { kind: "gizmorotate"; fpId: string; centre: THREE.Vector3; plane: THREE.Plane; startAng: number; startDeg: number; first: boolean }
       | null = null;
     const alongAxis = (e: PointerEvent, axis: "x" | "y" | "z", plane: THREE.Plane): number | null => {
       raycaster.setFromCamera(ndc(e), camera);
@@ -545,23 +549,45 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       const gz = rt.current?.gizmoGroup;
       const gTarget = gz?.userData.target as { kind: "free" | "block"; id: string } | undefined;
       if (gz && gTarget) {
-        const gHit = raycaster.intersectObjects(gz.children, false)[0];
+        // The rotate hoop necessarily crosses the +X / +Z arrows, so give it PRIORITY among the hits —
+        // its band is narrow, leaving most of each arrow grabbable (how real gizmos disambiguate).
+        const gHits = raycaster.intersectObjects(gz.children, false);
+        const gHit = gHits.find((h) => h.object.userData.rotateAxis === "y") ?? gHits[0];
         const rAxis = gHit?.object.userData.resizeAxis as "x" | "y" | "z" | undefined; // handle cube → resize
         const mAxis = gHit?.object.userData.gizmoAxis as "x" | "y" | "z" | undefined; // arrow → move
+        // ring → rotate about the vertical axis: track the pointer's bearing around the gizmo centre
+        if (gHit && gHit.object.userData.rotateAxis === "y" && gTarget.kind === "free") {
+          const centre = gz.position.clone();
+          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -centre.y); // horizontal plane at the board
+          const pt = new THREE.Vector3();
+          if (raycaster.ray.intersectPlane(plane, pt)) {
+            const fp = blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === gTarget.id);
+            drag = {
+              kind: "gizmorotate", fpId: gTarget.id, centre, plane,
+              startAng: Math.atan2(pt.x - centre.x, pt.z - centre.z), startDeg: fp?.rotY_deg ?? 0, first: true,
+            };
+            controls.enabled = false;
+            return;
+          }
+        }
         const axis = rAxis ?? mAxis;
         if (gHit && axis) {
           const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
           const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, gHit.point);
           const start = alongAxis(e, axis, plane);
+          const lo = (bx: { x: number; y: number; z: number }) => (axis === "x" ? bx.x : axis === "y" ? bx.y : bx.z);
           if (start != null) {
             if (gTarget.kind === "block") {
-              drag = { kind: "blockmove", blockId: gTarget.id, axis, plane, last: start, moved: 0, first: true };
-            } else if (rAxis) {
-              const fp = blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === gTarget.id);
-              const startSize = fp ? (rAxis === "x" ? fp.box.w : rAxis === "y" ? fp.box.h : fp.box.d) : 0;
-              if (fp) drag = { kind: "gizmoresize", fpId: gTarget.id, axis: rAxis, plane, start, startSize, first: true };
+              const blk = st.model.blocks.find((bb) => bb.id === gTarget.id);
+              if (blk) drag = { kind: "blockmove", blockId: gTarget.id, axis, plane, start, startPos: lo(blk.box), first: true };
             } else {
-              drag = { kind: "gizmomove", fpId: gTarget.id, axis, plane, last: start, moved: 0, first: true };
+              const fp = blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === gTarget.id);
+              if (fp && rAxis) {
+                const startSize = rAxis === "x" ? fp.box.w : rAxis === "y" ? fp.box.h : fp.box.d;
+                drag = { kind: "gizmoresize", fpId: gTarget.id, axis: rAxis, plane, start, startSize, first: true };
+              } else if (fp) {
+                drag = { kind: "gizmomove", fpId: gTarget.id, axis, plane, start, startPos: lo(fp.box), first: true };
+              }
             }
             if (drag) { controls.enabled = false; return; }
           }
@@ -621,20 +647,31 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         }
         return;
       }
-      // gizmos — axis-CONSTRAINED move: project the pointer onto the drag axis, shift the board along it only
+      // gizmos — ROTATE: the board follows the pointer's bearing around the ring, clicking to 15° steps
+      // (Shift = free 1°). Render-only, so the cut list never changes.
+      if (drag.kind === "gizmorotate") {
+        raycaster.setFromCamera(ndc(e), camera);
+        const pt = new THREE.Vector3();
+        if (!raycaster.ray.intersectPlane(drag.plane, pt)) return;
+        const ang = Math.atan2(pt.x - drag.centre.x, pt.z - drag.centre.z);
+        const step = e.shiftKey ? 1 : 15; // degrees
+        const raw = drag.startDeg - ((ang - drag.startAng) * 180) / Math.PI; // −: screen-CW reads as CW
+        const deg = Math.round(raw / step) * step;
+        useKarkas.getState().rotateFreePartTo(drag.fpId, deg, drag.first);
+        drag.first = false;
+        measureRef.current({ dim: "h", mm: ((deg % 360) + 360) % 360, rot: true });
+        return;
+      }
+      // gizmos — axis-CONSTRAINED move with a live MAGNETIC snap: the board clicks flush to a nearby
+      // compartment face while you pull it (not only when you let go).
       if (drag.kind === "gizmomove") {
         const cur = alongAxis(e, drag.axis, drag.plane);
         if (cur == null) return;
         const step = e.shiftKey ? 10 : 50; // mm10 (1 mm / 5 mm)
-        const snapped = Math.round(Math.round((cur - drag.last) * 10000) / step) * step;
-        if (snapped !== 0) {
-          const d = { x: 0, y: 0, z: 0 }; d[drag.axis] = snapped;
-          useKarkas.getState().moveFreePart(drag.fpId, d, drag.first);
-          drag.first = false;
-          drag.last += snapped / 10000;
-          drag.moved += snapped;
-          measureRef.current({ dim: drag.axis === "x" ? "w" : drag.axis === "y" ? "h" : "d", mm: Math.round(drag.moved / 10), move: true });
-        }
+        const ideal = Math.round((drag.startPos + Math.round((cur - drag.start) * 10000)) / step) * step;
+        const res = useKarkas.getState().moveFreePartTo(drag.fpId, drag.axis, ideal, drag.first);
+        drag.first = false;
+        measureRef.current({ dim: drag.axis === "x" ? "w" : drag.axis === "y" ? "h" : "d", mm: Math.round((res.pos - drag.startPos) / 10), move: true, snapped: res.snapped });
         return;
       }
       // gizmos — RESIZE: pull a face handle along its axis; the board grows/shrinks that dimension only
@@ -650,20 +687,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         measureRef.current({ dim, mm: Math.round(next / 10) }); // a SIZE readout (no `move` flag)
         return;
       }
-      // gizmos — move the WHOLE cabinet along one axis (block move gizmo)
+      // gizmos — move the WHOLE cabinet along one axis, clicking FLUSH to a neighbouring cabinet (or the
+      // floor on Y) — how a kitchen run gets laid out by hand.
       if (drag.kind === "blockmove") {
         const cur = alongAxis(e, drag.axis, drag.plane);
         if (cur == null) return;
         const step = e.shiftKey ? 10 : 50; // mm10 (1 mm / 5 mm)
-        const snapped = Math.round(Math.round((cur - drag.last) * 10000) / step) * step;
-        if (snapped !== 0) {
-          const d = { x: 0, y: 0, z: 0 }; d[drag.axis] = snapped;
-          useKarkas.getState().moveBlock(drag.blockId, d, drag.first);
-          drag.first = false;
-          drag.last += snapped / 10000;
-          drag.moved += snapped;
-          measureRef.current({ dim: drag.axis === "x" ? "w" : drag.axis === "y" ? "h" : "d", mm: Math.round(drag.moved / 10), move: true });
-        }
+        const ideal = Math.round((drag.startPos + Math.round((cur - drag.start) * 10000)) / step) * step;
+        const res = useKarkas.getState().moveBlockTo(drag.blockId, drag.axis, ideal, drag.first);
+        drag.first = false;
+        measureRef.current({ dim: drag.axis === "x" ? "w" : drag.axis === "y" ? "h" : "d", mm: Math.round((res.pos - drag.startPos) / 10), move: true, snapped: res.snapped });
         return;
       }
       const cur = alongAxis(e, drag.axis, drag.plane);
@@ -1088,6 +1121,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               <button className="mob-sel-menu" type="button" aria-label="Amallar" onClick={(e) => { e.stopPropagation(); setMenu(menu === "sel" ? null : "sel"); }}>⋮</button>
               {menu === "sel" && (
                 <div style={{ ...popover, top: "auto", bottom: "calc(100% + 8px)" }}>
+                  <button style={popItem} onClick={() => { duplicateSelected(); setMenu(null); }} type="button">⧉ Nusxalash</button>
                   <button style={popItem} onClick={() => { remove(); setMenu(null); }} type="button">🗑 O'chirish</button>
                   <button style={popItem} onClick={() => { saveToBiblioteka(); setMenu(null); }} type="button">💾 Kutubxonaga</button>
                 </div>
@@ -1106,14 +1140,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {measure && tab === "build" && (() => {
         const col = measure.dim === "w" ? "var(--ax-x)" : measure.dim === "h" ? "var(--ax-y)" : "var(--ax-z)";
         const val = units === "cm" ? +(measure.mm / 10).toFixed(1) : measure.mm;
+        if (measure.rot) { // gizmo rotate — an ANGLE, not a length
+          return (
+            <div className="mob-measure" style={{ borderColor: "#7a5cc9" }}>
+              <span className="mob-measure-dot" style={{ background: "#7a5cc9" }} />
+              <span className="mob-measure-label">Burilish</span>
+              <span className="mob-measure-val">↻ {measure.mm}°</span>
+            </div>
+          );
+        }
         if (measure.move) { // gizmo move — show the AXIS + signed displacement (not a size)
           const axisLetter = measure.dim === "w" ? "X" : measure.dim === "h" ? "Y" : "Z";
           const sign = measure.mm > 0 ? "+" : "";
           return (
-            <div className="mob-measure" style={{ borderColor: col }}>
+            <div className="mob-measure" style={{ borderColor: measure.snapped ? "var(--mob-accent)" : col }}>
               <span className="mob-measure-dot" style={{ background: col }} />
               <span className="mob-measure-label">Siljish · {axisLetter}</span>
               <span className="mob-measure-val">{sign}{val} {units}</span>
+              {measure.snapped && <span className="mob-measure-snap">🧲 yopishdi</span>}
             </div>
           );
         }
@@ -1418,6 +1462,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
           <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 34, padding: "6px 11px" }}>↻</button>
+          <button type="button" title="Nusxalash" onClick={duplicateSelected} style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", minHeight: 34, padding: "6px 11px" }}>⧉</button>
           <select value={selFreeBoard.material ?? ""} onChange={(e) => setFreeBoardMaterial(selFreeBoard.id, e.target.value)} title="Material" style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34 }}>
             <option value="">Standart</option>
             {BOARDS.map((bd) => <option key={bd.id} value={bd.id}>{bd.name}</option>)}
