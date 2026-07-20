@@ -27,6 +27,45 @@ export async function detectArSupport(): Promise<ArSupport> {
   }
 }
 
+/** One refused `requestSession` attempt, kept so a failure can explain itself instead of guessing. */
+export interface ArAttempt { required: string[]; optional: string[]; error: string }
+
+/**
+ * Every config was refused. Carries the per-attempt log and the LAST error's DOMException name, because
+ * `name` is what distinguishes "no permission" from "device can't do it" — and this class would otherwise
+ * mask it.
+ */
+export class ArSessionError extends Error {
+  readonly reason: string;
+  readonly attempts: ArAttempt[];
+  constructor(last: unknown, attempts: ArAttempt[]) {
+    super(last instanceof Error ? last.message : String(last));
+    this.name = "ArSessionError";
+    this.reason = last instanceof Error ? last.name : "";
+    this.attempts = attempts;
+  }
+}
+
+/**
+ * What this device actually reports about WebXR. Read-only and never throws — meant to be shown to the
+ * master (and copied to us) when AR refuses to start, so we diagnose from facts rather than guesses.
+ */
+export async function arDiagnostics(): Promise<Record<string, string>> {
+  const xr = (navigator as unknown as { xr?: any }).xr;
+  const out: Record<string, string> = {};
+  out["Brauzer"] = navigator.userAgent;
+  out["HTTPS"] = window.isSecureContext ? "ha" : "YO'Q — AR faqat HTTPS da ishlaydi";
+  out["Asosiy oyna"] = window.top === window.self ? "ha" : "YO'Q — ilova ichidagi brauzer (Telegram/Instagram)";
+  out["navigator.xr"] = xr ? "bor" : "yo'q — brauzerda WebXR yo'q";
+  if (xr?.isSessionSupported) {
+    for (const mode of ["immersive-ar", "immersive-vr", "inline"]) {
+      try { out[mode] = (await xr.isSessionSupported(mode)) ? "ha" : "yo'q"; }
+      catch (e) { out[mode] = `xato: ${e instanceof Error ? e.name : String(e)}`; }
+    }
+  }
+  return out;
+}
+
 /** Export a built structure group as a binary glTF (.glb) blob — the portable, universal fallback. */
 export function exportGlb(group: THREE.Object3D): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -113,13 +152,22 @@ export async function startArSession(group: THREE.Object3D, overlay?: HTMLElemen
   configs.push({});
   let session: any = null;
   let lastErr: unknown = null;
+  const attempts: ArAttempt[] = [];
   for (const opts of configs) {
-    try { session = await xr.requestSession("immersive-ar", opts); break; } catch (e) { lastErr = e; }
+    try { session = await xr.requestSession("immersive-ar", opts); break; }
+    catch (e) {
+      lastErr = e;
+      attempts.push({
+        required: (opts.requiredFeatures as string[]) ?? [],
+        optional: (opts.optionalFeatures as string[]) ?? [],
+        error: e instanceof Error ? `${e.name}: ${e.message}` : String(e),
+      });
+    }
   }
   if (!session) {
     renderer.domElement.remove();
     renderer.dispose();
-    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+    throw new ArSessionError(lastErr, attempts);
   }
   await renderer.xr.setSession(session);
 
