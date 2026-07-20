@@ -20,6 +20,7 @@ import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, buildGizmo, type RenderMode } from "./structureRenderer";
+import { detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
@@ -101,6 +102,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // #3 — tap-a-dimension math keypad: an usta-friendly calculator (600+18, 1200/2…) that opens on tapping
   // a W/H/D chip on mobile, so no fiddly native keyboard. `mm` is always in mm; the pad handles cm display.
   const [keypad, setKeypad] = useState<{ label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void } | null>(null);
+  // AR — what this device can actually do (WebXR is Android-only in practice), plus the last failure so
+  // a refused session tells the usta WHY instead of doing nothing.
+  const [arSupport, setArSupport] = useState<ArSupport>("checking");
+  const [arError, setArError] = useState<string | null>(null);
+  const [arActive, setArActive] = useState(false);
+  const arOverlayRef = useRef<HTMLDivElement | null>(null);
+  const arSessionRef = useRef<ArSession | null>(null);
   // #4 — live measure readout while dragging a face to resize: the active dim + its current size (mm), shown
   // as a floating callout so the usta sees the measurement change in real time. Cleared on pointer-up.
   const [measure, setMeasure] = useState<{ dim: "w" | "h" | "d"; mm: number; move?: boolean; snapped?: boolean; rot?: boolean } | null>(null);
@@ -1068,6 +1076,38 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     a.download = "karkas.png";
     a.click();
   };
+  // ── AR — detect once on mount; build the model on demand (never at import time) ──
+  useEffect(() => { let live = true; void detectArSupport().then((s) => { if (live) setArSupport(s); }); return () => { live = false; }; }, []);
+  /** A freshly built structure group for AR / export — independent of the editor's live group. */
+  const arGroup = () => buildStructureGroup(scene, colorRef.current);
+  const startAr = async () => {
+    setArError(null);
+    try {
+      setArActive(true); // the dom-overlay root must be visible BEFORE the session claims it
+      arSessionRef.current = await startArSession(arGroup(), arOverlayRef.current ?? undefined, () => {
+        arSessionRef.current = null;
+        setArActive(false);
+      });
+    } catch (err) {
+      setArActive(false);
+      // A refused session is normal (permission denied, no camera, unsupported feature) — say so.
+      setArError(`AR ochilmadi: ${err instanceof Error ? err.message : String(err)}. Kamera ruxsatini tekshiring.`);
+    }
+  };
+  const downloadGlb = async () => {
+    setArError(null);
+    try {
+      const blob = await exportGlb(arGroup());
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "karkas.glb";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch (err) {
+      setArError(`Faylni yaratib bo'lmadi: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   // U3.3 fix — the readout / resize reflects a CARCASS block, not the scene bounds (which would balloon
   // when a free board floats far away). B (multi-block) — it follows the ACTIVE cabinet: the selected
   // part's block, else block-0. So selecting a part in the 2nd cabinet shows + edits that cabinet's size.
@@ -1209,11 +1249,33 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       )}
       {/* ── AR tab — native camera placement (deferred) ── */}
       {tab === "ar" && (
-        <div className="mob-note">
-          <b>AR — xonada ko'rish</b>
-          <span>Mebelni telefon kamerasi orqali xonaga qo'yish. Mobil qurilmada — keyingi qadam.</span>
+        <div className="mob-ar">
+          <div className="mob-ar-card">
+            <b className="mob-ar-title">📱 AR — xonada ko'rish</b>
+            {arSupport === "checking" && <span className="mob-ar-text">Qurilma tekshirilmoqda…</span>}
+            {arSupport === "webxr" && (
+              <>
+                <span className="mob-ar-text">Kamerani polga qarating — ko'k halqa chiqadi, bosing va shkaf o'sha joyga qo'yiladi. Qayta bosib ko'chirasiz.</span>
+                <button type="button" className="mob-ar-go" onClick={startAr}>Kamerani ochish</button>
+              </>
+            )}
+            {arSupport === "unsupported" && (
+              <span className="mob-ar-text">
+                Bu qurilma brauzerida kamerali AR yo'q. <b>Android + Chrome</b> da ishlaydi; iPhone Safari uni hali qo'llamaydi.
+                Quyidagi <b>.glb</b> faylni yuklab olib, istalgan 3D ko'ruvchida (yoki iPhone'da «Файлы» orqali) ocha olasiz.
+              </span>
+            )}
+            {arError && <span className="mob-ar-err">{arError}</span>}
+            <button type="button" className="mob-ar-alt" onClick={downloadGlb}>⬇ 3D fayl (.glb) yuklab olish</button>
+            <span className="mob-ar-note">Model haqiqiy o'lchamda (1 m = 1 m) — mijozga yuborsa ham bo'ladi.</span>
+          </div>
         </div>
       )}
+      {/* dom-overlay root — the browser paints this over the camera feed during an AR session */}
+      <div ref={arOverlayRef} className="mob-ar-overlay" style={{ display: arActive ? "flex" : "none" }}>
+        <span className="mob-ar-hint">Polga qarating → ko'k halqa → bosing</span>
+        <button type="button" className="mob-ar-exit" onClick={() => arSessionRef.current?.end()}>✕ Chiqish</button>
+      </div>
 
       {/* ── U2.2 — Moblo left mini-toolbar: undo/redo · render mode · view toggles · screenshot · recenter ── */}
       {tab === "build" && (

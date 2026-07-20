@@ -498,6 +498,40 @@
 .mob-ortho-thumb svg { display: block; width: 100%; height: 100%; }
 .mob-ortho-label { font-size: 11px; font-weight: 600; color: #6b6558; letter-spacing: .01em; }
 
+/* AR tab — capability-aware entry (immersive AR is Android/WebXR; .glb is the universal fallback) */
+.mob-ar { position: absolute; inset: 60px 0 0 0; display: flex; align-items: center; justify-content: center; padding: 18px; z-index: 4; }
+.mob-ar-card {
+  display: flex; flex-direction: column; gap: 10px; align-items: stretch;
+  width: min(420px, 100%); padding: 20px;
+  background: var(--mob-surface); border: 1px solid var(--mob-border);
+  border-radius: var(--mob-radius); box-shadow: var(--mob-shadow); color: var(--mob-ink);
+}
+.mob-ar-title { font-size: 16px; }
+.mob-ar-text { font-size: 13.5px; line-height: 1.5; color: var(--mob-muted); }
+.mob-ar-note { font-size: 11.5px; color: var(--mob-faint); }
+.mob-ar-err { font-size: 12.5px; color: #a01a2e; background: #fbe4e8; border-radius: 8px; padding: 8px 10px; }
+.mob-ar-go {
+  appearance: none; cursor: pointer; padding: 13px; border: 0; border-radius: 11px;
+  background: var(--mob-accent); color: #fff; font-size: 15px; font-weight: 700;
+  box-shadow: 0 2px 8px rgba(47,107,255,.35);
+}
+.mob-ar-alt {
+  appearance: none; cursor: pointer; padding: 11px; border-radius: 11px;
+  background: var(--mob-surface-2); border: 1px solid var(--mob-border); color: var(--mob-ink);
+  font-size: 14px; font-weight: 650;
+}
+/* shown by the browser OVER the camera feed while the AR session runs */
+.mob-ar-overlay {
+  position: fixed; inset: auto 0 0 0; z-index: 300;
+  justify-content: space-between; align-items: center; gap: 10px;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+}
+.mob-ar-hint { font-size: 13px; font-weight: 600; color: #fff; background: rgba(18,26,42,.62); border-radius: 999px; padding: 7px 12px; }
+.mob-ar-exit {
+  appearance: none; cursor: pointer; border: 0; border-radius: 999px; padding: 9px 15px;
+  background: #fff; color: #18241d; font-size: 14px; font-weight: 700;
+}
+
 /* Per-row panel silhouette in the cut list (same paper sheet, so fixed ink) */
 .mob-part-thumb {
   flex: 0 0 auto; width: 26px; height: 26px; display: block;
