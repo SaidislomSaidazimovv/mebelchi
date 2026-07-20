@@ -26,6 +26,14 @@ import { estimate, hardwareEstimate } from "./estimate";
 import { BOARDS, EDGES, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
 
+/**
+ * PAPER_INK — text colour for every hardcoded-light surface in this editor (the spec/tree sheets, the
+ * floating tool cards, popovers, dialogs). Those panels pin their background to paper tones, so they must
+ * pin the ink too: without it the text inherits .mob-root's `--mob-ink`, which in DARK theme is
+ * near-white — white text on a white card. Declared here, above every style constant that uses it.
+ */
+const PAPER_INK = "#1f2430";
+
 /** The Moblo shell's tabs (U2). U2.1 wires «build»; the rest arrive in U2.4. */
 type MobTab = "build" | "parts" | "drawing" | "ar";
 const MOB_TABS: { id: MobTab; label: string }[] = [
@@ -1190,7 +1198,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           </div>
           <div style={{ flex: 1, overflow: "auto", padding: 16, display: "flex", justifyContent: "center", alignItems: "flex-start" }}>
             {drawingSvg
-              ? <div className="mob-drawing-inline" style={{ width: "100%", maxWidth: 1040, background: "#fff", boxShadow: "0 2px 16px rgba(0,0,0,0.14)", borderRadius: 6, overflow: "hidden" }} dangerouslySetInnerHTML={{ __html: drawingSvg }} />
+              ? <div className="mob-drawing-inline" style={{ width: "100%", maxWidth: 1040, background: "#fff", color: PAPER_INK, boxShadow: "0 2px 16px rgba(0,0,0,0.14)", borderRadius: 6, overflow: "hidden" }} dangerouslySetInnerHTML={{ __html: drawingSvg }} />
               : <p style={{ color: "var(--mob-muted)", marginTop: 40 }}>Chizma tayyorlanmadi.</p>}
           </div>
         </div>
@@ -1397,7 +1405,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           lacks; bind each to an existing material or keep it as a new variable. Never a silent 5th material. */}
       {pendingBinding && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", borderRadius: 14, padding: 18, width: 400, maxWidth: "92vw", boxShadow: "0 8px 40px rgba(0,0,0,0.35)" }}>
+          <div style={{ background: "#fff", color: PAPER_INK, borderRadius: 14, padding: 18, width: 400, maxWidth: "92vw", boxShadow: "0 8px 40px rgba(0,0,0,0.35)" }}>
             <b style={{ fontSize: 15 }}>Yangi material aniqlandi</b>
             <p style={{ fontSize: 12.5, color: "#555", margin: "6px 0 12px" }}>Bu blok loyihada yo'q dekor ishlatadi. Har birini mavjud materialga bog'lang, yoki yangi material sifatida saqlang.</p>
             {pendingBinding.foreign.map((d) => (
@@ -1405,7 +1413,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <span style={{ width: 18, height: 18, borderRadius: 4, background: boardById(d)?.hex ?? "#ccc", border: "1px solid rgba(0,0,0,0.15)", flex: "0 0 auto" }} />
                 <span style={{ flex: 1, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardById(d)?.name ?? d}</span>
                 <span style={{ opacity: 0.5, fontSize: 16 }}>→</span>
-                <select value={bindChoices[d] ?? "__new"} onChange={(e) => setBindChoices((c) => ({ ...c, [d]: e.target.value === "__new" ? null : e.target.value }))} style={{ flex: "0 0 auto", maxWidth: 180, padding: "4px 6px", borderRadius: 7, border: "1px solid #d8d2c4", background: "#fff", cursor: "pointer" }}>
+                <select value={bindChoices[d] ?? "__new"} onChange={(e) => setBindChoices((c) => ({ ...c, [d]: e.target.value === "__new" ? null : e.target.value }))} style={{ flex: "0 0 auto", maxWidth: 180, padding: "4px 6px", borderRadius: 7, border: "1px solid #d8d2c4", background: "#fff", color: PAPER_INK, cursor: "pointer" }}>
                   {materialPool.map((p) => <option key={p} value={p}>{boardById(p)?.name ?? p}</option>)}
                   <option value="__new">＋ Yangi material</option>
                 </select>
@@ -1699,7 +1707,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         ) : null))}
         {/* Step 5 — materials legend + isolate filter (v4 §3, "see everything by material") */}
         {showMaterials && (
-          <div style={{ position: "absolute", left: 10, top: 10, zIndex: 44, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 10, minWidth: 210, maxHeight: "70%", overflow: "auto", ...compactSheet }}>
+          <div style={{ position: "absolute", left: 10, top: 10, zIndex: 44, background: "#fff", color: PAPER_INK, borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 10, minWidth: 210, maxHeight: "70%", overflow: "auto", ...compactSheet }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <b style={{ fontSize: 13 }}>Materiallar</b>
               <button onClick={() => setActivePanel(null)} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }} type="button">✕</button>
@@ -1721,7 +1729,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         )}
         {/* Step 7a — the Joint profile editor (System-32 grid + cam). Editing a value re-drills live. */}
         {showJoints && (
-          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 44, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 250, ...compactSheet }}>
+          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 44, background: "#fff", color: PAPER_INK, borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 250, ...compactSheet }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <b style={{ fontSize: 13 }}>⚙ Birikma profili</b>
               <button onClick={() => setActivePanel(null)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }}>✕</button>
@@ -1760,7 +1768,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         )}
         {/* Step 7c — the selected drill hole: move it on the panel face (persists as an override) or reset */}
         {selectedHole && (
-          <div style={{ position: "absolute", left: 10, bottom: 10, zIndex: 45, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 214, ...compactSheet }}>
+          <div style={{ position: "absolute", left: 10, bottom: 10, zIndex: 45, background: "#fff", color: PAPER_INK, borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 214, ...compactSheet }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <b style={{ fontSize: 13 }}>🕳 Teshik — ko'chirish</b>
               <button onClick={() => selectHole(null)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }}>✕</button>
@@ -1775,7 +1783,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         )}
         {/* Step 9 — Application view: tag the active space's purpose + boiler-clearance warning */}
         {appView && (
-          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 45, background: "#fff", borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 220, ...compactSheet }}>
+          <div style={{ position: "absolute", right: 10, top: 10, zIndex: 45, background: "#fff", color: PAPER_INK, borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 220, ...compactSheet }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <b style={{ fontSize: 13 }}>🛋 Bo'shliq maqsadi</b>
               <button onClick={() => setActivePanel(null)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }}>✕</button>
@@ -2040,7 +2048,7 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
   }, [model, plan]);
   return (
     <div style={variant === "tab"
-      ? { position: "absolute", top: 62, bottom: 0, left: "50%", transform: "translateX(-50%)", width: "min(680px, 100%)", background: "#fbfaf6", display: "flex", flexDirection: "column", overflow: "auto", zIndex: 4 }
+      ? { position: "absolute", top: 62, bottom: 0, left: "50%", transform: "translateX(-50%)", width: "min(680px, 100%)", background: "#fbfaf6", color: PAPER_INK, display: "flex", flexDirection: "column", overflow: "auto", zIndex: 4 }
       : compact ? { ...specPanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : specPanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Спецификация</b>
@@ -2273,10 +2281,10 @@ function MobTarget() { return <svg {...MOB_ICO}><circle cx="12" cy="12" r="3" />
 function MobPlus() { return <svg {...MOB_ICO} width={24} height={24} strokeWidth={2.4}><path d="M12 5v14M5 12h14" /></svg>; }
 function MobPaint() { return <svg {...MOB_ICO}><rect x="4" y="3" width="12" height="8" rx="2" /><path d="M16 7h3v5a3 3 0 0 1-3 3h-2v4" /><path d="M10 15v3" /></svg>; }
 const mono: CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 12, color: "#5c6a61" };
-const dimField: CSSProperties = { display: "flex", alignItems: "center", gap: 2, border: "1px solid #d8d2c4", borderRadius: 7, padding: "1px 3px", background: "#fff" };
+const dimField: CSSProperties = { display: "flex", alignItems: "center", gap: 2, border: "1px solid #d8d2c4", borderRadius: 7, padding: "1px 3px", background: "#fff", color: PAPER_INK };
 const dimLabel: CSSProperties = { fontFamily: "system-ui", fontSize: 11, fontWeight: 700, color: "#8a6d1f", width: 12, textAlign: "center" };
 const dimInput: CSSProperties = { width: 44, border: "none", outline: "none", background: "transparent", font: "600 13px ui-monospace, monospace", color: "#18241d", textAlign: "right", padding: "3px 2px" };
-const pill: CSSProperties = { padding: "7px 12px", minHeight: 34, borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer", flex: "0 0 auto", whiteSpace: "nowrap" };
+const pill: CSSProperties = { padding: "7px 12px", minHeight: 34, borderRadius: 999, border: "1px solid #d8d2c4", background: "none", color: "inherit", font: "600 13px system-ui", cursor: "pointer", flex: "0 0 auto", whiteSpace: "nowrap" };
 const editbar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, flexWrap: "wrap" };
 // Step 9 — the purpose tags a client cares about (each id is a SectionPurpose)
 const PURPOSES = [
@@ -2291,25 +2299,25 @@ const matLegendRow: CSSProperties = { display: "flex", alignItems: "center", gap
 const matLegendActive: CSSProperties = { borderColor: "#c9a24b", background: "#f7efd8" };
 const matLegendSwatch: CSSProperties = { width: 20, height: 20, borderRadius: 5, flex: "0 0 auto", border: "1px solid rgba(0,0,0,0.15)" };
 const popWrap: CSSProperties = { position: "relative", display: "inline-flex", zIndex: 56 };
-const popover: CSSProperties = { position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 176, background: "#fff", border: "1px solid #e0dccf", borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.17)", padding: 6, display: "flex", flexDirection: "column", gap: 2, zIndex: 60 };
+const popover: CSSProperties = { position: "absolute", top: "calc(100% + 6px)", left: 0, minWidth: 176, background: "#fff", color: PAPER_INK, border: "1px solid #e0dccf", borderRadius: 12, boxShadow: "0 12px 32px rgba(0,0,0,0.17)", padding: 6, display: "flex", flexDirection: "column", gap: 2, zIndex: 60 };
 const popRight: CSSProperties = { ...popover, left: "auto", right: 0 };
-const popItem: CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "none", background: "none", color: "#18241d", font: "600 13px system-ui", cursor: "pointer", textAlign: "left", whiteSpace: "nowrap" };
+const popItem: CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "none", background: "none", color: "inherit", font: "600 13px system-ui", cursor: "pointer", textAlign: "left", whiteSpace: "nowrap" };
 const popSep: CSSProperties = { height: 1, background: "#eee7d8", margin: "4px 2px" };
 const act: CSSProperties = { padding: "9px 13px", minHeight: 40, borderRadius: 10, border: "1px solid #00a961", background: "#e3f3ea", color: "#006b3f", font: "650 13px system-ui", cursor: "pointer", flex: "0 0 auto", whiteSpace: "nowrap" };
 const selBar: CSSProperties = { padding: "0 14px 10px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
 const badge: CSSProperties = { padding: "3px 8px", borderRadius: 999, background: "#e3f3ea", color: "#006b3f", font: "600 11px system-ui" };
 const warnBar: CSSProperties = { margin: "0 14px 10px", padding: "8px 12px", borderRadius: 8, background: "#fdf3e0", border: "1px solid #f0d9a8", color: "#8a5a1f", display: "flex", gap: 10, alignItems: "center", font: "13px system-ui", minWidth: 0 };
-const specPanel: CSSProperties = { position: "absolute", top: 0, right: 0, bottom: 0, width: "min(380px, 92vw)", background: "#fbfaf6", borderLeft: "1px solid #e0dccf", boxShadow: "-8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };
-const treePanel: CSSProperties = { position: "absolute", top: 0, left: 0, bottom: 0, width: "min(300px, 84vw)", background: "#fbfaf6", borderRight: "1px solid #e0dccf", boxShadow: "8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };
+const specPanel: CSSProperties = { position: "absolute", top: 0, right: 0, bottom: 0, width: "min(380px, 92vw)", background: "#fbfaf6", color: PAPER_INK, borderLeft: "1px solid #e0dccf", boxShadow: "-8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };
+const treePanel: CSSProperties = { position: "absolute", top: 0, left: 0, bottom: 0, width: "min(300px, 84vw)", background: "#fbfaf6", color: PAPER_INK, borderRight: "1px solid #e0dccf", boxShadow: "8px 0 24px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", zIndex: 5 };
 const treeRow: CSSProperties = { display: "flex", gap: 8, alignItems: "center", padding: "8px 8px", borderBottom: "1px solid #f0ece1", fontFamily: "system-ui", fontSize: 13, cursor: "pointer", borderRadius: 6 };
 const treeRowOn: CSSProperties = { background: "#e0ecff", color: "#1f478a", fontWeight: 700 };
 const specHead: CSSProperties = { padding: "12px 14px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #e6e1d4", fontFamily: "system-ui" };
 const specTotals: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "#e6e1d4", padding: 1, margin: "10px 14px 6px", borderRadius: 8, overflow: "hidden" };
-const cell: CSSProperties = { background: "#fff", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 2, fontFamily: "system-ui", fontSize: 15 };
+const cell: CSSProperties = { background: "#fff", color: PAPER_INK, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 2, fontFamily: "system-ui", fontSize: 15 };
 const specList: CSSProperties = { flex: 1, minHeight: 0, overflow: "auto", padding: "4px 14px" };
 const specRow: CSSProperties = { display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f0ece1", fontFamily: "system-ui", fontSize: 13 };
 const totalRow: CSSProperties = { margin: "0 14px 8px", padding: "8px 12px", borderRadius: 8, background: "#e3f3ea", color: "#00532f", display: "flex", justifyContent: "space-between", alignItems: "center", font: "800 17px system-ui" };
 const picker: CSSProperties = { padding: "10px 14px 2px", display: "flex", flexDirection: "column", gap: 6, borderBottom: "1px solid #eee7d8" };
 const matRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8 };
 const swatch: CSSProperties = { width: 16, height: 16, borderRadius: 4, border: "1px solid rgba(0,0,0,0.15)", flex: "0 0 auto" };
-const matSel: CSSProperties = { flex: 1, minWidth: 0, padding: "4px 6px", borderRadius: 7, border: "1px solid #d8d2c4", background: "#fff", font: "13px system-ui", cursor: "pointer" };
+const matSel: CSSProperties = { flex: 1, minWidth: 0, padding: "4px 6px", borderRadius: 7, border: "1px solid #d8d2c4", background: "#fff", color: PAPER_INK, font: "13px system-ui", cursor: "pointer" };
