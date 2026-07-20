@@ -482,3 +482,7 @@
 .mob-measure-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .mob-measure-label { color: var(--mob-muted); font-weight: 600; }
 .mob-measure-val { color: var(--mob-ink); font-weight: 800; font-variant-numeric: tabular-nums; }
+.mob-measure-snap {
+  font-size: 12px; font-weight: 700; color: var(--mob-accent);
+  background: var(--mob-accent-soft); border-radius: 999px; padding: 2px 8px;
+}

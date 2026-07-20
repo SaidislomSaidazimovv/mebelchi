@@ -20,6 +20,8 @@ export interface Board {
   size: [number, number, number];
   /** tilt about the X (width) axis in RADIANS — an inclined shelf. Absent = axis-aligned. */
   rotX?: number;
+  /** turn about the vertical (Y) axis in RADIANS — a free board facing another way. Absent = square-on. */
+  rotY?: number;
   /** Step 4b — corner radii mm10 [tl,tr,br,bl] on this panel's largest face (rendered as a rounded rect). */
   corners?: readonly [number, number, number, number];
   /** Step 4b — rectangular apertures (mm10, part-local) punched through the panel's largest face. */
@@ -51,6 +53,8 @@ interface RawBox {
   d: number;
   /** tilt about X in DEGREES (from a PanelPlacement's rotX_deg); converted to radians on the Board. */
   rot?: number;
+  /** turn about the vertical Y axis in DEGREES (from rotY_deg); converted to radians on the Board. */
+  rotYDeg?: number;
 }
 
 /**
@@ -76,6 +80,7 @@ export function boxesToScene(boxes: RawBox[], features?: Readonly<Record<string,
       pos: [M(b.x + b.w / 2 - cx), M(b.y + b.h / 2 - minY), M(b.z + b.d / 2 - cz)],
       size: [M(b.w), M(b.h), M(b.d)],
       ...(b.rot ? { rotX: (b.rot * Math.PI) / 180 } : {}),
+      ...(b.rotYDeg ? { rotY: (b.rotYDeg * Math.PI) / 180 } : {}),
       ...(f?.corners && f.corners.some((r) => r > 0) ? { corners: f.corners } : {}),
       ...(f?.cutouts && f.cutouts.length > 0 ? { cutouts: f.cutouts } : {}),
       ...(f?.kromka && f.kromka.some((k) => k) ? { kromka: f.kromka } : {}),
@@ -95,6 +100,7 @@ export function layoutToScene(panels: readonly PanelPlacement[], features?: Read
       x: p.x_mm10, y: p.y_mm10, z: p.z_mm10,
       w: p.w_mm10, h: p.h_mm10, d: p.d_mm10,
       rot: p.rotX_deg,
+      rotYDeg: p.rotY_deg,
     })),
     features,
   );

@@ -116,6 +116,9 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
       mesh.position.y += ey - ry; // pin the front-top edge: position += (e − R·e)
       mesh.position.z += ez - rz;
     }
+    // A free board turned about the VERTICAL axis (rotY, radians) simply spins in place — its centre is
+    // the natural pivot for "face another way", so no edge-pinning offset is needed here.
+    if (b.rotY) mesh.rotation.y = b.rotY;
     mesh.userData.partId = b.id;
     // thin edge outline so adjacent panels read as separate boards
     const edges = new THREE.LineSegments(
@@ -346,30 +349,78 @@ export function buildSectionHitboxes(
   return g;
 }
 
-/** A Moblo-style move gizmo: three axis arrows (X red · Y green · Z blue) at `center`, sized by `length`
- *  (metres). Each arrow (shaft + cone) carries `userData.gizmoAxis` so a pointer-down can start an
- *  axis-constrained drag. depthTest off + high renderOrder → the arrows always read on top of the boards. */
-export function buildMoveGizmo(center: [number, number, number], length: number): THREE.Group {
+/**
+ * A Moblo-style gizmo for the selected free board, sized to its own box (`size`, metres):
+ *  · a RESIZE handle — a small cube just outside each axis' + face (`userData.resizeAxis`), dragged to
+ *    grow/shrink that dimension (the opposite face stays put, so the board grows the way you pull);
+ *  · a MOVE arrow — shaft + cone starting BEYOND that handle (`userData.gizmoAxis`), dragged to slide
+ *    the board along that one axis.
+ * Starting the arrows outside the handles keeps the two hit-targets from fighting for the same pixels.
+ * X red · Y green · Z blue (Moblo's R/G/B = X/Y/Z). depthTest off + high renderOrder → always on top.
+ */
+export function buildGizmo(
+  center: [number, number, number],
+  size: [number, number, number],
+  opts: { resize?: boolean } = {},
+): THREE.Group {
+  const withResize = opts.resize !== false; // a whole cabinet is move-only — it already resizes by face-drag
   const g = new THREE.Group();
   g.position.set(center[0], center[1], center[2]);
   const up = new THREE.Vector3(0, 1, 0);
+  const maxS = Math.max(size[0], size[1], size[2]);
+  const hs = Math.min(0.03, Math.max(0.014, maxS * 0.07)); // handle cube edge (m) — kept finger-sized on mobile
+  const shaftL = maxS * 0.45 + 0.05;
+  const shaftR = Math.max(0.004, shaftL * 0.05), coneR = shaftR * 2.6, coneH = shaftL * 0.28;
   const AXES = [
-    { axis: "x", color: 0xe5484d, dir: new THREE.Vector3(1, 0, 0) },
-    { axis: "y", color: 0x30a46c, dir: new THREE.Vector3(0, 1, 0) },
-    { axis: "z", color: 0x2f6bff, dir: new THREE.Vector3(0, 0, 1) },
+    { axis: "x", color: 0xe5484d, dir: new THREE.Vector3(1, 0, 0), half: size[0] / 2 },
+    { axis: "y", color: 0x30a46c, dir: new THREE.Vector3(0, 1, 0), half: size[1] / 2 },
+    { axis: "z", color: 0x2f6bff, dir: new THREE.Vector3(0, 0, 1), half: size[2] / 2 },
   ] as const;
-  const shaftR = length * 0.035, coneR = length * 0.09, coneH = length * 0.22, shaftL = length * 0.78;
+  // An invisible-but-pickable proxy: fully transparent, so it enlarges the TAP TARGET without changing
+  // the look. Without it a finger that lands a few px off the small handle grabs the board underneath
+  // and moves it instead of resizing — the classic thin-board miss.
+  const hitMat = () => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false });
   for (const a of AXES) {
+    const mat = () => new THREE.MeshBasicMaterial({ color: a.color, depthTest: false });
     const q = new THREE.Quaternion().setFromUnitVectors(up, a.dir); // default geoms point +Y → rotate to axis
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftR, shaftR, shaftL, 12), new THREE.MeshBasicMaterial({ color: a.color, depthTest: false }));
+    const handleAt = a.half + hs * 0.6;
+    if (withResize) {
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(hs, hs, hs), mat());
+      handle.position.copy(a.dir).multiplyScalar(handleAt);
+      handle.userData.resizeAxis = a.axis;
+      handle.renderOrder = 1001;
+      const handleHit = new THREE.Mesh(new THREE.BoxGeometry(hs * 1.8, hs * 1.8, hs * 1.8), hitMat());
+      handleHit.position.copy(a.dir).multiplyScalar(handleAt);
+      handleHit.userData.resizeAxis = a.axis;
+      g.add(handle, handleHit);
+    }
+    const base = a.half + hs * 1.8; // arrows begin past the handle (and past its hit proxy)
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftR, shaftR, shaftL, 12), mat());
     shaft.quaternion.copy(q);
-    shaft.position.copy(a.dir).multiplyScalar(shaftL / 2);
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(coneR, coneH, 16), new THREE.MeshBasicMaterial({ color: a.color, depthTest: false }));
+    shaft.position.copy(a.dir).multiplyScalar(base + shaftL / 2);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(coneR, coneH, 16), mat());
     cone.quaternion.copy(q);
-    cone.position.copy(a.dir).multiplyScalar(shaftL + coneH / 2);
+    cone.position.copy(a.dir).multiplyScalar(base + shaftL + coneH / 2);
     shaft.userData.gizmoAxis = a.axis; cone.userData.gizmoAxis = a.axis;
     shaft.renderOrder = 1000; cone.renderOrder = 1000;
-    g.add(shaft, cone);
+    const arrowHit = new THREE.Mesh(new THREE.CylinderGeometry(coneR * 1.5, coneR * 1.5, shaftL + coneH, 8), hitMat());
+    arrowHit.quaternion.copy(q);
+    arrowHit.position.copy(a.dir).multiplyScalar(base + (shaftL + coneH) / 2);
+    arrowHit.userData.gizmoAxis = a.axis;
+    g.add(shaft, cone, arrowHit);
+  }
+  // ROTATE ring — a horizontal hoop around the board; dragging it turns the board about the vertical
+  // axis (render-only, see FreePart.rotY_deg). Only for free boards: a cabinet has no free rotation.
+  if (withResize) {
+    const rr = Math.max(size[0], size[2]) / 2 + hs * 2.4; // hugs the footprint, clear of the face handles
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.003, rr * 0.022), 8, 48), new THREE.MeshBasicMaterial({ color: 0x7a5cc9, depthTest: false }));
+    ring.rotation.x = Math.PI / 2; // lay the hoop flat in the XZ plane so it spins about Y
+    ring.userData.rotateAxis = "y";
+    ring.renderOrder = 1000;
+    const ringHit = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.012, rr * 0.09), 6, 32), hitMat());
+    ringHit.rotation.x = Math.PI / 2;
+    ringHit.userData.rotateAxis = "y";
+    g.add(ring, ringHit);
   }
   return g;
 }
