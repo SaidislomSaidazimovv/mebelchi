@@ -1610,6 +1610,164 @@ export function forkComponentForInstance(model: StructuralModel, instanceId: Ins
   return changed ? { ...model, blocks } : model;
 }
 
+/**
+ * The GROUP FAMILY a component belongs to — the id it was forked from.
+ *
+ * Every per-part edit calls `forkComponentForInstance` first, which suffixes `__i_<instanceId>`;
+ * `dissolveGroup` suffixes `__each_<k>`. So the moment a master edits one of three identical shelves,
+ * that shelf silently gets its own component and the "group" stops existing as a shared id — but the
+ * ORIGIN survives in the id. Stripping the suffixes recovers which instances were the same part to
+ * begin with, which is the only thing «apply to all identical» can mean after the fork has happened.
+ * Stripping loops because a dissolved clone can later be forked again (`…__each_0__i_inst_x`).
+ */
+export function componentFamily(id: ComponentId): string {
+  let out = id;
+  for (;;) {
+    const next = out.replace(/__(?:i_.+|each_\d+)$/, "");
+    if (next === out) return out;
+    out = next;
+  }
+}
+
+/** Family size and whether its members currently still share ONE component (i.e. nothing forked off). */
+export function familyStatus(
+  model: StructuralModel,
+  instanceId: InstanceId,
+): { size: number; united: boolean } | null {
+  for (const block of model.blocks) {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst) continue;
+    const fam = componentFamily(inst.componentId);
+    const members = block.instances.filter((i) => componentFamily(i.componentId) === fam);
+    return { size: members.length, united: new Set(members.map((i) => i.componentId)).size === 1 };
+  }
+  return null;
+}
+
+/**
+ * «Apply to all identical» — re-point every instance in `instanceId`'s family at THIS instance's
+ * component, so all of them carry its thickness/material/angle/lip/... at once. Re-pointing rather
+ * than copying fields means the whole Component travels, including any property added later.
+ *
+ * This is the counterpart the editor was missing: `forkComponentForInstance` splits one part off on
+ * every edit (so a master must re-do the same change N times), and nothing put them back together.
+ * Clones left orphaned inside the family are dropped; components outside it are never touched.
+ * No-op (same reference) when the family has fewer than 2 members.
+ */
+export function applyToFamily(model: StructuralModel, instanceId: InstanceId): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst) return block;
+    const target = block.components.find((c) => c.id === inst.componentId);
+    if (!target) return block;
+    const fam = componentFamily(inst.componentId);
+    const inFamily = (cid: ComponentId): boolean => componentFamily(cid) === fam;
+    const members = block.instances.filter((i) => inFamily(i.componentId));
+    if (members.length < 2) return block;
+    // Already on one component with nothing overriding it → genuinely nothing to do. Returning a fresh
+    // model here would push a no-op onto the undo stack, so the master's ↩ would appear to do nothing.
+    if (members.every((i) => i.componentId === target.id && i.link !== "detached")) return block;
+    changed = true;
+    // link/partIds reset: a member carrying a detached override would otherwise keep overriding the
+    // component it was just re-pointed at, and the master would see "applied" but nothing change.
+    const instances = block.instances.map((i) =>
+      inFamily(i.componentId) ? { ...i, componentId: target.id, link: "linked" as const, partIds: null } : i);
+    const used = new Set(instances.map((i) => i.componentId));
+    const components = block.components.filter((c) => used.has(c.id) || !inFamily(c.id));
+    return { ...block, components, instances };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Slide a placed instance inside its own section by moving its anchor.
+ *
+ * A shelf's X and Z come from the section it lives in (it spans the bay), so `anchor.y` is the only
+ * coordinate that is really its own — which is exactly the one a master wants to nudge when a shelf
+ * sits too low. The move is clamped to the section so a shelf can never be dragged out through the
+ * carcass. No-op (same model reference) when the instance is unknown or the clamp eats the whole delta.
+ */
+export function moveInstanceAnchor(
+  model: StructuralModel,
+  instanceId: InstanceId,
+  axis: Axis,
+  to_mm10: mm10,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst) return block;
+    const section = findSectionIn(block, inst.sectionId);
+    if (!section) return block;
+    const s = section.box;
+    const lo = axis === "x" ? s.x : axis === "y" ? s.y : s.z;
+    const span = axis === "x" ? s.w : axis === "y" ? s.h : s.d;
+    const next = Math.max(lo, Math.min(Math.round(to_mm10), lo + span));
+    if (next === inst.anchor[axis]) return block;
+    changed = true;
+    const instances = block.instances.map((i) => (i.id === instanceId ? { ...i, anchor: { ...i.anchor, [axis]: next } } : i));
+    return { ...block, instances };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/** Depth-first lookup of a section by id inside one block's zone trees. */
+function findSectionIn(block: Block, sectionId: SectionId): Section | null {
+  const walk = (sec: Section): Section | null => {
+    if (sec.id === sectionId) return sec;
+    for (const c of sec.children) { const hit = walk(c); if (hit) return hit; }
+    return null;
+  };
+  for (const z of block.zones) { const hit = walk(z.root); if (hit) return hit; }
+  return null;
+}
+
+/**
+ * The two child sections a divider sits BETWEEN, with their extents along the divider's own axis.
+ *
+ * Dragging a divider is the one edit where the number that matters is not the thing being dragged but
+ * the two compartments either side of it — a master sizing a bay wants "480 | 620", not the line's
+ * absolute coordinate. A section lists its `dividers` in the same order as the `children` they split,
+ * so divider i separates child i from child i+1.
+ *
+ * Returns null when the line is unknown, or when the tree does not yet have both neighbours solved.
+ */
+export function lineNeighbours(
+  model: StructuralModel,
+  lineId: LineId,
+): { axis: Axis; before: Section; after: Section } | null {
+  const walk = (sec: Section): { axis: Axis; before: Section; after: Section } | null => {
+    const i = sec.dividers.indexOf(lineId);
+    if (i !== -1) {
+      const before = sec.children[i], after = sec.children[i + 1];
+      if (!before || !after) return null;
+      for (const block of model.blocks) {
+        const line = block.lines.find((l) => l.id === lineId);
+        if (line) return { axis: line.axis, before, after };
+      }
+      return null;
+    }
+    for (const child of sec.children) {
+      const hit = walk(child);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  for (const block of model.blocks) {
+    for (const zone of block.zones) {
+      const hit = walk(zone.root);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+/** The extent of a box along one axis — the side a divider on that axis actually changes. */
+export function extentAlong(box: Box3D, axis: Axis): mm10 {
+  return axis === "x" ? box.w : axis === "y" ? box.h : box.d;
+}
+
 export function setLoadBearing(
   model: StructuralModel,
   componentId: ComponentId,

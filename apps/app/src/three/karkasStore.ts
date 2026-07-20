@@ -11,7 +11,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -24,7 +24,7 @@ import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
-import { layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
+import { layoutBounds, layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, type MaterialPlan } from "./materials";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
@@ -48,7 +48,10 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   const tk = planThickness(plan); // one per-role thickness spec for BOTH cut list + render (parity)
   // The 3D scene shows cabinets as PLACED (a turned block is rotated here); the cut list + drawing keep
   // reading solveLayout unrotated, because a cabinet is manufactured square-on however it is turned.
-  const scene = layoutToScene(rotateBlockPlacements(solveLayout(model, tk), model.blocks), model.features);
+  // Recentre on the UNROTATED bounds: turning a cabinet is placement-only, so it must not move anything
+  // else. Centring on the rotated AABB slid the entire model sideways as the cabinet turned.
+  const flat = solveLayout(model, tk);
+  const scene = layoutToScene(rotateBlockPlacements(flat, model.blocks), model.features, layoutBounds(flat));
   return { model, parts: solveStructure(model, tk), scene, warnings, sections };
 }
 
@@ -272,6 +275,17 @@ interface KarkasState extends Derived {
   selectedDrawerHeight: () => number | null;
   /** The Component behind the current selection (its doubled/glazed/loadBearing flags), or null. */
   selectedComponent: () => Component | null;
+  /**
+   * The selection's group of identical parts: how many there are, and whether they still all share one
+   * component. `united: false` means this one (or a sibling) was edited individually — which happens on
+   * EVERY per-part edit, since those fork first. null when nothing is selected. Drives the group badge.
+   */
+  selectedGroup: () => { size: number; united: boolean } | null;
+  /** «Apply to all identical» — push the selected part's component onto its whole family. */
+  applyToAllIdentical: () => void;
+  /** gizmos — slide a placed instance (a shelf) inside its section along `axis` to `pos` (mm10, block-local).
+   *  `pushHistory` only on the first drag frame, so a drag is ONE undo step. Returns the clamped position. */
+  moveInstanceTo: (instanceId: string, axis: "x" | "y" | "z", pos: number, pushHistory: boolean) => number;
   /** The solved parts belonging to the selected instance (for the info card's material colour bar). */
   selectedParts: () => Part[];
   /** Toggle the selected component's load-bearing declaration (drives the stability ⚠). */
@@ -871,6 +885,33 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const s = get();
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
       return r ? r.block.components.find((c) => c.id === r.inst.componentId) ?? null : null;
+    },
+    moveInstanceTo: (instanceId, axis, pos, pushHistory) => {
+      const s = get();
+      const next = moveInstanceAnchor(s.model, instanceId, axis, Math.round(pos));
+      if (next !== s.model) {
+        // live drag frames must not each stack an undo entry — only the first one does
+        if (pushHistory) apply(next, true);
+        else set((st) => ({ ...derive(next, st.plan) }));
+      }
+      const blk = next.blocks.find((b) => b.instances.some((i) => i.id === instanceId));
+      return blk?.instances.find((i) => i.id === instanceId)?.anchor[axis] ?? pos;
+    },
+    selectedGroup: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      return r ? familyStatus(s.model, r.inst.id) : null;
+    },
+    applyToAllIdentical: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r) return;
+      const next = applyToFamily(s.model, r.inst.id);
+      // The engine returns the SAME model when there is nothing to unify (a lone part, or a family that
+      // already shares one component). Pushing that through apply() would still stack an undo step, so
+      // the master's next ↩ would silently do nothing.
+      if (next === s.model) return;
+      apply(next, true); // keepSel — same part, its siblings just caught up
     },
     selectedDrawerHeight: () => {
       const s = get();
