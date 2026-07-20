@@ -1427,6 +1427,64 @@ export function removeFreePart(model: StructuralModel, blockId: BlockId, freePar
   return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? { ...b, freeParts } : b)) };
 }
 
+/**
+ * Duplicate a free board inside its block (gizmo «duplicate» mode). The copy lands just beside the
+ * original along X so it reads as a second board immediately. `newId` is caller-supplied so the engine
+ * stays pure/deterministic. Pure/immutable; throws when the block or board is unknown.
+ */
+export function duplicateFreePart(model: StructuralModel, blockId: BlockId, freePartId: string, newId: string): StructuralModel {
+  const block = model.blocks.find((b) => b.id === blockId);
+  const fp = block?.freeParts?.find((f) => f.id === freePartId);
+  if (!block || !fp) throw new Error("DUP_FREEPART_NOT_FOUND");
+  if ((block.freeParts ?? []).some((f) => f.id === newId)) throw new Error("DUP_FREEPART_DUPLICATE_ID");
+  const copy: FreePart = { ...fp, id: newId, box: { ...fp.box, x: fp.box.x + fp.box.w + 200 } }; // 20 mm gap
+  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? { ...b, freeParts: [...(b.freeParts ?? []), copy] } : b)) };
+}
+
+/**
+ * Duplicate a whole cabinet. EVERY id inside is re-suffixed — zones, sections (recursively, plus their
+ * divider/instance references), components, instances (including nested drawer interiors), lines, rows and
+ * free parts. Without that the two blocks would share section/instance ids and an edit aimed at the copy
+ * would land in the original (findSection / nestDrawer resolve by id across all blocks). The copy is
+ * placed to the right of the rightmost block with a 30 mm gap. `uid` is caller-supplied so the engine
+ * stays pure/deterministic.
+ */
+export function duplicateBlock(model: StructuralModel, blockId: BlockId, uid: string): StructuralModel {
+  const src = model.blocks.find((b) => b.id === blockId);
+  if (!src) throw new Error("DUP_BLOCK_NOT_FOUND");
+  const R = (id: string): string => `${id}_c${uid}`;
+  // function declarations (hoisted) so the section/instance/interior remaps can recurse into each other
+  function remapSection(s: Section): Section {
+    return { ...s, id: R(s.id), dividers: s.dividers.map(R), instanceIds: s.instanceIds.map(R), children: s.children.map(remapSection) };
+  }
+  function remapInstance(i: Instance): Instance {
+    return {
+      ...i,
+      id: R(i.id),
+      componentId: R(i.componentId),
+      sectionId: R(i.sectionId),
+      ...(i.interior ? { interior: remapInterior(i.interior) } : {}),
+    };
+  }
+  function remapInterior(di: DrawerInterior): DrawerInterior {
+    return { components: di.components.map((c) => ({ ...c, id: R(c.id) })), instances: di.instances.map(remapInstance) };
+  }
+  const rightEdge = model.blocks.reduce((mx, b) => Math.max(mx, b.box.x + b.box.w), 0);
+  const copy: Block = {
+    ...src,
+    id: `blk_${uid}`,
+    name: `${src.name} (nusxa)`,
+    box: { ...src.box, x: rightEdge + 300 },
+    zones: src.zones.map((z) => ({ ...z, id: R(z.id), root: remapSection(z.root) })),
+    components: src.components.map((c) => ({ ...c, id: R(c.id) })),
+    instances: src.instances.map(remapInstance),
+    lines: src.lines.map((l) => ({ ...l, id: R(l.id) })),
+    rows: src.rows.map((r) => ({ ...r, id: R(r.id), sectionIds: r.sectionIds.map(R) })),
+    ...(src.freeParts ? { freeParts: src.freeParts.map((f) => ({ ...f, id: R(f.id) })) } : {}),
+  };
+  return { ...model, blocks: [...model.blocks, copy] };
+}
+
 // ===========================================================================
 // 5 · setBandTransition / setJunction — the edit seams for #39 / #40
 // ===========================================================================

@@ -470,6 +470,13 @@ export interface FreePart {
   readonly box: Box3D;
   /** Which box dimension is the board's thickness (the face = the other two). */
   readonly thicknessAxis: Axis;
+  /**
+   * Rotation about the VERTICAL (Y) axis, in DEGREES — turning a board to face another way (an angled
+   * panel, the return of an L-shaped run). RENDER-ONLY, exactly like a tilted shelf's `rotX_deg`: a
+   * rotated board is the SAME cut panel, so `solveStructure` is untouched by it. The board turns about
+   * its own centre. Absent/0 = axis-aligned (every existing model is unchanged).
+   */
+  readonly rotY_deg?: number;
   /** Optional per-part decor override (opaque catalog key), like a Component's `material`. */
   readonly material?: string;
   /**

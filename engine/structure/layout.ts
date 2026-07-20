@@ -53,6 +53,11 @@ export interface PanelPlacement {
    * Optional/additive — absent or `0` = an axis-aligned board (every existing placement is unchanged).
    */
   readonly rotX_deg?: number;
+  /**
+   * Rotation about the VERTICAL (Y) axis in degrees — a free board turned to face another way (see
+   * FreePart.rotY_deg). Render-only, like rotX_deg; the panel's cut size is unchanged. Absent = square-on.
+   */
+  readonly rotY_deg?: number;
 }
 
 const B = BOARD_MM10;
@@ -420,7 +425,8 @@ function applyJunction(p: PanelPlacement, j: Junction3D): PanelPlacement {
  *  origin (v5, free assembly). Ids match freePartToPart so a tapped free board maps 1:1 to its part. */
 function freePartPlacement(block: Block, fp: FreePart): PanelPlacement {
   const b = fp.box;
-  return place(`${block.id}__free_${fp.id}`, fp.name, block.box.x + b.x, block.box.y + b.y, block.box.z + b.z, b.w, b.h, b.d);
+  const p = place(`${block.id}__free_${fp.id}`, fp.name, block.box.x + b.x, block.box.y + b.y, block.box.z + b.z, b.w, b.h, b.d);
+  return fp.rotY_deg ? { ...p, rotY_deg: fp.rotY_deg } : p; // render-only turn about the vertical axis
 }
 
 /**
