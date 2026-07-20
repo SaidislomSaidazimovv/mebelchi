@@ -539,7 +539,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       | { kind: "gizmomove"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
       | { kind: "gizmoresize"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startSize: number; first: boolean }
       | { kind: "blockmove"; blockId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
-      | { kind: "gizmorotate"; fpId: string; centre: THREE.Vector3; plane: THREE.Plane; startAng: number; startDeg: number; first: boolean }
+      | { kind: "gizmorotate"; target: "free" | "block"; id: string; centre: THREE.Vector3; plane: THREE.Plane; startAng: number; startDeg: number; first: boolean }
       | null = null;
     const alongAxis = (e: PointerEvent, axis: "x" | "y" | "z", plane: THREE.Plane): number | null => {
       raycaster.setFromCamera(ndc(e), camera);
@@ -564,15 +564,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const rAxis = gHit?.object.userData.resizeAxis as "x" | "y" | "z" | undefined; // handle cube → resize
         const mAxis = gHit?.object.userData.gizmoAxis as "x" | "y" | "z" | undefined; // arrow → move
         // ring → rotate about the vertical axis: track the pointer's bearing around the gizmo centre
-        if (gHit && gHit.object.userData.rotateAxis === "y" && gTarget.kind === "free") {
+        if (gHit && gHit.object.userData.rotateAxis === "y") {
           const centre = gz.position.clone();
-          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -centre.y); // horizontal plane at the board
+          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -centre.y); // horizontal plane at the object
           const pt = new THREE.Vector3();
           if (raycaster.ray.intersectPlane(plane, pt)) {
-            const fp = blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === gTarget.id);
+            const startDeg = gTarget.kind === "block"
+              ? st.model.blocks.find((bb) => bb.id === gTarget.id)?.rotY_deg ?? 0
+              : blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === gTarget.id)?.rotY_deg ?? 0;
             drag = {
-              kind: "gizmorotate", fpId: gTarget.id, centre, plane,
-              startAng: Math.atan2(pt.x - centre.x, pt.z - centre.z), startDeg: fp?.rotY_deg ?? 0, first: true,
+              kind: "gizmorotate", target: gTarget.kind, id: gTarget.id, centre, plane,
+              startAng: Math.atan2(pt.x - centre.x, pt.z - centre.z), startDeg, first: true,
             };
             controls.enabled = false;
             return;
@@ -665,7 +667,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const step = e.shiftKey ? 1 : 15; // degrees
         const raw = drag.startDeg - ((ang - drag.startAng) * 180) / Math.PI; // −: screen-CW reads as CW
         const deg = Math.round(raw / step) * step;
-        useKarkas.getState().rotateFreePartTo(drag.fpId, deg, drag.first);
+        const st2 = useKarkas.getState();
+        if (drag.target === "block") st2.rotateBlockTo(drag.id, deg, drag.first);
+        else st2.rotateFreePartTo(drag.id, deg, drag.first);
         drag.first = false;
         measureRef.current({ dim: "h", mm: ((deg % 360) + 360) % 360, rot: true });
         return;
