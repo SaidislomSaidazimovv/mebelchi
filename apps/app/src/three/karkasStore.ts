@@ -6,6 +6,9 @@
 
 import { create } from "zustand";
 import type { StructuralModel, Component, Block, Instance, FreePart, Box3D } from "../../../../engine/contracts/structure.js";
+
+/** The shapes furniture is actually made of — what the ＋ panel offers. */
+export type PrimitiveKind = "board" | "panel" | "post" | "box";
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
@@ -227,7 +230,8 @@ interface KarkasState extends Derived {
   /** U4.5 — set one member's rule (Fixed mm / Ratio weight / Flex); the run re-solves at its length. */
   setRunMemberRule: (runId: string, blockId: string, rule: DivisionRule) => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
-  addFreeBoard: () => void;
+  /** Add a free primitive at the floor, centred: a flat board, a side panel, a leg, or a plain solid. */
+  addFreeBoard: (kind?: PrimitiveKind) => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
   /** gizmos — put a free board's `axis` coord at `idealPos` (mm10), MAGNETICALLY clicking to a nearby
    *  compartment face first. Absolute (no drift over a long drag); reports where it landed + whether it snapped. */
@@ -473,24 +477,35 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setTarget: (id) => set({ targetId: id }),
     // U3.2 — free assembly: a board that lives OUTSIDE the carcass sections, placed by its own box and
     // draggable anywhere (Moblo free-primitive). The engine already cuts + renders block.freeParts.
-    addFreeBoard: () => {
+    addFreeBoard: (kind = "board") => {
       const s = get();
       const block = s.model.blocks[0];
       if (!block) return;
       const bx = block.box;
-      const w = Math.min(4000, Math.round(bx.w * 0.55)); // mm10
-      const d = Math.min(3000, Math.round(bx.d * 0.6));
+      const T = 160; // 16 mm stock
+      // One primitive was never enough: a leg had to be made by adding a flat shelf and then fighting it
+      // through a rotate and three resizes. These are the shapes furniture is actually made of, each
+      // already the right way round and already a sensible size.
+      const spec = {
+        board: { name: "Taxta", role: "shelf" as const, axis: "y" as const, w: Math.min(4000, Math.round(bx.w * 0.55)), h: T, d: Math.min(3000, Math.round(bx.d * 0.6)) },
+        panel: { name: "Yon panel", role: "panel" as const, axis: "x" as const, w: T, h: Math.min(7200, bx.h), d: Math.min(3000, Math.round(bx.d * 0.6)) },
+        post: { name: "Oyoq", role: "leg" as const, axis: "x" as const, w: 500, h: Math.min(7100, bx.h), d: 500 },
+        box: { name: "Quti", role: "panel" as const, axis: "y" as const, w: 3000, h: 3000, d: 3000 },
+      }[kind];
+      // Placed ON THE FLOOR and centred, nudged clear of what is already there — a new part that lands
+      // inside an existing one looks like nothing happened.
+      const n = (block.freeParts ?? []).length;
       const fp: FreePart = {
         id: `free_${Date.now().toString(36)}`,
-        name: "Erkin taxta",
-        role: "shelf",
-        thicknessAxis: "y", // horizontal board (thickness along Y)
-        // float it just ABOVE the carcass top, centred — clearly visible so the master grabs and drags it
-        // down into place (U3.2b) instead of it hiding among the existing shelves.
-        box: { x: Math.round((bx.w - w) / 2), y: bx.h + 1000, z: Math.round((bx.d - d) / 2), w, h: 160, d },
+        name: spec.name,
+        role: spec.role,
+        thicknessAxis: spec.axis,
+        box: { x: Math.round((bx.w - spec.w) / 2) + n * 600, y: 0, z: Math.round((bx.d - spec.d) / 2), w: spec.w, h: spec.h, d: spec.d },
+        // a solid post takes no edge banding — see FreePart.edgeBands
+        ...(kind === "post" ? { edgeBands: [0, 0, 0, 0] as const } : {}),
       };
       apply(addFreePartOp(s.model, block.id, fp));
-      set({ selectedId: `${block.id}__free_${fp.id}` }); // select it so it highlights (and, in U3.2b, drags)
+      set({ selectedId: `${block.id}__free_${fp.id}` }); // select it so it highlights and can be dragged
     },
     // U4.1 — add a SECOND cabinet (block) beside the current one. Grouping (E1 `groupBlocks`) needs ≥2
     // blocks, so this is the foundation. A fresh bare carcass (same dims as block-0) is tiled just to the

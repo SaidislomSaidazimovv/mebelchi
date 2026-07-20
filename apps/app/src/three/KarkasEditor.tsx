@@ -1556,11 +1556,23 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     <button className="mob-addbtn" type="button" onClick={() => add("drawer")}>＋ Yashik</button>
                     <button className="mob-addbtn" type="button" onClick={() => add("divider")}>＋ Razdelitel</button>
                     <button className={"mob-addbtn" + (showDivide ? " is-active" : "")} type="button" onClick={() => togglePanel("divide")}>⊟ Bo'lish</button>
-                    <button className="mob-addbtn" type="button" onClick={() => { addFreeBoard(); setRpanel("none"); }} style={{ gridColumn: "1 / -1", borderStyle: "dashed" }}>🪵 Erkin taxta (istalgan joyga)</button>
                   </div>
                 ) : (
                   <p className="mob-hint">Bir taxtani tanlang — so'ng burchak, o'yiq yoki jiyak qo'shing.</p>
                 )}
+                {/* Free primitives — the from-nothing path, and deliberately OUTSIDE the mode switch.
+                    They lived under «Bo'shliq» mode, so opening ＋ on an empty document showed only
+                    «select a board first» — with no board in existence to select. A free part answers to
+                    no compartment, so no mode should gate it. One flat board used to be the only shape on
+                    offer too: a leg meant adding a shelf and fighting it through a rotate and three
+                    resizes. Each of these arrives already the right way round and already sized. */}
+                <div className="mob-addgrid" style={{ marginTop: 10 }}>
+                  <span style={{ gridColumn: "1 / -1", ...mono, fontSize: 11, opacity: 0.6 }}>Erkin qismlar — istalgan joyga</span>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("board"); setRpanel("none"); }}>▬ Taxta</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("panel"); setRpanel("none"); }}>▮ Yon panel</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("post"); setRpanel("none"); }}>┃ Oyoq</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("box"); setRpanel("none"); }}>◧ Quti</button>
+                </div>
                 {selectedId && !selectedId.includes("__div_") && (
                   <div className="mob-addgrid" style={{ marginTop: 10 }}>
                     <button className={"mob-addbtn" + (showCorners ? " is-active" : "")} type="button" onClick={() => togglePanel("corners")}>⌜ Burchak</button>
