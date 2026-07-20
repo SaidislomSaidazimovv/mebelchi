@@ -20,7 +20,7 @@ import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, buildGizmo, type RenderMode } from "./structureRenderer";
-import { detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
+import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
@@ -108,6 +108,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [arError, setArError] = useState<string | null>(null);
   const [arActive, setArActive] = useState(false);
   const [arNoFloor, setArNoFloor] = useState(false); // session granted, but without floor hit-test
+  const [arDiag, setArDiag] = useState<string | null>(null); // device's own WebXR report, on failure
+  const [arCopied, setArCopied] = useState(false);
   const arOverlayRef = useRef<HTMLDivElement | null>(null);
   const arSessionRef = useRef<ArSession | null>(null);
   // #4 — live measure readout while dragging a face to resize: the active dim + its current size (mm), shown
@@ -1084,7 +1086,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   /** Turn a refused session into advice the master can act on — the raw WebXR text alone helps nobody. */
   const arAdvice = (err: unknown): string => {
     const msg = err instanceof Error ? err.message : String(err);
-    const name = err instanceof Error ? err.name : "";
+    // ArSessionError wraps the real DOMException, so read `reason` (the original .name) when present —
+    // otherwise every failure would look alike and the advice would be wrong.
+    const name = err instanceof ArSessionError ? err.reason : err instanceof Error ? err.name : "";
     const low = `${name} ${msg}`.toLowerCase();
     if (low.includes("notallowed") || low.includes("permission") || low.includes("security")) {
       return "Kamera ruxsati berilmadi. Brauzer manzil satridagi 🔒 → Kamera → «Ruxsat».";
@@ -1099,6 +1103,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const startAr = async () => {
     setArError(null);
     setArNoFloor(false);
+    setArDiag(null);
+    setArCopied(false);
     // Show the dom-overlay root SYNCHRONOUSLY. setArActive() alone is not enough: React flushes state
     // asynchronously, so the root would still be display:none when requestSession inspects it — and a
     // hidden overlay root gets the whole config rejected.
@@ -1115,6 +1121,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (arOverlayRef.current) arOverlayRef.current.style.display = "none";
       setArActive(false);
       setArError(`AR ochilmadi. ${arAdvice(err)}`);
+      // Collect what the device ACTUALLY reports, so a failure can be diagnosed from facts instead of
+      // guesses — the master can copy this block and send it to us.
+      const diag = await arDiagnostics();
+      const lines = Object.entries(diag).map(([k, v]) => `${k}: ${v}`);
+      if (err instanceof ArSessionError) {
+        lines.push("", "So'rovlar:");
+        err.attempts.forEach((a, i) =>
+          lines.push(`${i + 1}) majburiy=[${a.required.join(",")}] ixtiyoriy=[${a.optional.join(",")}] → ${a.error}`));
+      }
+      setArDiag(lines.join("\n"));
     }
   };
   const downloadGlb = async () => {
@@ -1289,6 +1305,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               </span>
             )}
             {arError && <span className="mob-ar-err">{arError}</span>}
+            {arDiag && (
+              <details className="mob-ar-diag">
+                <summary>🔍 Qurilma hisoboti — bizga yuboring</summary>
+                <pre className="mob-ar-diag-body">{arDiag}</pre>
+                <button
+                  type="button"
+                  className="mob-ar-alt"
+                  onClick={() => { void navigator.clipboard?.writeText(arDiag).then(() => setArCopied(true)); }}
+                >{arCopied ? "✓ Nusxa olindi" : "⧉ Nusxa olish"}</button>
+              </details>
+            )}
             <button type="button" className="mob-ar-alt" onClick={downloadGlb}>⬇ 3D fayl (.glb) yuklab olish</button>
             <span className="mob-ar-note">Model haqiqiy o'lchamda (1 m = 1 m) — mijozga yuborsa ham bo'ladi.</span>
           </div>
