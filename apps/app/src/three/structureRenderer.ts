@@ -355,7 +355,12 @@ export function buildSectionHitboxes(
  * Starting the arrows outside the handles keeps the two hit-targets from fighting for the same pixels.
  * X red · Y green · Z blue (Moblo's R/G/B = X/Y/Z). depthTest off + high renderOrder → always on top.
  */
-export function buildGizmo(center: [number, number, number], size: [number, number, number]): THREE.Group {
+export function buildGizmo(
+  center: [number, number, number],
+  size: [number, number, number],
+  opts: { resize?: boolean } = {},
+): THREE.Group {
+  const withResize = opts.resize !== false; // a whole cabinet is move-only — it already resizes by face-drag
   const g = new THREE.Group();
   g.position.set(center[0], center[1], center[2]);
   const up = new THREE.Vector3(0, 1, 0);
@@ -376,13 +381,16 @@ export function buildGizmo(center: [number, number, number], size: [number, numb
     const mat = () => new THREE.MeshBasicMaterial({ color: a.color, depthTest: false });
     const q = new THREE.Quaternion().setFromUnitVectors(up, a.dir); // default geoms point +Y → rotate to axis
     const handleAt = a.half + hs * 0.6;
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(hs, hs, hs), mat());
-    handle.position.copy(a.dir).multiplyScalar(handleAt);
-    handle.userData.resizeAxis = a.axis;
-    handle.renderOrder = 1001;
-    const handleHit = new THREE.Mesh(new THREE.BoxGeometry(hs * 1.8, hs * 1.8, hs * 1.8), hitMat());
-    handleHit.position.copy(a.dir).multiplyScalar(handleAt);
-    handleHit.userData.resizeAxis = a.axis;
+    if (withResize) {
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(hs, hs, hs), mat());
+      handle.position.copy(a.dir).multiplyScalar(handleAt);
+      handle.userData.resizeAxis = a.axis;
+      handle.renderOrder = 1001;
+      const handleHit = new THREE.Mesh(new THREE.BoxGeometry(hs * 1.8, hs * 1.8, hs * 1.8), hitMat());
+      handleHit.position.copy(a.dir).multiplyScalar(handleAt);
+      handleHit.userData.resizeAxis = a.axis;
+      g.add(handle, handleHit);
+    }
     const base = a.half + hs * 1.8; // arrows begin past the handle (and past its hit proxy)
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftR, shaftR, shaftL, 12), mat());
     shaft.quaternion.copy(q);
@@ -396,7 +404,7 @@ export function buildGizmo(center: [number, number, number], size: [number, numb
     arrowHit.quaternion.copy(q);
     arrowHit.position.copy(a.dir).multiplyScalar(base + (shaftL + coneH) / 2);
     arrowHit.userData.gizmoAxis = a.axis;
-    g.add(handle, handleHit, shaft, cone, arrowHit);
+    g.add(shaft, cone, arrowHit);
   }
   return g;
 }

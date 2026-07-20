@@ -527,6 +527,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       | { kind: "freemove"; fpId: string; plane: THREE.Plane; last: THREE.Vector3; first: boolean }
       | { kind: "gizmomove"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; last: number; moved: number; first: boolean }
       | { kind: "gizmoresize"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startSize: number; first: boolean }
+      | { kind: "blockmove"; blockId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; last: number; moved: number; first: boolean }
       | null = null;
     const alongAxis = (e: PointerEvent, axis: "x" | "y" | "z", plane: THREE.Plane): number | null => {
       raycaster.setFromCamera(ndc(e), camera);
@@ -542,7 +543,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       // gizmos — a move-arrow of the selected free board takes priority: start an axis-CONSTRAINED drag
       // (the arrows sit on top, so this catches before the board hit-test below).
       const gz = rt.current?.gizmoGroup;
-      if (gz && st.selectedId?.includes("__free_")) {
+      const gTarget = gz?.userData.target as { kind: "free" | "block"; id: string } | undefined;
+      if (gz && gTarget) {
         const gHit = raycaster.intersectObjects(gz.children, false)[0];
         const rAxis = gHit?.object.userData.resizeAxis as "x" | "y" | "z" | undefined; // handle cube → resize
         const mAxis = gHit?.object.userData.gizmoAxis as "x" | "y" | "z" | undefined; // arrow → move
@@ -551,14 +553,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
           const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, gHit.point);
           const start = alongAxis(e, axis, plane);
-          const fpId = st.selectedId.slice(st.selectedId.indexOf("__free_") + "__free_".length);
           if (start != null) {
-            if (rAxis) {
-              const fp = blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === fpId);
+            if (gTarget.kind === "block") {
+              drag = { kind: "blockmove", blockId: gTarget.id, axis, plane, last: start, moved: 0, first: true };
+            } else if (rAxis) {
+              const fp = blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === gTarget.id);
               const startSize = fp ? (rAxis === "x" ? fp.box.w : rAxis === "y" ? fp.box.h : fp.box.d) : 0;
-              if (fp) drag = { kind: "gizmoresize", fpId, axis: rAxis, plane, start, startSize, first: true };
+              if (fp) drag = { kind: "gizmoresize", fpId: gTarget.id, axis: rAxis, plane, start, startSize, first: true };
             } else {
-              drag = { kind: "gizmomove", fpId, axis, plane, last: start, moved: 0, first: true };
+              drag = { kind: "gizmomove", fpId: gTarget.id, axis, plane, last: start, moved: 0, first: true };
             }
             if (drag) { controls.enabled = false; return; }
           }
@@ -645,6 +648,22 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         useKarkas.getState().resizeFreeBoard(drag.fpId, dim, Math.round(next / 10), drag.first);
         drag.first = false;
         measureRef.current({ dim, mm: Math.round(next / 10) }); // a SIZE readout (no `move` flag)
+        return;
+      }
+      // gizmos — move the WHOLE cabinet along one axis (block move gizmo)
+      if (drag.kind === "blockmove") {
+        const cur = alongAxis(e, drag.axis, drag.plane);
+        if (cur == null) return;
+        const step = e.shiftKey ? 10 : 50; // mm10 (1 mm / 5 mm)
+        const snapped = Math.round(Math.round((cur - drag.last) * 10000) / step) * step;
+        if (snapped !== 0) {
+          const d = { x: 0, y: 0, z: 0 }; d[drag.axis] = snapped;
+          useKarkas.getState().moveBlock(drag.blockId, d, drag.first);
+          drag.first = false;
+          drag.last += snapped / 10000;
+          drag.moved += snapped;
+          measureRef.current({ dim: drag.axis === "x" ? "w" : drag.axis === "y" ? "h" : "d", mm: Math.round(drag.moved / 10), move: true });
+        }
         return;
       }
       const cur = alongAxis(e, drag.axis, drag.plane);
@@ -788,13 +807,29 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const r = rt.current;
     if (!r) return;
     if (r.gizmoGroup) { r.scene.remove(r.gizmoGroup); disposeStructureGroup(r.gizmoGroup); r.gizmoGroup = null; }
+    const st = useKarkas.getState();
     if (selectedId && selectedId.includes("__free_")) {
+      // a FREE board — move arrows + a resize handle per axis, sized to the board
       const bd = scene.boards.find((b) => b.id === selectedId);
       if (bd) {
-        r.gizmoGroup = buildGizmo(bd.pos, bd.size); // move arrows + a resize handle per axis, sized to the board
-        r.scene.add(r.gizmoGroup);
+        r.gizmoGroup = buildGizmo(bd.pos, bd.size);
+        r.gizmoGroup.userData.target = { kind: "free", id: selectedId.slice(selectedId.indexOf("__free_") + "__free_".length) };
+      }
+    } else if (selectedId && (st.parts.find((p) => p.id === selectedId)?.role ?? "").startsWith("carcass")) {
+      // a CARCASS panel — the whole cabinet gets MOVE arrows (it already resizes by dragging a face), so
+      // several cabinets can be laid out freely instead of only tiled by grouping.
+      const blk = blockOfPart(st.model, selectedId);
+      if (blk) {
+        const M = (v: number) => v / 10000; // mm10 → metres (same scale layoutToScene uses)
+        r.gizmoGroup = buildGizmo(
+          [M(blk.box.x + blk.box.w / 2), M(blk.box.y + blk.box.h / 2), M(blk.box.z + blk.box.d / 2)],
+          [M(blk.box.w), M(blk.box.h), M(blk.box.d)],
+          { resize: false },
+        );
+        r.gizmoGroup.userData.target = { kind: "block", id: blk.id };
       }
     }
+    if (r.gizmoGroup) r.scene.add(r.gizmoGroup);
     r.renderer.render(r.scene, r.camera);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, selectedId]);

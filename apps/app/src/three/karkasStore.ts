@@ -194,6 +194,8 @@ interface KarkasState extends Derived {
   setTarget: (id: string) => void;
   /** U4.1 — add a second cabinet (block) beside the current one; the foundation for grouping (E1). */
   addBlock: () => void;
+  /** gizmos — translate a whole cabinet by `delta` (mm10). `pushHistory` only on the first drag frame. */
+  moveBlock: (blockId: string, delta: { x: number; y: number; z: number }, pushHistory: boolean) => void;
   /** U4.2 — the set of whole blocks ticked in the block-navigator for grouping. */
   selectedBlockIds: string[];
   /** U4.2 — toggle a block in the group-selection (clears any part selection). */
@@ -470,6 +472,23 @@ export const useKarkas = create<KarkasState>((set, get) => {
         zones: [{ ...zone, id: `z_${uid}`, root: { ...zone.root, id: `sec_${uid}` } }],
       };
       apply({ ...s.model, blocks: [...s.model.blocks, reblock] });
+    },
+    // gizmos — translate a whole cabinet along one axis (the block move gizmo). Free positioning is what
+    // lets an usta lay several cabinets out; grouping only TILES them flush. y is floored at 0 so a
+    // cabinet never sinks below the floor (a wall unit still hangs at y > 0). `pushHistory` on the first
+    // drag frame opens ONE undo step; later frames replace it.
+    moveBlock: (blockId, delta, pushHistory) => {
+      const s = get();
+      if (!s.model.blocks.some((b) => b.id === blockId)) return;
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== blockId ? b : {
+          ...b,
+          box: { ...b.box, x: b.box.x + delta.x, y: Math.max(0, b.box.y + delta.y), z: b.box.z + delta.z },
+        })),
+      };
+      if (pushHistory) apply(model, true); // keepSel — the same panel stays selected through the drag
+      else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
     },
     // U4.2 — block navigator: tick whole blocks (clearing any part selection), then group ≥2 into a Run.
     // groupBlocks tiles the members end-to-end at their current widths (gaps removed); resolveRun (U4.4)
