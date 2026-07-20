@@ -361,9 +361,10 @@ export function buildSectionHitboxes(
 export function buildGizmo(
   center: [number, number, number],
   size: [number, number, number],
-  opts: { resize?: boolean } = {},
+  opts: { resize?: boolean; rotate?: boolean } = {},
 ): THREE.Group {
   const withResize = opts.resize !== false; // a whole cabinet is move-only — it already resizes by face-drag
+  const withRotate = opts.rotate !== false; // both a free board and a cabinet can be turned about Y
   const g = new THREE.Group();
   g.position.set(center[0], center[1], center[2]);
   const up = new THREE.Vector3(0, 1, 0);
@@ -409,9 +410,9 @@ export function buildGizmo(
     arrowHit.userData.gizmoAxis = a.axis;
     g.add(shaft, cone, arrowHit);
   }
-  // ROTATE ring — a horizontal hoop around the board; dragging it turns the board about the vertical
-  // axis (render-only, see FreePart.rotY_deg). Only for free boards: a cabinet has no free rotation.
-  if (withResize) {
+  // ROTATE ring — a horizontal hoop around the object; dragging it turns it about the vertical axis
+  // (FreePart.rotY_deg for a board, Block.rotY_deg for a whole cabinet — both placement-only).
+  if (withRotate) {
     const rr = Math.max(size[0], size[2]) / 2 + hs * 2.4; // hugs the footprint, clear of the face handles
     const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.003, rr * 0.022), 8, 48), new THREE.MeshBasicMaterial({ color: 0x7a5cc9, depthTest: false }));
     ring.rotation.x = Math.PI / 2; // lay the hoop flat in the XZ plane so it spins about Y

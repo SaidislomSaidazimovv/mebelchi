@@ -92,6 +92,41 @@ export function boxesToScene(boxes: RawBox[], features?: Readonly<Record<string,
 
 /** Live path: the assembled cabinet from solveLayout → positioned panels. `features` (Step 4b) attaches
  *  corner-rounding / cutout data to the matching boards so the renderer can draw them. */
+/**
+ * Apply each block's own `rotY_deg` to its panels — a RIGID rotation about the block's centre in the XZ
+ * (floor) plane: every panel's centre orbits the block centre, and the panel itself turns by the same
+ * angle, so the cabinet moves as one body.
+ *
+ * Deliberately applied HERE, between `solveLayout` and the scene, NOT inside the engine: the 3D viewport
+ * shows the cabinet as PLACED in the room, while the drawing sheet and the CNC path keep reading
+ * solveLayout's unrotated output — a cabinet is manufactured square-on however it is turned in the room.
+ *
+ * The maths mirrors three.js's Y-rotation exactly ((x,z) → (x·cos+z·sin, −x·sin+z·cos)); if the orbit and
+ * the per-panel spin disagreed by a sign the cabinet would shear apart instead of turning.
+ */
+export function rotateBlockPlacements(
+  panels: readonly PanelPlacement[],
+  blocks: readonly { id: string; box: { x: number; z: number; w: number; d: number }; rotY_deg?: number }[],
+): PanelPlacement[] {
+  const turned = blocks.filter((b) => b.rotY_deg);
+  if (!turned.length) return panels as PanelPlacement[];
+  return panels.map((p) => {
+    const b = turned.find((q) => p.id === q.id || p.id.startsWith(`${q.id}__`));
+    if (!b) return p;
+    const th = ((b.rotY_deg ?? 0) * Math.PI) / 180, c = Math.cos(th), s = Math.sin(th);
+    const cx = b.box.x + b.box.w / 2, cz = b.box.z + b.box.d / 2; // block centre on the floor plane
+    const dx = p.x_mm10 + p.w_mm10 / 2 - cx, dz = p.z_mm10 + p.d_mm10 / 2 - cz; // panel centre, block-relative
+    // keep min-corner semantics: boxesToScene re-derives the centre, then the renderer spins the panel
+    // about it by rotY_deg — so writing back centre−half/2 lands the panel exactly where the body went.
+    return {
+      ...p,
+      x_mm10: Math.round(cx + dx * c + dz * s - p.w_mm10 / 2),
+      z_mm10: Math.round(cz - dx * s + dz * c - p.d_mm10 / 2),
+      rotY_deg: (p.rotY_deg ?? 0) + (b.rotY_deg ?? 0),
+    };
+  });
+}
+
 export function layoutToScene(panels: readonly PanelPlacement[], features?: Readonly<Record<string, PanelFeatures>>): Scene {
   return boxesToScene(
     panels.map((p) => ({

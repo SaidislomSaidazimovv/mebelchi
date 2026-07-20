@@ -24,7 +24,7 @@ import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
-import { layoutToScene, type Scene } from "./structureScene";
+import { layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, type MaterialPlan } from "./materials";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
@@ -46,7 +46,10 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) sections.push({ id: s.id, label: `${sections.length + 1}` });
   // 7b — each role's board thickness comes from its plan decor (ЛДСП 16 / МДФ 18 / ХДФ 3)
   const tk = planThickness(plan); // one per-role thickness spec for BOTH cut list + render (parity)
-  return { model, parts: solveStructure(model, tk), scene: layoutToScene(solveLayout(model, tk), model.features), warnings, sections };
+  // The 3D scene shows cabinets as PLACED (a turned block is rotated here); the cut list + drawing keep
+  // reading solveLayout unrotated, because a cabinet is manufactured square-on however it is turned.
+  const scene = layoutToScene(rotateBlockPlacements(solveLayout(model, tk), model.blocks), model.features);
+  return { model, parts: solveStructure(model, tk), scene, warnings, sections };
 }
 
 /** First leaf section of the model (the default edit target when nothing is selected). */
@@ -203,6 +206,8 @@ interface KarkasState extends Derived {
   duplicateSelected: () => void;
   /** gizmos «rotate» — turn a free board about the vertical axis (deg, render-only). `first` = new undo step. */
   rotateFreePartTo: (fpId: string, deg: number, first: boolean) => void;
+  /** gizmos «rotate» — turn a whole cabinet about the vertical axis (deg, placement-only, not machined). */
+  rotateBlockTo: (blockId: string, deg: number, first: boolean) => void;
   /** U4.2 — the set of whole blocks ticked in the block-navigator for grouping. */
   selectedBlockIds: string[];
   /** U4.2 — toggle a block in the group-selection (clears any part selection). */
@@ -545,6 +550,19 @@ export const useKarkas = create<KarkasState>((set, get) => {
           ...b,
           freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, rotY_deg: d })),
         })),
+      };
+      if (first) apply(model, true);
+      else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
+    },
+    // gizmos «rotate» — turn a whole CABINET about the vertical axis (an L-run's return, an angled unit).
+    // Placement-only (Block.rotY_deg): the cut list and the drawing sheet stay square-on.
+    rotateBlockTo: (blockId, deg, first) => {
+      const s = get();
+      if (!s.model.blocks.some((b) => b.id === blockId)) return;
+      const d = ((Math.round(deg) % 360) + 360) % 360;
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== blockId ? b : { ...b, rotY_deg: d })),
       };
       if (first) apply(model, true);
       else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));

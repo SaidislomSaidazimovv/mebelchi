@@ -491,6 +491,13 @@ export interface Block {
   readonly id: BlockId;
   readonly name: string;
   readonly box: Box3D;
+  /**
+   * How the whole cabinet is TURNED in the room, about the vertical axis, in degrees (an L-shaped run's
+   * return, a unit set at an angle). PLACEMENT-ONLY: the cabinet is manufactured square-on however it is
+   * turned, so `solveStructure` (the cut list) and the drawing sheet never see it — only the 3D viewport
+   * applies it, as a rigid rotation of the block's panels about its own centre. Absent/0 = square-on.
+   */
+  readonly rotY_deg?: number;
   readonly zones: readonly Zone[];
   readonly components: readonly Component[];
   readonly instances: readonly Instance[];

@@ -72,6 +72,60 @@ function viewSvg(v: DrawView, scale: number, ox: number, oy: number): string {
   return polys + holeEls + label;
 }
 
+/** Relative ink per panel kind for the small ortho thumbnails — the print sheet's colours are tuned for
+ *  white paper, so a thumbnail uses `currentColor` at these opacities instead and reads in both themes. */
+const THUMB_INK: Record<DrawRect["kind"], number> = {
+  carcass: 0.95, divider: 0.8, shelf: 0.62, lip: 0.62, drawer: 0.5, facade: 0.4, other: 0.5,
+};
+
+/**
+ * A compact, standalone SVG of ONE view, scaled to fit a `px`-square and centred — the Top / Front /
+ * Left thumbnails above the parts list. Deliberately just the panel outlines: dimension chains and
+ * drill holes are noise at this size (the full sheet in «Chizma» keeps them). Theme-aware via
+ * `currentColor`, so it inherits the panel's text colour in light and dark.
+ */
+export function viewThumbSvg(v: DrawView, px = 96): string {
+  const pad = px * 0.07, inner = px - pad * 2;
+  const scale = inner / Math.max(v.w, v.h, 1); // fit the LARGER extent, keeping all three to one scale feel
+  const ox = pad + (inner - v.w * scale) / 2, oy = pad + (inner - v.h * scale) / 2;
+  const lw = Math.max(0.5, px / 110);
+  const polys = v.rects.map((r) => {
+    const st = STROKE[r.kind];
+    const dash = st.dash ? ` stroke-dasharray="${(lw * 3).toFixed(1)} ${(lw * 2).toFixed(1)}"` : "";
+    return `<polygon points="${corners(r, scale, ox, oy, v.h)}" fill="currentColor" fill-opacity="0.05"`
+      + ` stroke="currentColor" stroke-opacity="${THUMB_INK[r.kind]}" stroke-width="${(lw * (st.w / 0.5)).toFixed(2)}"${dash}/>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${px} ${px}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(v.title)}">${polys}</svg>`;
+}
+
+/**
+ * A tiny silhouette of ONE cut panel for a parts-list row: the board drawn at its true L×W proportions
+ * with each BANDED edge inked heavy — so a long thin side reads differently from a square shelf, and the
+ * usta sees WHICH sides get kromka without decoding the ▪·▪· string.
+ *
+ * Edge order follows solve.ts's factory-GROUNDED SWJ008 face map (Face1 drills at Y=Width, per
+ * POL_3_1.XML): [0]=top (Y-max) · [1]=bottom (Y=0) · [2]=right (X-max) · [3]=left (X=0). Length runs
+ * along X, width along Y — the same convention the solver emits.
+ */
+export function panelThumbSvg(lMm: number, wMm: number, bands: readonly boolean[], px = 40): string {
+  const pad = px * 0.13, inner = px - pad * 2;
+  const L = Math.max(1, lMm), W = Math.max(1, wMm);
+  const scale = inner / Math.max(L, W);
+  const w = L * scale, h = W * scale;
+  const x = (px - w) / 2, y = (px - h) / 2;
+  const edge = (x1: number, y1: number, x2: number, y2: number, on: boolean): string =>
+    `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"`
+    + ` stroke="${on ? "#8a6d1f" : "currentColor"}" stroke-opacity="${on ? 1 : 0.4}"`
+    + ` stroke-width="${on ? (px * 0.07).toFixed(2) : (px * 0.025).toFixed(2)}" stroke-linecap="square"/>`;
+  return `<svg viewBox="0 0 ${px} ${px}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" role="img">`
+    + `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="currentColor" fill-opacity="0.07"/>`
+    + edge(x, y, x + w, y, !!bands[0]) // Face 1 — top
+    + edge(x, y + h, x + w, y + h, !!bands[1]) // Face 2 — bottom
+    + edge(x + w, y, x + w, y + h, !!bands[2]) // Face 3 — right
+    + edge(x, y, x, y + h, !!bands[3]) // Face 4 — left
+    + `</svg>`;
+}
+
 /** A linear dimension: a line with ticks + a value (mm). `horiz` runs along X, else Y. `off` is the
  *  SIGNED perpendicular offset of the value from the line (−1.5 = the usual left/above side; flipping
  *  the sign puts it on the other side, so a dense chain can alternate lanes). `fs` = font size. */
