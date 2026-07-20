@@ -18,7 +18,7 @@ import { solveLayout } from "../../../../engine/structure/layout.js";
 import { kromkaMetersByVariable } from "../../../../engine/structure/features.js";
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
-import { drawingSheetSvg, viewThumbSvg } from "./drawingSvg";
+import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, buildGizmo, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
@@ -2122,6 +2122,8 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
       <div style={specList}>
         {e.parts.map((p) => (
           <div key={p.id} style={specRow}>
+            {/* panel silhouette — true L×W proportions, banded edges inked heavy */}
+            <span className="mob-part-thumb" title="Panel shakli · qalin qirra = kromka" dangerouslySetInnerHTML={{ __html: panelThumbSvg(p.l_mm, p.w_mm, p.bands, 40) }} />
             <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
             <span style={mono}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
             <span style={{ ...mono, color: "#8a6d1f", letterSpacing: 1 }} title="banded edges (1·2·3·4)">{p.bands.map((b) => (b ? "▪" : "·")).join("")}</span>

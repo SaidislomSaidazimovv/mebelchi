@@ -498,6 +498,13 @@
 .mob-ortho-thumb svg { display: block; width: 100%; height: 100%; }
 .mob-ortho-label { font-size: 11px; font-weight: 600; color: #6b6558; letter-spacing: .01em; }
 
+/* Per-row panel silhouette in the cut list (same paper sheet, so fixed ink) */
+.mob-part-thumb {
+  flex: 0 0 auto; width: 26px; height: 26px; display: block;
+  color: #1f2430; background: #fff; border: 1px solid #ece8dc; border-radius: 5px;
+}
+.mob-part-thumb svg { display: block; width: 100%; height: 100%; }
+
 .mob-measure-snap {
   font-size: 12px; font-weight: 700; color: var(--mob-accent);
   background: var(--mob-accent-soft); border-radius: 999px; padding: 2px 8px;
