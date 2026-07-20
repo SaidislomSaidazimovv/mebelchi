@@ -5,7 +5,7 @@
 // call the engine's PURE immutable operations (divideSection / addInstance) and re-derive.
 
 import { create } from "zustand";
-import type { StructuralModel, Component, Block, Instance, FreePart } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Component, Block, Instance, FreePart, Box3D } from "../../../../engine/contracts/structure.js";
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
@@ -25,6 +25,7 @@ import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
 import { layoutBounds, layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
+import { snapBox, snapCandidates, snapSpan } from "../../../../engine/structure/snap.js";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, type MaterialPlan } from "./materials";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
@@ -387,38 +388,25 @@ interface ProjectFile {
   lockedQuote?: { total: number; date: string } | null;
 }
 
-/** U3.2c — snap a free board's box (block-local mm10) so any face within `thr` of a compartment face
- *  (a wall / shelf / floor / front / back) clicks flush to it. Magnetic placement, evaluated per axis. */
 type XBox = { x: number; y: number; z: number; w: number; h: number; d: number };
-function snapFreeBox(box: XBox, secBoxes: readonly XBox[], thr: number): { x: number; y: number; z: number } {
-  const snap = (lo: number, size: number, cands: number[]): number => {
-    const hi = lo + size;
-    let best = lo, bestD = thr;
-    for (const c of cands) {
-      if (Math.abs(c - lo) < bestD) { best = c; bestD = Math.abs(c - lo); }
-      if (Math.abs(c - hi) < bestD) { best = c - size; bestD = Math.abs(c - hi); }
-    }
-    return best;
-  };
-  const xs: number[] = [], ys: number[] = [], zs: number[] = [];
-  for (const s of secBoxes) { xs.push(s.x, s.x + s.w); ys.push(s.y, s.y + s.h); zs.push(s.z, s.z + s.d); }
-  return { x: snap(box.x, box.w, xs), y: snap(box.y, box.h, ys), z: snap(box.z, box.d, zs) };
-}
 
-/** Magnetic pull for a gizmo drag — 40 mm, the same reach as the drop-snap (snapFreeBox). */
+/** Magnetic pull — 40 mm, the same reach for a live drag and for the drop. */
 const SNAP_PULL = 400; // mm10
 
-/** Nearest magnetic snap for a span `[pos, pos+size]` along ONE axis against candidate face coords —
- *  the single-axis form of snapFreeBox's rule (either end may click to a face). Used live during a gizmo
- *  drag so a board / cabinet clicks flush while you pull it, not only when you let go. */
-function snapAxis(pos: number, size: number, cands: readonly number[], thr: number): { pos: number; snapped: boolean } {
-  let best = pos, bestD = thr, hit = false;
-  for (const c of cands) {
-    const dLo = Math.abs(c - pos), dHi = Math.abs(c - (pos + size));
-    if (dLo < bestD) { best = c; bestD = dLo; hit = true; }
-    if (dHi < bestD) { best = c - size; bestD = dHi; hit = true; }
-  }
-  return { pos: best, snapped: hit };
+/**
+ * What a free board may click onto. Compartments were the ONLY targets before, which meant a board had
+ * nothing to snap to unless a cabinet was on screen — and building furniture from nothing is exactly the
+ * case with no cabinet. OTHER FREE BOARDS are now targets too, so a leg clicks under a table top and the
+ * next leg lines up with the first.
+ *
+ * The board itself is excluded by id, not by identity, because the store hands us a fresh object each
+ * time it re-derives.
+ */
+function freeSnapTargets(block: Block, excludeFreeId?: string): Box3D[] {
+  const out: Box3D[] = [];
+  for (const z of block.zones) for (const sec of leafSections(z.root)) out.push(sec.box);
+  for (const f of block.freeParts ?? []) if (f.id !== excludeFreeId) out.push(f.box);
+  return out;
 }
 
 /** U3.3 fix — keep a free board's box sane relative to its block `B` so a drag/resize can never explode the
@@ -543,9 +531,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const size = pick(blk.box, true) - pick(blk.box, false);
       // candidates: every OTHER cabinet's two faces on this axis (so they click flush side-by-side),
       // plus the floor on Y (a cabinet drops onto y=0).
-      const cands: number[] = axis === "y" ? [0] : [];
-      for (const o of s.model.blocks) { if (o.id !== blockId) cands.push(pick(o.box, false), pick(o.box, true)); }
-      const t = snapAxis(idealPos, size, cands, SNAP_PULL);
+      // every OTHER cabinet's faces (so they click flush side-by-side), plus the floor on Y. Same magnet
+      // as the free boards use, so a cabinet and a board behave identically under the finger.
+      const cands = snapCandidates(s.model.blocks.filter((o) => o.id !== blockId).map((o) => o.box), axis);
+      if (axis === "y") cands.push({ at: 0, kind: "edge" }); // a cabinet drops onto the floor
+      const t = snapSpan(idealPos, size, cands, SNAP_PULL);
       const delta = { x: 0, y: 0, z: 0 };
       delta[axis] = t.pos - pick(blk.box, false);
       if (delta[axis] !== 0) get().moveBlock(blockId, delta, first);
@@ -712,9 +702,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!block || !fp) return { pos: idealPos, snapped: false };
       const pick = (b: XBox, hi: boolean) => (axis === "x" ? (hi ? b.x + b.w : b.x) : axis === "y" ? (hi ? b.y + b.h : b.y) : hi ? b.z + b.d : b.z);
       const size = pick(fp.box, true) - pick(fp.box, false);
-      const cands: number[] = [];
-      for (const z of block.zones) for (const sec of leafSections(z.root)) { cands.push(pick(sec.box, false), pick(sec.box, true)); }
-      const t = snapAxis(idealPos, size, cands, SNAP_PULL);
+      // same targets and same rule as the drop-snap — one magnet, not two that drift apart
+      const t = snapSpan(idealPos, size, snapCandidates(freeSnapTargets(block, fpId), axis), SNAP_PULL);
       const delta = { x: 0, y: 0, z: 0 };
       delta[axis] = t.pos - pick(fp.box, false);
       if (delta[axis] !== 0) get().moveFreePart(fpId, delta, first);
@@ -728,9 +717,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!block?.freeParts) return;
       const fp = block.freeParts.find((f) => f.id === fpId);
       if (!fp) return;
-      const secBoxes: XBox[] = [];
-      for (const z of block.zones) for (const sec of leafSections(z.root)) secBoxes.push(sec.box);
-      const snapped = snapFreeBox(fp.box, secBoxes, 400); // 400 mm10 = 40 mm pull
+      const snapped = snapBox(fp.box, freeSnapTargets(block, fpId), SNAP_PULL);
       if (snapped.x === fp.box.x && snapped.y === fp.box.y && snapped.z === fp.box.z) return; // already flush
       const model: StructuralModel = {
         ...s.model,
