@@ -212,7 +212,9 @@ interface KarkasState extends Derived {
   addFreeBoard: () => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
   snapFreePart: (fpId: string) => void;
-  resizeFreeBoard: (fpId: string, dim: "w" | "h" | "d", mm: number) => void;
+  /** Resize a free board along one axis (mm). `pushHistory: false` for live drag frames — they replace
+   *  the current state instead of stacking one undo entry per pointer move (gizmo resize). */
+  resizeFreeBoard: (fpId: string, dim: "w" | "h" | "d", mm: number, pushHistory?: boolean) => void;
   rotateFreeBoard: (fpId: string) => void;
   setFreeBoardMaterial: (fpId: string, matId: string) => void;
   removeFreeBoard: (fpId: string) => void;
@@ -595,7 +597,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       };
       set((st) => ({ ...derive(model, st.plan) }));
     },
-    resizeFreeBoard: (fpId, dim, mm) => {
+    resizeFreeBoard: (fpId, dim, mm, pushHistory = true) => {
       const s = get();
       const block = s.model.blocks[0];
       if (!block?.freeParts) return;
@@ -607,7 +609,9 @@ export const useKarkas = create<KarkasState>((set, get) => {
           freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: clampFreeBox({ ...f.box, [dim]: v }, block.box) })),
         })),
       };
-      apply(model, true); // keep the board selected while resizing
+      // keep the board selected while resizing; a live drag frame replaces state instead of stacking undo
+      if (pushHistory) apply(model, true);
+      else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
     },
     // U3.3b — rotate 90°: cycle the thin axis y→x→z→y and swap the two dims so the 16 mm thickness moves
     // with it (horizontal shelf → vertical side → front/back panel → …). One undo step, keeps selection.

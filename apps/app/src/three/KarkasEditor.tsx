@@ -19,7 +19,7 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, buildMoveGizmo, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, buildGizmo, type RenderMode } from "./structureRenderer";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate } from "./estimate";
@@ -526,6 +526,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       | { kind: "resize"; dim: "w" | "h" | "d"; axis: "x" | "y" | "z"; sign: number; plane: THREE.Plane; startWorld: number; startExtent: number; first: boolean }
       | { kind: "freemove"; fpId: string; plane: THREE.Plane; last: THREE.Vector3; first: boolean }
       | { kind: "gizmomove"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; last: number; moved: number; first: boolean }
+      | { kind: "gizmoresize"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startSize: number; first: boolean }
       | null = null;
     const alongAxis = (e: PointerEvent, axis: "x" | "y" | "z", plane: THREE.Plane): number | null => {
       raycaster.setFromCamera(ndc(e), camera);
@@ -543,15 +544,23 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       const gz = rt.current?.gizmoGroup;
       if (gz && st.selectedId?.includes("__free_")) {
         const gHit = raycaster.intersectObjects(gz.children, false)[0];
-        const axis = gHit?.object.userData.gizmoAxis as "x" | "y" | "z" | undefined;
-        if (axis) {
+        const rAxis = gHit?.object.userData.resizeAxis as "x" | "y" | "z" | undefined; // handle cube → resize
+        const mAxis = gHit?.object.userData.gizmoAxis as "x" | "y" | "z" | undefined; // arrow → move
+        const axis = rAxis ?? mAxis;
+        if (gHit && axis) {
           const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
           const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, gHit.point);
           const start = alongAxis(e, axis, plane);
+          const fpId = st.selectedId.slice(st.selectedId.indexOf("__free_") + "__free_".length);
           if (start != null) {
-            drag = { kind: "gizmomove", fpId: st.selectedId.slice(st.selectedId.indexOf("__free_") + "__free_".length), axis, plane, last: start, moved: 0, first: true };
-            controls.enabled = false;
-            return;
+            if (rAxis) {
+              const fp = blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === fpId);
+              const startSize = fp ? (rAxis === "x" ? fp.box.w : rAxis === "y" ? fp.box.h : fp.box.d) : 0;
+              if (fp) drag = { kind: "gizmoresize", fpId, axis: rAxis, plane, start, startSize, first: true };
+            } else {
+              drag = { kind: "gizmomove", fpId, axis, plane, last: start, moved: 0, first: true };
+            }
+            if (drag) { controls.enabled = false; return; }
           }
         }
       }
@@ -623,6 +632,19 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           drag.moved += snapped;
           measureRef.current({ dim: drag.axis === "x" ? "w" : drag.axis === "y" ? "h" : "d", mm: Math.round(drag.moved / 10), move: true });
         }
+        return;
+      }
+      // gizmos — RESIZE: pull a face handle along its axis; the board grows/shrinks that dimension only
+      // (its origin stays, so it grows the way you pull). Live frames don't stack undo entries.
+      if (drag.kind === "gizmoresize") {
+        const cur = alongAxis(e, drag.axis, drag.plane);
+        if (cur == null) return;
+        const step = e.shiftKey ? 10 : 50; // mm10 (1 mm / 5 mm)
+        const next = Math.max(30, Math.round((drag.startSize + Math.round((cur - drag.start) * 10000)) / step) * step);
+        const dim = drag.axis === "x" ? "w" : drag.axis === "y" ? "h" : "d";
+        useKarkas.getState().resizeFreeBoard(drag.fpId, dim, Math.round(next / 10), drag.first);
+        drag.first = false;
+        measureRef.current({ dim, mm: Math.round(next / 10) }); // a SIZE readout (no `move` flag)
         return;
       }
       const cur = alongAxis(e, drag.axis, drag.plane);
@@ -769,8 +791,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     if (selectedId && selectedId.includes("__free_")) {
       const bd = scene.boards.find((b) => b.id === selectedId);
       if (bd) {
-        const len = Math.max(bd.size[0], bd.size[1], bd.size[2]) * 0.6 + 0.12; // arrow reach ≈ board + margin (m)
-        r.gizmoGroup = buildMoveGizmo(bd.pos, len);
+        r.gizmoGroup = buildGizmo(bd.pos, bd.size); // move arrows + a resize handle per axis, sized to the board
         r.scene.add(r.gizmoGroup);
       }
     }
