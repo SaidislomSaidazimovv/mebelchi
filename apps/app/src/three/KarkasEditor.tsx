@@ -14,7 +14,7 @@ import type { Box3D } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
-import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
+import { buildDemoModel, buildLCornerModel, buildTable } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008, solveModelToParts, defaultJointProfile } from "../../../../engine/cnc.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { kromkaMetersByVariable } from "../../../../engine/structure/features.js";
@@ -1336,6 +1336,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <div style={popSep} />
                 <button style={popItem} onClick={() => setModel(buildDemoModel())} type="button">▢ Namuna: Тумба</button>
                 <button style={popItem} onClick={() => setModel(buildLCornerModel())} type="button">⌐ Namuna: L-burchak</button>
+                {/* The first NON-cabinet template. `buildTable` already existed in the engine, fully
+                    tested (a bare block whose body is edge-anchored free parts — the top spans, the legs
+                    are pinned to the corners, so it reflows on resize), but nothing in the UI could
+                    create one. 1200×750×700 is an ordinary dining table. */}
+                <button style={popItem} onClick={() => setModel(buildTable(1200, 750, 700))} type="button">🪑 Namuna: Stol</button>
                 {onClose && <><div style={popSep} /><button style={{ ...popItem, color: "#a01a2e" }} onClick={onClose} type="button">✕ Yopish</button></>}
               </div>
             )}

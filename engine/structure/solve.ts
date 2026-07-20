@@ -537,7 +537,10 @@ export function freePartToPart(block: Block, fp: FreePart): Part {
     fp.thicknessAxis === "x" ? [h, d, w]
       : fp.thicknessAxis === "y" ? [w, d, h]
         : [w, h, d]; // "z"
-  const p = panel(`${block.id}__free_${fp.id}`, fp.name, length, width, allBand(), thickness);
+  // Banding defaults to every edge — right for a visible board (a table top), wrong for a solid post,
+  // so a free part may declare its own. See FreePart.edgeBands.
+  const bands = fp.edgeBands ? [...fp.edgeBands] as [mm10, mm10, mm10, mm10] : allBand();
+  const p = panel(`${block.id}__free_${fp.id}`, fp.name, length, width, bands, thickness);
   return fp.material ? { ...p, materialId: fp.material } : p;
 }
 

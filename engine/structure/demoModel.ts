@@ -196,16 +196,17 @@ export function buildTable(
   const span: FreeAxisAnchor = { start: lo(0), end: hi(0) };
   const colLo: FreeAxisAnchor = { start: lo(inset), end: lo(inset + legSz) }; // left / front column
   const colHi: FreeAxisAnchor = { start: hi(inset + legSz), end: hi(inset) }; // right / back column
-  const mkFree = (id: string, name: string, role: FreePart["role"], thicknessAxis: FreePart["thicknessAxis"], anchor: FreePartAnchor): FreePart =>
-    ({ id, name, role, thicknessAxis, anchor, box: resolveFreePartBox(anchor, box) });
+  const mkFree = (id: string, name: string, role: FreePart["role"], thicknessAxis: FreePart["thicknessAxis"], anchor: FreePartAnchor, edgeBands?: FreePart["edgeBands"]): FreePart =>
+    ({ id, name, role, thicknessAxis, anchor, box: resolveFreePartBox(anchor, box), ...(edgeBands ? { edgeBands } : {}) });
+  const BARE: FreePart["edgeBands"] = [0, 0, 0, 0]; // a solid post takes no edge banding
 
   const top = mkFree("top", "Столешница", "top", "y", { x: span, y: { start: hi(topT), end: hi(0) }, z: span });
   const legY: FreeAxisAnchor = { start: lo(0), end: hi(topT) }; // floor → under the top
   const legs: FreePart[] = [
-    mkFree("leg_fl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colLo }),
-    mkFree("leg_fr", "Ножка", "leg", "x", { x: colHi, y: legY, z: colLo }),
-    mkFree("leg_bl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colHi }),
-    mkFree("leg_br", "Ножка", "leg", "x", { x: colHi, y: legY, z: colHi }),
+    mkFree("leg_fl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colLo }, BARE),
+    mkFree("leg_fr", "Ножка", "leg", "x", { x: colHi, y: legY, z: colLo }, BARE),
+    mkFree("leg_bl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colHi }, BARE),
+    mkFree("leg_br", "Ножка", "leg", "x", { x: colHi, y: legY, z: colHi }, BARE),
   ];
   const root: Section = { id: "sec_root", box: { ...box }, dividers: [], children: [], instanceIds: [], purpose: null };
   const block: Block = {

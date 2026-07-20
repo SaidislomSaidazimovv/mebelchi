@@ -485,6 +485,13 @@ export interface FreePart {
    * resize, so a top spans and legs hold the corners. `box` and `anchor` must agree at build time.
    */
   readonly anchor?: FreePartAnchor;
+  /**
+   * Per-edge kromka for THIS board (mm10, `[front, back, left, right]` in the same order a Component's
+   * `edgeBands` uses). Absent = every edge banded, which is right for a visible board like a table top
+   * but wrong for a solid post: a 50×50 leg was being charged 1.5 m of banding it never receives, and
+   * on a small table that phantom kromka reached about a third of the price. `[0,0,0,0]` = bare.
+   */
+  readonly edgeBands?: readonly [mm10, mm10, mm10, mm10];
 }
 
 export interface Block {
