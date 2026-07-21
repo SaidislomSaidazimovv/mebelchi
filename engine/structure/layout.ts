@@ -267,12 +267,20 @@ function shelfLipPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPla
 
 /** A facade/door placement: covers its section's front opening (single door only; the glazed-grid
  *  assembly layout is a follow-up). */
+/**
+ * Phase 2.1d — a lift door renders OPEN (tilted up on its top edge) so the client reads "podyomnik".
+ * RENDER-ONLY via rotX_deg (like a tilted shelf): the cut size is untouched. Negative angle tilts the
+ * door up from the top-front edge. `parallel` (HL) lifts flatter/higher than `swing` (HK). Provisional
+ * cosmetic angles.
+ */
+const LIFT_OPEN_DEG: Record<NonNullable<Component["lift"]>, number> = { swing: 60, parallel: 72 };
+
 function facadePlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement | null {
   const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
   if (!section || !component || component.role !== "facade" || component.glazedGrid) return null;
   const s = section.box;
-  return place(
+  const p = place(
     `${block.id}__inst_${inst.id}`,
     component.name,
     block.box.x + s.x,
@@ -282,6 +290,7 @@ function facadePlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlace
     s.h,
     boardThickness(component, t.facade), // 18mm МДФ / 32mm doubled door — matches the cut list
   );
+  return component.lift ? { ...p, rotX_deg: LIFT_OPEN_DEG[component.lift] } : p; // 2.1d — render open (cut size unchanged)
 }
 
 /** Runner clearance per drawer side (mm10) — mirrors DRAWER_SLIDE_CLEAR_MM10 in solve.ts so the box

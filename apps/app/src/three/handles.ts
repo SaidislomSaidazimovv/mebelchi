@@ -40,6 +40,7 @@ export function handleFittings(parts: readonly Part[], places: readonly PanelPla
   const b = layoutBounds(places); // ctr in mm10; hole coords are in mm → ×10 to compare
   const ctr = { x: b.ctrX, y: b.ctrY, z: b.ctrZ };
 
+  const placeById = new Map(places.map((p) => [p.id, p]));
   const byPart = new Map<string, HoleMarker[]>();
   for (const h of holes) {
     const list = byPart.get(h.partId);
@@ -49,12 +50,12 @@ export function handleFittings(parts: readonly Part[], places: readonly PanelPla
 
   const out: HandleFitting[] = [];
   for (const [partId, hs] of byPart) {
-    const seats = hs.map((h) => [h.x, h.y, h.z] as [number, number, number]);
+    let seats = hs.map((h) => [h.x, h.y, h.z] as [number, number, number]);
     const normal = hs[0]!.normal;
     // Outward = away from the layout centre along the thin axis (mirrors buildHoleMarkers' inner/outer
     // test, flipped: a marker sits on the INNER face, a handle stands off the OUTER one).
     const sign = pick(seats[0]!, normal) * 10 >= ctr[normal] ? 1 : -1;
-    const outV: [number, number, number] = [normal === "x" ? sign : 0, normal === "y" ? sign : 0, normal === "z" ? sign : 0];
+    let outV: [number, number, number] = [normal === "x" ? sign : 0, normal === "y" ? sign : 0, normal === "z" ? sign : 0];
     const kind: HandleKind = seats.length >= 2 ? "bow" : "knob";
     let along: [number, number, number] | undefined;
     if (kind === "bow") {
@@ -62,6 +63,24 @@ export function handleFittings(parts: readonly Part[], places: readonly PanelPla
       const d: [number, number, number] = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
       const len = Math.hypot(d[0], d[1], d[2]) || 1;
       along = [d[0] / len, d[1] / len, d[2] / len];
+    }
+    // 2.1d — if the door renders OPEN (a lift facade carries rotX_deg), the handle must FOLLOW the tilt or
+    // it floats where the closed door was. Rotate the seats + out + along about the door's TOP-FRONT edge by
+    // the SAME angle the renderer turns the board (mesh.rotation.x = −rotX; see structureRenderer rotX path).
+    const pl = placeById.get(partId);
+    if (pl?.rotX_deg) {
+      const ang = -(pl.rotX_deg * Math.PI) / 180;
+      const cy = (pl.y_mm10 + pl.h_mm10) / 10; // top edge (mm)
+      const cz = pl.z_mm10 / 10; // front face (mm)
+      const co = Math.cos(ang), si = Math.sin(ang);
+      const rotPt = (p: [number, number, number]): [number, number, number] => {
+        const dy = p[1] - cy, dz = p[2] - cz;
+        return [p[0], cy + dy * co - dz * si, cz + dy * si + dz * co];
+      };
+      const rotVec = (v: [number, number, number]): [number, number, number] => [v[0], v[1] * co - v[2] * si, v[1] * si + v[2] * co];
+      seats = seats.map(rotPt);
+      outV = rotVec(outV);
+      if (along) along = rotVec(along);
     }
     out.push({ id: partId, kind, seats, normal, out: outV, along });
   }
