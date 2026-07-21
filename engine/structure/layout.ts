@@ -12,6 +12,7 @@ import type {
   Block,
   Component,
   DrawerInterior,
+  DrawerOrganizer,
   FreePart,
   Instance,
   Junction3D,
@@ -312,6 +313,7 @@ function drawerBoxPlaceInto(
   openingX0: mm10,
   openingW: mm10,
   t: ResolvedT,
+  organizer?: DrawerOrganizer,
 ): PanelPlacement[] {
   const c = t.carcass, bk = t.back, fa = t.facade; // box walls = carcass, bottom = thin back, facade = МДФ
   const bodyX = box.x + openingX0 + DRAWER_SLIDE_CLEAR_MM10; // opening inner face + left runner clearance
@@ -321,24 +323,41 @@ function drawerBoxPlaceInto(
   const sideH = box.h - 2 * c; // box side height within the opening
   const boxZ = box.z + fa; // behind the front facade (its own thickness)
   const boxD = box.d - fa - c; // body depth (behind the facade, small back clearance)
-  return [
+  const out = [
     place(`${idBase}__front`, "Ящик · фасад", box.x, box.y, box.z, box.w, box.h, fa), // full front opening
     place(`${idBase}__side_l`, "Ящик · бок Л", bodyX, bodyY, boxZ, c, sideH, boxD),
     place(`${idBase}__side_r`, "Ящик · бок П", bodyX + bodyW - c, bodyY, boxZ, c, sideH, boxD),
     place(`${idBase}__back`, "Ящик · задняя", bodyX + c, bodyY, boxZ + boxD - c, innerW, sideH, c),
     place(`${idBase}__bottom`, "Ящик · дно", bodyX + c, bodyY, boxZ, innerW, bk, boxD),
   ];
+  // Phase 2.3 — organizer dividers, evenly spaced inside the body (compartment k at k/(N+1) across it),
+  // matching solve.ts's drawerBoxFromBox exactly. axis "x" splits the WIDTH (dividers run depth-wise);
+  // axis "z" splits the DEPTH (dividers run width-wise). Each divider is centred on its divide line.
+  if (organizer && organizer.dividers > 0) {
+    const n = organizer.dividers;
+    const x0 = bodyX + c; // left inner face
+    for (let k = 0; k < n; k += 1) {
+      if (organizer.axis === "z") {
+        const zc = boxZ + Math.round((boxD * (k + 1)) / (n + 1)) - Math.round(c / 2); // divide line along depth
+        out.push(place(`${idBase}__org_${k}`, "Ящик · разделитель", x0, bodyY, zc, innerW, sideH, c));
+      } else {
+        const xc = x0 + Math.round((innerW * (k + 1)) / (n + 1)) - Math.round(c / 2); // divide line along width
+        out.push(place(`${idBase}__org_${k}`, "Ящик · разделитель", xc, bodyY, boxZ, c, sideH, boxD));
+      }
+    }
+  }
+  return out;
 }
 
 /** Place a drawer (its 5-panel box + any nested content) into a WORLD-space `box` through a clear opening
  *  `openingW`@`openingX0`, then SLIDE the whole subtree forward by `inst.open × travel` (v5 E2.5, layout
  *  only — the master pulls a drawer out to reach its contents; the cut parts never move). Shared by a
  *  top-level drawer and every nested one, so each drawer's open state composes with its parent's. */
-function placeDrawer(idBase: string, box: Box6, openingX0: mm10, openingW: mm10, inst: Instance, t: ResolvedT): PanelPlacement[] {
+function placeDrawer(idBase: string, box: Box6, openingX0: mm10, openingW: mm10, inst: Instance, t: ResolvedT, organizer?: DrawerOrganizer): PanelPlacement[] {
   // honour this drawer's OWN height (nested drawers pass the full parent box; top-level arrives pre-clamped
   // in drawerBoxPlacement, so re-clamping here is idempotent). Unset = fills the box, as before.
   const dbox = inst.drawerHeight_mm10 != null ? { ...box, h: Math.min(box.h, inst.drawerHeight_mm10) } : box;
-  const out = drawerBoxPlaceInto(idBase, dbox, openingX0, openingW, t);
+  const out = drawerBoxPlaceInto(idBase, dbox, openingX0, openingW, t, organizer);
   if (inst.interior) {
     out.push(...drawerInteriorPlacements(idBase, drawerInteriorFromBox(dbox, openingX0, openingW, t), inst.interior, t));
   }
@@ -357,7 +376,7 @@ function drawerInteriorPlacements(idBase: string, box: Box6, interior: DrawerInt
   const slices = stackSlices(box.y, box.h, drawers.map((d) => d.drawerHeight_mm10 ?? null));
   drawers.forEach((inst, i) => {
     const sub: Box6 = { ...box, y: slices[i]!.y, h: slices[i]!.h };
-    out.push(...placeDrawer(`${idBase}__in_${inst.id}`, sub, 0, sub.w, inst, t));
+    out.push(...placeDrawer(`${idBase}__in_${inst.id}`, sub, 0, sub.w, inst, t, byId.get(inst.componentId)?.organizer));
   });
   return out;
 }
@@ -371,7 +390,7 @@ function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPl
   // drawer renders as thin slats). Matches drawerBoxOf() in solve.ts so the 3D box == the cut list.
   const world = { x: block.box.x + s.x, y: block.box.y + s.y, z: block.box.z + s.z, w: s.w, h: Math.min(s.h, inst.drawerHeight_mm10 ?? DRAWER_HEIGHT_MM10), d: s.d };
   const span = shelfSpanX(block, section, t.carcass);
-  return placeDrawer(`${block.id}__inst_${inst.id}`, world, span.x0, span.width, inst, t);
+  return placeDrawer(`${block.id}__inst_${inst.id}`, world, span.x0, span.width, inst, t, component.organizer);
 }
 
 /**

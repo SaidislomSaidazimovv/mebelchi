@@ -120,6 +120,17 @@ export type HandleType = "bow" | "profile" | "knob";
  */
 export type LiftType = "swing" | "parallel";
 
+/**
+ * Drawer organizer (Phase 2.3): `dividers` partition boards inside a drawer body. `axis "x"` (default) runs
+ * them front-to-back → side-by-side compartments; `axis "z"` runs them left-to-right → front-back
+ * compartments. They are real cut parts (role carcass_side), evenly spaced (compartment k at the
+ * `k/(dividers+1)` fraction across the interior).
+ */
+export interface DrawerOrganizer {
+  readonly dividers: number;
+  readonly axis?: "x" | "z";
+}
+
 // ---------------------------------------------------------------------------
 // Line — first-class entity (DB/19_FUNCTION_MAP.md §3.1)
 // ---------------------------------------------------------------------------
@@ -244,6 +255,13 @@ export interface Component {
    * slides, not hinges — hardware counts it as a slide set). Optional/additive — absent = not a drawer.
    */
   readonly drawer?: boolean;
+  /**
+   * Drawer organizer (Phase 2.3): partition panels inside a drawer body that split it into compartments.
+   * Only meaningful on a drawer component. Emits `dividers` real cut boards (role carcass_side) inside the
+   * box — `axis "x"` (default) runs them front-to-back (side-by-side compartments), `axis "z"` runs them
+   * left-to-right (front-back compartments). Optional/additive — absent = a plain drawer, byte-identical.
+   */
+  readonly organizer?: DrawerOrganizer;
   /**
    * Glazed-GRID facade (CONSTRUCTION_FRAME_v3 Piece 2): the door is a frame of `lights` glass
    * panes stacked along its height, separated by muntins. The solver emits the assembly — outer

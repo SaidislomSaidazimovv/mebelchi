@@ -26,6 +26,7 @@ import {
   type Box3D,
   type Component,
   type DrawerInterior,
+  type DrawerOrganizer,
   type FreePart,
   type Instance,
   type Line,
@@ -390,26 +391,38 @@ const drawerBoxOf = (b: Box3D, height_mm10?: mm10): Box3D => ({ ...b, h: Math.mi
  *  opening of width `openingW`. Shared by a TOP-LEVEL drawer (opening = carcass clear span) and a NESTED
  *  one (opening = the parent interior's full width, no carcass). Part ids share `idBase` so the editor
  *  still selects the whole drawer. Height + depth inset the same way in both cases. */
-function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: ResolvedT): Part[] {
+function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: ResolvedT, organizer?: DrawerOrganizer): Part[] {
   const c = t.carcass, fa = t.facade, bk = t.back;
   const outerW = openingW - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width inside the runner clearance
   const innerW = outerW - 2 * c; // between the two box sides
   const sideH = box.h - 2 * c; // box side height within the opening
   const bodyD = box.d - fa - c; // depth behind the facade, small back clearance (matches drawerBoxPlacement)
-  return [
+  const parts: Part[] = [
     panel(`${idBase}__front`, "Ящик · фасад", box.h, box.w, allBand(), fa, "facade"),
     panel(`${idBase}__side_l`, "Ящик · бок Л", bodyD, sideH, frontBand(), c, "carcass_side"),
     panel(`${idBase}__side_r`, "Ящик · бок П", bodyD, sideH, frontBand(), c, "carcass_side"),
     panel(`${idBase}__back`, "Ящик · задняя", innerW, sideH, frontBand(), c, "carcass_side"),
     panel(`${idBase}__bottom`, "Ящик · дно", innerW, bodyD, [0, 0, 0, 0], bk, "carcass_back"),
   ];
+  // Phase 2.3 — organizer: `dividers` partition boards inside the body. axis "x" (default) spans the depth
+  // (like a box side); axis "z" spans the width (like the back). Real cut parts, priced as carcass_side.
+  if (organizer && organizer.dividers > 0) {
+    const zAxis = organizer.axis === "z";
+    for (let k = 0; k < organizer.dividers; k += 1) {
+      parts.push(zAxis
+        ? panel(`${idBase}__org_${k}`, "Ящик · разделитель", innerW, sideH, frontBand(), c, "carcass_side")
+        : panel(`${idBase}__org_${k}`, "Ящик · разделитель", bodyD, sideH, frontBand(), c, "carcass_side"));
+    }
+  }
+  return parts;
 }
 
 /** A TOP-LEVEL drawer in a carcass section: the opening is the clear span between the carcass sides /
  *  dividers (shelfSpanX subtracts a full board at a wall, half at a divider). */
 function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
   const openingW = shelfSpanX(block, section, t.carcass).width;
-  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box, inst.drawerHeight_mm10), openingW, t);
+  const comp = block.components.find((c) => c.id === inst.componentId);
+  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box, inst.drawerHeight_mm10), openingW, t, comp?.organizer);
 }
 
 /** Parts for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the parent's
@@ -445,7 +458,7 @@ function drawerInteriorParts(idBase: string, box: Box3D, interior: DrawerInterio
   drawers.forEach((inst, i) => {
     const sub: Box3D = { ...box, y: slices[i]!.y, h: slices[i]!.h };
     const innerBase = `${idBase}__in_${inst.id}`;
-    out.push(...drawerBoxFromBox(innerBase, sub, box.w, t));
+    out.push(...drawerBoxFromBox(innerBase, sub, box.w, t, byId.get(inst.componentId)?.organizer));
     if (inst.interior) out.push(...drawerInteriorParts(innerBase, drawerInteriorFromBox(sub, 0, box.w, t), inst.interior, t));
   });
   return out;
