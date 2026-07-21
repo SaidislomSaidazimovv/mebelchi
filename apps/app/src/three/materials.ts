@@ -117,6 +117,8 @@ export function planSlotForRole(role: string | undefined): keyof Omit<MaterialPl
       return "shelf";
     case "carcass_plinth":
       return "carcass"; // the sokol is carcass stock (the `default` would already do this — explicit per the role rule)
+    case "carcass_worktop":
+      return "worktop"; // the stoleshnitsa has its OWN slot (postforming, its own decor + thickness)
     default:
       return "carcass"; // sides / top / bottom / dividers / mounts / untagged
   }
@@ -238,7 +240,7 @@ export const boardThicknessMm10 = (id: string): number => (boardById(id)?.thickn
 
 /** Per-role board thickness (mm10) derived from the plan's decors, fed to solveStructure so a МДФ
  *  facade is 18mm while a ЛДСП carcass stays 16mm and a ХДФ back is 3mm (Phase 7b). */
-export function planThickness(plan: MaterialPlan): { carcass: number; back: number; shelf: number; facade: number; divider: number } {
+export function planThickness(plan: MaterialPlan): { carcass: number; back: number; shelf: number; facade: number; divider: number; worktop: number } {
   const t = (id: string) => boardThicknessMm10(id);
-  return { carcass: t(plan.carcass), back: t(plan.back), shelf: t(plan.shelf), facade: t(plan.facade), divider: t(plan.carcass) };
+  return { carcass: t(plan.carcass), back: t(plan.back), shelf: t(plan.shelf), facade: t(plan.facade), divider: t(plan.carcass), worktop: t(plan.worktop) };
 }

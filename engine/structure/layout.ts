@@ -25,6 +25,7 @@ import type { mm10 } from "../contracts/types.js";
 import {
   BOARD_MM10,
   CORNER_FILLER_W,
+  WORKTOP_OVERHANG_MM10,
   drawerInteriorFromBox,
   GLASS_MM10,
   GLAZED_FRAME_W,
@@ -114,6 +115,13 @@ function carcass(block: Block, t: ResolvedT): PanelPlacement[] {
     const { x, y, z, w } = block.box;
     const c = t.carcass;
     ps.push(place(`${block.id}__plinth`, "Цоколь", x + c, y - p, z + PLINTH_RECESS_MM10, w - 2 * c, p, c));
+  }
+  // Sokol-usti / worktop (Phase 1.2): ON TOP (y + h), spanning the full width, its front edge overhanging
+  // forward (z − overhang) and its depth grown to match. box.y/box.h untouched — the scene recentres on
+  // the new bounds (layoutBounds), same as the plinth below.
+  if (block.worktop) {
+    const { x, y, z, w, h, d } = block.box;
+    ps.push(place(`${block.id}__worktop`, "Столешница", x, y + h, z - WORKTOP_OVERHANG_MM10, w, t.worktop, d + WORKTOP_OVERHANG_MM10));
   }
   return ps;
 }

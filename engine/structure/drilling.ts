@@ -23,6 +23,8 @@
 //     the factory sign-off lands (tracked as an open manufacturing-readiness item).
 //   • Plinth (carcass_plinth): intentionally UNDRILLED here — a toe-kick takes no System-32 pins or
 //     hinge cups; a plinth part simply falls through this pass with operations: []. (Phase 1.1.)
+//   • Worktop (carcass_worktop): likewise UNDRILLED — a stoleshnitsa carries no carcass drilling; it
+//     falls through with operations: []. (Phase 1.2.)
 //
 // PURITY / SAFETY: imports ONLY primitives + types — never the hardware catalog JSON. The
 // spec is passed IN by the caller (engine/cnc.ts), keeping the JSON import-attribute out of

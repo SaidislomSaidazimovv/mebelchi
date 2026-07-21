@@ -59,8 +59,9 @@ export interface ThicknessSpec {
   readonly shelf?: mm10;
   readonly divider?: mm10;
   readonly facade?: mm10;
+  readonly worktop?: mm10; // Phase 1.2 — the worktop's own stock (38mm postforming)
 }
-export interface ResolvedT { carcass: mm10; back: mm10; shelf: mm10; divider: mm10; facade: mm10 }
+export interface ResolvedT { carcass: mm10; back: mm10; shelf: mm10; divider: mm10; facade: mm10; worktop: mm10 }
 export function resolveThickness(spec: ThicknessSpec = {}): ResolvedT {
   return {
     carcass: spec.carcass ?? BOARD_MM10,
@@ -68,6 +69,7 @@ export function resolveThickness(spec: ThicknessSpec = {}): ResolvedT {
     shelf: spec.shelf ?? BOARD_MM10,
     divider: spec.divider ?? BOARD_MM10,
     facade: spec.facade ?? BOARD_MM10,
+    worktop: spec.worktop ?? BOARD_MM10,
   };
 }
 
@@ -236,6 +238,11 @@ function boxCarcass(idBase: string, label: string, w: mm10, h: mm10, d: mm10, t:
   return omitSideR ? ps.filter((p) => !p.id.endsWith("__side_r")) : ps;
 }
 
+/** Worktop front overhang (mm10): how far the stoleshnitsa sticks out past the carcass front. The
+ *  depth grows by this in solve and the front edge moves forward by it in layout, so it lives here and
+ *  layout imports it — both must agree or the cut list and the render diverge. */
+export const WORKTOP_OVERHANG_MM10: mm10 = 300; // 30 mm, the standard kitchen worktop overhang
+
 function carcassParts(block: Block, t: ResolvedT): Part[] {
   const { w } = block.box;
   const parts = boxCarcass(block.id, "", w, block.box.h, block.box.d, t);
@@ -245,6 +252,13 @@ function carcassParts(block: Block, t: ResolvedT): Part[] {
   // is unbanded like the hidden back panel. Carcass material; no drilling (a toe-kick takes none).
   if (block.plinth_mm10 && block.plinth_mm10 > 0) {
     parts.push(panel(`${block.id}__plinth`, "Цоколь", w - 2 * t.carcass, block.plinth_mm10, [0, 0, 0, 0], t.carcass, "carcass_plinth"));
+  }
+  // Sokol-usti / worktop (Phase 1.2): a board on TOP spanning the full width, its depth grown by the
+  // front overhang. box.h stays the carcass height — this is an extra part above it. Unbanded: a
+  // postforming worktop has an integral rolled front edge, not a PVC band, and its m² rate already
+  // includes that finished edge — banding here would add a wrong kromka charge. No drilling.
+  if (block.worktop) {
+    parts.push(panel(`${block.id}__worktop`, "Столешница", w, block.box.d + WORKTOP_OVERHANG_MM10, [0, 0, 0, 0], t.worktop, "carcass_worktop"));
   }
   return parts;
 }

@@ -22,7 +22,7 @@ describe("Phase 5.C — part role stamping", () => {
   });
 
   it("every stamped role is a known PanelRole value", () => {
-    const KNOWN = new Set(["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "carcass_plinth", "facade", "internal_shelf"]);
+    const KNOWN = new Set(["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "carcass_plinth", "carcass_worktop", "facade", "internal_shelf"]);
     for (const p of parts) {
       if (p.role !== undefined) expect(KNOWN.has(p.role)).toBe(true);
     }

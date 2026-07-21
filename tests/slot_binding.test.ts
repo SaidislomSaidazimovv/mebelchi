@@ -18,10 +18,11 @@ const withForeign = (): StructuralModel => {
 };
 
 describe("Step 5.2 — slot binding", () => {
-  const pool = planDecors(DEFAULT_PLAN); // ["ldsp_white", "hdf_white"]
+  const pool = planDecors(DEFAULT_PLAN); // carcass/back/shelf/facade + worktop (Phase 1.2), edge excluded
 
   it("planDecors is the project's distinct board variables (edge excluded)", () => {
-    expect(pool).toEqual(["ldsp_white", "hdf_white"]);
+    // carcass=shelf=facade=ldsp_white, back=hdf_white, worktop=worktop_postform_38 → three distinct
+    expect(pool).toEqual(["ldsp_white", "hdf_white", "worktop_postform_38"]);
   });
 
   it("foreignDecors flags a per-component decor the pool doesn't have (the '5th material')", () => {

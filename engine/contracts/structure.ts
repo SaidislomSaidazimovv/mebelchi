@@ -91,6 +91,7 @@ export type PanelRole =
   | "carcass_bottom"
   | "carcass_top"
   | "carcass_plinth" // the toe-kick / sokol under the carcass (carcass material, no drilling)
+  | "carcass_worktop" // the worktop / stoleshnitsa on top (its own material + thickness, no drilling)
   | "facade"
   | "internal_shelf";
 
@@ -534,6 +535,14 @@ export interface Block {
    * (= 100 mm), grounded in `apps/app/src/three/kitchen3d.ts` (PLINTH) + `model/layout.ts` (GEOM.plinth).
    */
   readonly plinth_mm10?: mm10;
+  /**
+   * Worktop / stoleshnitsa on TOP of the carcass. Absent = none (every existing model unchanged). A
+   * boolean, not a dimension: the thickness comes from the worktop material slot (38 mm for postforming)
+   * and the front overhang is a constant — nothing here is user-chosen, unlike the plinth's height. The
+   * worktop is an EXTRA part above `box.y + box.h` (box.h stays the carcass height), overhanging the
+   * front; the scene recentres via `layoutBounds` exactly as the plinth does below.
+   */
+  readonly worktop?: boolean;
 }
 
 // ---------------------------------------------------------------------------

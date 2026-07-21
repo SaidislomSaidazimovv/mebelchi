@@ -9,7 +9,7 @@ import type { StructuralModel } from "../../../../engine/contracts/structure";
 /** A project's material pool = the distinct board decors its plan slots reference (its "material
  *  variables", §3.1). The edge band is a kromka variable (§3.3), so it is intentionally excluded. */
 export function planDecors(plan: MaterialPlan): string[] {
-  return [...new Set([plan.carcass, plan.back, plan.shelf, plan.facade])];
+  return [...new Set([plan.carcass, plan.back, plan.shelf, plan.facade, plan.worktop])];
 }
 
 /** Every board decor a block actually uses: its plan slots + any per-component material override. */
