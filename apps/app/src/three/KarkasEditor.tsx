@@ -10,7 +10,7 @@ import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
-import type { Box3D, HandleType } from "../../../../engine/contracts/structure";
+import type { Box3D, HandleType, LiftType } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
@@ -335,6 +335,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setPlanMaterialTop = useKarkas((s) => s.setPlanMaterial);
   const setHinge = useKarkas((s) => s.setHinge);
   const setHandle = useKarkas((s) => s.setHandle);
+  const setLift = useKarkas((s) => s.setLift);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
@@ -1835,6 +1836,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 </select>
               </label>
             )}
+            {/* 2.1c — lift (podyomnik) on the mobile quick bar too: a top-opening door counts a lift not
+                hinges + drills no side cups. Doors only. */}
+            {selComp?.role === "facade" && (
+              <label className="mob-props-f"><span>Lift</span>
+                <select value={selComp.lift ?? ""} onChange={(e) => setLift((e.target.value || null) as LiftType | null)}>
+                  <option value="">Yo'q</option>
+                  <option value="swing">Ochiladigan</option>
+                  <option value="parallel">Parallel</option>
+                </select>
+              </label>
+            )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
                 be nudged by accident while dragging something else. */}
@@ -2026,13 +2038,26 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <option value="">Rol bo'yicha</option>
             {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
-          {/* Task B — hinge side per door (engine drills the chosen edge; handle sits opposite) */}
-          {selComp.role === "facade" && (
+          {/* Task B — hinge side per door (engine drills the chosen edge; handle sits opposite). Hidden on a
+              LIFT door — a top-opening door has no side hinge (2.1c). */}
+          {selComp.role === "facade" && !selComp.lift && (
             <>
               <span style={mono}>Petlya:</span>
               <select value={selComp.hingeEdge === "right" ? "right" : "left"} onChange={(e) => setHinge(e.target.value as "left" | "right")} style={{ ...matSel, flex: "0 0 auto", maxWidth: 110 }}>
                 <option value="left">◧ Chap</option>
                 <option value="right">◨ O'ng</option>
+              </select>
+            </>
+          )}
+          {/* 2.1c — lift hinge (podyomnik) per door: a top-opening wall-cabinet door on a mechanism instead
+              of side hinges. Counts a lift not hinges + drills no side cups (2.1a). Doors only. */}
+          {selComp.role === "facade" && (
+            <>
+              <span style={mono}>Lift:</span>
+              <select value={selComp.lift ?? ""} onChange={(e) => setLift((e.target.value || null) as LiftType | null)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 140 }}>
+                <option value="">Yo'q</option>
+                <option value="swing">⤒ Ochiladigan</option>
+                <option value="parallel">⇈ Parallel</option>
               </select>
             </>
           )}

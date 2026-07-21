@@ -35,6 +35,7 @@ import type {
   ComponentId,
   DrawerInterior,
   HandleType,
+  LiftType,
   FreeEdge,
   FreePart,
   FreePartAnchor,
@@ -1970,6 +1971,36 @@ export function setComponentHandle(
         return rest;
       }
       return { ...c, handle };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Set (or clear with null) a door component's lift hinge (Phase 2.1). A mirror of setComponentHandle: an
+ * optional field on the component, DROPPED when null so a side-hinged door round-trips byte-identically. No
+ * role guard — the UI gates it to facade doors. When set, the count/price (estimate) and drilling (side-cup
+ * suppression) already read `comp.lift`. `hingeEdge` is left untouched (harmless while a lift is set).
+ */
+export function setComponentLift(
+  model: StructuralModel,
+  componentId: ComponentId,
+  lift: LiftType | null,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.lift ?? null) === (lift ?? null)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (lift === null) {
+        const { lift: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, lift };
     });
     return { ...block, components };
   });
