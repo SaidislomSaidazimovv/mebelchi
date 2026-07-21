@@ -13,7 +13,7 @@ import { divideSection, addInstance } from "../engine/structure/operations.js";
 import { leafSections } from "../engine/contracts/structure.js";
 import { solveModelToParts } from "../engine/cnc.js";
 import type { StructuralModel, HandleType } from "../engine/contracts/structure.js";
-import type { Part } from "../engine/contracts/types.js";
+import type { Part, DrillOp } from "../engine/contracts/types.js";
 
 const DIA_MM10 = 45; // Ø4.5 — unique to handles (hinge Ø35, pin Ø5, cam Ø15, dowel Ø8, mark Ø3)
 const DEPTH_MM10 = 170; // 17mm through-hole
@@ -42,7 +42,7 @@ function withHandle(m: StructuralModel, handle: HandleType): StructuralModel {
   };
 }
 
-const handleHoles = (part: Part) => part.operations.filter((o) => o.op === "drill" && o.diameter_mm10 === DIA_MM10);
+const handleHoles = (part: Part): DrillOp[] => part.operations.filter((o): o is DrillOp => o.op === "drill" && o.diameter_mm10 === DIA_MM10);
 const doorPart = (parts: Part[]) => parts.find((p) => p.role === "facade" && p.id.includes("__inst_") && !p.id.endsWith("__front"))!;
 const drawerFront = (parts: Part[]) => parts.find((p) => p.id.endsWith("__front"))!;
 

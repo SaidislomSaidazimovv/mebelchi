@@ -34,6 +34,7 @@ import type {
   Component,
   ComponentId,
   DrawerInterior,
+  HandleType,
   FreeEdge,
   FreePart,
   FreePartAnchor,
@@ -1939,6 +1940,36 @@ export function setComponentLip(
         return rest;
       }
       return { ...c, lip_mm10: cleared };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Set (or clear with null) a component's handle (dastak) type. A mirror of setComponentLip: an optional
+ * field on the component, DROPPED when null so a handle-less door round-trips byte-identically. No role
+ * guard — a handle rides both a facade door AND a drawer front (role null, drawer:true); the UI gates
+ * eligibility. The count/price (estimate) and Ø4.5 drilling (drilling) already read `comp.handle`.
+ */
+export function setComponentHandle(
+  model: StructuralModel,
+  componentId: ComponentId,
+  handle: HandleType | null,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.handle ?? null) === (handle ?? null)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (handle === null) {
+        const { handle: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, handle };
     });
     return { ...block, components };
   });

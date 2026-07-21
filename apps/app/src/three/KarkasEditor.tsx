@@ -10,7 +10,7 @@ import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
-import type { Box3D } from "../../../../engine/contracts/structure";
+import type { Box3D, HandleType } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
@@ -332,6 +332,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setMaterial = useKarkas((s) => s.setMaterial);
   const setPlanMaterialTop = useKarkas((s) => s.setPlanMaterial);
   const setHinge = useKarkas((s) => s.setHinge);
+  const setHandle = useKarkas((s) => s.setHandle);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
@@ -1813,6 +1814,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <DimField label="mm" value={drawerHeightMm} onCommit={setDrawerHeight} min={50} units={units} />
               </label>
             )}
+            {/* 1.3c — handle on the mobile quick bar too (mobile-primary): drives the Ø4.5 holes + price */}
+            {(selComp?.role === "facade" || selComp?.drawer) && (
+              <label className="mob-props-f"><span>Dastak</span>
+                <select value={selComp.handle ?? ""} onChange={(e) => setHandle((e.target.value || null) as HandleType | null)}>
+                  <option value="">Yo'q</option>
+                  <option value="bow">Скоба</option>
+                  <option value="knob">Кнопка</option>
+                  <option value="profile">Профиль</option>
+                </select>
+              </label>
+            )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
                 be nudged by accident while dragging something else. */}
@@ -2011,6 +2023,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               <select value={selComp.hingeEdge === "right" ? "right" : "left"} onChange={(e) => setHinge(e.target.value as "left" | "right")} style={{ ...matSel, flex: "0 0 auto", maxWidth: 110 }}>
                 <option value="left">◧ Chap</option>
                 <option value="right">◨ O'ng</option>
+              </select>
+            </>
+          )}
+          {/* 1.3c — handle (dastak) per door/drawer front: drives the Ø4.5 holes + the hardware price */}
+          {(selComp.role === "facade" || selComp.drawer) && (
+            <>
+              <span style={mono}>Dastak:</span>
+              <select value={selComp.handle ?? ""} onChange={(e) => setHandle((e.target.value || null) as HandleType | null)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 120 }}>
+                <option value="">Yo'q</option>
+                <option value="bow">⊐ Скоба</option>
+                <option value="knob">● Кнопка</option>
+                <option value="profile">▭ Профиль</option>
               </select>
             </>
           )}
