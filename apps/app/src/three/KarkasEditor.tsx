@@ -337,6 +337,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setHandle = useKarkas((s) => s.setHandle);
   const setLift = useKarkas((s) => s.setLift);
   const setDividers = useKarkas((s) => s.setDividers);
+  const combineSelectedDoor = useKarkas((s) => s.combineSelectedDoor);
+  const splitSelectedDoor = useKarkas((s) => s.splitSelectedDoor);
+  // Select PRIMITIVES (booleans), not a fresh object — a new-object selector trips React 18's
+  // useSyncExternalStore "getSnapshot should be cached" guard and bails the whole property bar out of render.
+  const canCombineDoor = useKarkas((s) => s.selectedDoorCombine()?.canCombine ?? false);
+  const canSplitDoor = useKarkas((s) => s.selectedDoorCombine()?.canSplit ?? false);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
@@ -1854,6 +1860,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 </select>
               </label>
             )}
+            {/* 2.2b — combine / split a door on the mobile quick bar too */}
+            {selComp?.role === "facade" && canCombineDoor && (
+              <button type="button" className="mob-props-toggle" onClick={combineSelectedDoor}>⧉ Birlashtirish</button>
+            )}
+            {selComp?.role === "facade" && canSplitDoor && (
+              <button type="button" className="mob-props-toggle" onClick={splitSelectedDoor}>⤢ Ajratish</button>
+            )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
                 be nudged by accident while dragging something else. */}
@@ -2067,6 +2080,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <option value="parallel">⇈ Parallel</option>
               </select>
             </>
+          )}
+          {/* 2.2b — combine a door with its neighbours (move it onto the parent section) / split it back */}
+          {selComp.role === "facade" && canCombineDoor && (
+            <button style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" }} onClick={combineSelectedDoor} type="button" title="Bu eshikni yon bo'lim bilan bitta katta eshikka birlashtirish">⧉ Birlashtirish</button>
+          )}
+          {selComp.role === "facade" && canSplitDoor && (
+            <button style={{ ...act, borderColor: "#8a6d1f", background: "#faf1dc", color: "#7a5a12" }} onClick={splitSelectedDoor} type="button" title="Birlashgan eshikni yana bitta bo'limga qaytarish">⤢ Ajratish</button>
           )}
           {/* 1.3c — handle (dastak) per door/drawer front: drives the Ø4.5 holes + the hardware price */}
           {(selComp.role === "facade" || selComp.drawer) && (

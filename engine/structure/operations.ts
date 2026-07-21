@@ -1728,6 +1728,51 @@ function findSectionIn(block: Block, sectionId: SectionId): Section | null {
   return null;
 }
 
+/** Phase 2.2b — the parent section whose `children` include `sectionId` (null for the root / not found).
+ *  Used to find where a combined door moves TO (leaf → its parent). */
+export function parentSectionOf(block: Block, sectionId: SectionId): Section | null {
+  const walk = (sec: Section): Section | null => {
+    if (sec.children.some((c) => c.id === sectionId)) return sec;
+    for (const c of sec.children) { const hit = walk(c); if (hit) return hit; }
+    return null;
+  };
+  for (const z of block.zones) { const hit = walk(z.root); if (hit) return hit; }
+  return null;
+}
+
+/**
+ * Phase 2.2b — move an instance from its current section to `targetSectionId`: drop its id from the old
+ * section's `instanceIds`, add it to the target's, and re-point `inst.sectionId` (+ its anchor to the new
+ * box origin). ONE tree pass handles both edits even when the two sections are nested (a leaf inside its
+ * parent — the combined-door case), where two sequential replaceSection calls would clobber each other. Pure;
+ * no-op if the instance is missing, already there, or the target section doesn't exist.
+ */
+export function moveInstanceToSection(model: StructuralModel, instanceId: InstanceId, targetSectionId: SectionId): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst || inst.sectionId === targetSectionId) return block;
+    const target = findSectionIn(block, targetSectionId);
+    if (!target) return block;
+    changed = true;
+    const oldId = inst.sectionId;
+    // one pass: recurse children first, then remove from the old section + add to the new one
+    const move = (sec: Section): Section => {
+      const children = sec.children.map(move);
+      let s = children.some((c, i) => c !== sec.children[i]) ? { ...sec, children } : sec;
+      if (s.id === oldId) s = { ...s, instanceIds: s.instanceIds.filter((id) => id !== instanceId) };
+      if (s.id === targetSectionId) s = { ...s, instanceIds: [...s.instanceIds, instanceId] };
+      return s;
+    };
+    const zones = block.zones.map((z) => { const root = move(z.root); return root === z.root ? z : { ...z, root }; });
+    const instances = block.instances.map((i) => (i.id === instanceId
+      ? { ...i, sectionId: targetSectionId, anchor: { x: target.box.x, y: target.box.y, z: target.box.z } }
+      : i));
+    return { ...block, instances, zones };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
 /**
  * The two child sections a divider sits BETWEEN, with their extents along the divider's own axis.
  *

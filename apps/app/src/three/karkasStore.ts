@@ -14,7 +14,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -136,6 +136,19 @@ function resolveInstance(model: StructuralModel, partId: string): { block: Block
     for (const inst of b.instances) {
       const base = `${b.id}__inst_${inst.id}`;
       if (partId === base || partId.startsWith(`${base}__`)) return { block: b, inst };
+    }
+  }
+  return null;
+}
+
+/** 2.2b — find a section (leaf OR parent) by id anywhere in a block's zone trees. */
+function sectionInBlock(block: Block, id: string): Section | null {
+  for (const z of block.zones) {
+    const stack: Section[] = [z.root];
+    while (stack.length) {
+      const s = stack.pop()!;
+      if (s.id === id) return s;
+      for (const c of s.children) stack.push(c);
     }
   }
   return null;
@@ -319,6 +332,12 @@ interface KarkasState extends Derived {
   setLift: (lift: LiftType | null) => void;
   /** Set the selected drawer's organizer divider count (2.3c). 0 clears it. Forks per-instance. Drawer only. */
   setDividers: (n: number) => void;
+  /** 2.2b — combine the selected door with its siblings: move it onto its parent section (spans them all). */
+  combineSelectedDoor: () => void;
+  /** 2.2b — split a combined door back to one compartment: move it to its section's first leaf child. */
+  splitSelectedDoor: () => void;
+  /** 2.2b — whether the selected door can combine (leaf, parent has >1 child) or split (on a non-leaf). */
+  selectedDoorCombine: () => { canCombine: boolean; canSplit: boolean } | null;
   /** Set the block's width / height / depth in mm (C2). Content reflows proportionally. */
   resize: (dim: "w" | "h" | "d", mm: number) => void;
   /** Move a divider line by `delta` mm10 (Step 3.3b drag). `pushHistory` true on the FIRST frame of a
@@ -957,6 +976,33 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!f) return;
       const count = Math.max(0, Math.min(8, Math.round(n)));
       apply(setComponentOrganizer(f.model, f.compId, count > 0 ? { dividers: count, axis: "x" } : null), true);
+    },
+    // 2.2b — combine the selected door with its siblings: move the instance onto its PARENT section (no fork —
+    // sectionId is per-instance). keepSel so the same door stays selected as it widens.
+    combineSelectedDoor: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r || r.block.components.find((c) => c.id === r.inst.componentId)?.role !== "facade") return;
+      const parent = parentSectionOf(r.block, r.inst.sectionId);
+      if (parent) apply(moveInstanceToSection(s.model, r.inst.id, parent.id), true);
+    },
+    // 2.2b — split a combined door back to one compartment: move it to its section's FIRST leaf child.
+    splitSelectedDoor: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r || r.block.components.find((c) => c.id === r.inst.componentId)?.role !== "facade") return;
+      const sec = sectionInBlock(r.block, r.inst.sectionId);
+      const firstLeaf = sec && sec.children.length > 0 ? [...leafSections(sec)][0] : null;
+      if (firstLeaf) apply(moveInstanceToSection(s.model, r.inst.id, firstLeaf.id), true);
+    },
+    selectedDoorCombine: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r || r.block.components.find((c) => c.id === r.inst.componentId)?.role !== "facade") return null;
+      const sec = sectionInBlock(r.block, r.inst.sectionId);
+      if (!sec) return null;
+      const parent = parentSectionOf(r.block, r.inst.sectionId);
+      return { canCombine: sec.children.length === 0 && !!parent && parent.children.length > 1, canSplit: sec.children.length > 0 };
     },
     // Yashik balandligi — per-drawer front/box height (mm). Clamp ≥ 50mm so the box never collapses;
     // solve/layout clamp the top at the section height, so an over-tall value just fills the bay.

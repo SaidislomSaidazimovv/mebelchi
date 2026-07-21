@@ -54,12 +54,9 @@ describe("Phase 2.2a — a combined door covers the whole opening", () => {
 
   it("the combined door is PLACED (renders) at the full parent width", () => {
     const places = solveLayout(twoColDoor("parent"), tk);
-    const facade = places.find((p) => p.role === "facade" || (p.id.includes("__inst_") && !p.id.endsWith("__front")))
-      ?? places.find((p) => p.id.includes("__inst_"));
-    // the widest instance placement is the combined door
+    // the widest instance placement is the combined door (PanelPlacement has no role — filter by id)
     const doorPlace = places.filter((p) => p.id.includes("__inst_")).sort((a, b) => b.w_mm10 - a.w_mm10)[0]!;
     expect(doorPlace.w_mm10).toBeGreaterThan(2000); // spans most of the 600mm (6000 mm10) cabinet
-    void facade;
   });
 
   it("the combined door still drills hinge cups (size-driven, more for a taller door)", () => {
