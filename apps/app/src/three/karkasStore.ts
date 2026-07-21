@@ -217,6 +217,8 @@ interface KarkasState extends Derived {
   rotateBlockTo: (blockId: string, deg: number, first: boolean) => void;
   /** Phase 1.1b — set a cabinet's sokol/plinth height (mm10); `≤ 0` removes it. */
   setPlinth: (blockId: string, mm10: number) => void;
+  /** Phase 1.2c — toggle a cabinet's worktop/stoleshnitsa on or off. */
+  setWorktop: (blockId: string, on: boolean) => void;
   /** U4.2 — the set of whole blocks ticked in the block-navigator for grouping. */
   selectedBlockIds: string[];
   /** U4.2 — toggle a block in the group-selection (clears any part selection). */
@@ -620,6 +622,22 @@ export const useKarkas = create<KarkasState>((set, get) => {
           if (b.id !== blockId) return b;
           if (v > 0) return { ...b, plinth_mm10: v };
           const { plinth_mm10: _drop, ...rest } = b; // clear the field entirely when off
+          return rest;
+        }),
+      };
+      apply(model, true); // keepSel — same cabinet, one undo step
+    },
+    // Phase 1.2c — worktop/stoleshnitsa on or off. Like setPlinth: block-level patch, keepSel, one undo
+    // step; when off the field is DELETED so the model is byte-identical to a never-worktopped cabinet.
+    setWorktop: (blockId, on) => {
+      const s = get();
+      if (!s.model.blocks.some((b) => b.id === blockId)) return;
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => {
+          if (b.id !== blockId) return b;
+          if (on) return { ...b, worktop: true };
+          const { worktop: _drop, ...rest } = b; // clear the field entirely when off
           return rest;
         }),
       };

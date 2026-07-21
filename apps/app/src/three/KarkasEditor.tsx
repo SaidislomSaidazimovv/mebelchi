@@ -144,6 +144,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const rotateBlockTo = useKarkas((s) => s.rotateBlockTo);
   const setPlinth = useKarkas((s) => s.setPlinth);
+  const setWorktop = useKarkas((s) => s.setWorktop);
   const duplicateSelected = useKarkas((s) => s.duplicateSelected);
   const applyToAllIdentical = useKarkas((s) => s.applyToAllIdentical);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -1826,6 +1827,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               <label className="mob-props-f"><span>Sokol</span>
                 <DimField label="mm" value={Math.round((blk.plinth_mm10 ?? 0) / 10)} onCommit={(mm) => setPlinth(blk.id, mm * 10)} min={0} units={units} />
               </label>
+            )}
+            {/* Phase 1.2c — worktop: a boolean, so a toggle (not a mm field). Its thickness comes from the
+                worktop material and the overhang is constant, so there is nothing to type. Tap the
+                worktop in 3D to pick its material. */}
+            {blk && (
+              <button
+                type="button"
+                className={"mob-props-toggle" + (blk.worktop ? " is-on" : "")}
+                aria-pressed={!!blk.worktop}
+                onClick={() => setWorktop(blk.id, !blk.worktop)}
+              >Stoleshnitsa{blk.worktop ? " ✓" : ""}</button>
             )}
           </div>
         );
