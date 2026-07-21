@@ -336,6 +336,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setHinge = useKarkas((s) => s.setHinge);
   const setHandle = useKarkas((s) => s.setHandle);
   const setLift = useKarkas((s) => s.setLift);
+  const setDividers = useKarkas((s) => s.setDividers);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
@@ -1825,6 +1826,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <DimField label="mm" value={drawerHeightMm} onCommit={setDrawerHeight} min={50} units={units} />
               </label>
             )}
+            {/* 2.3c — drawer organizer: number of divider boards inside the drawer (0 = none). Drawer only. */}
+            {selComp?.drawer && (
+              <label className="mob-props-f"><span>Bo'linma</span>
+                <DimField label="×" value={selComp.organizer?.dividers ?? 0} onCommit={setDividers} min={0} suffix="×" />
+              </label>
+            )}
             {/* 1.3c — handle on the mobile quick bar too (mobile-primary): drives the Ø4.5 holes + price */}
             {(selComp?.role === "facade" || selComp?.drawer) && (
               <label className="mob-props-f"><span>Dastak</span>
@@ -2078,6 +2085,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <>
               <span style={mono}>Yashik b.:</span>
               <DimField label="mm" value={drawerHeightMm ?? 200} onCommit={setDrawerHeight} min={50} units={units} />
+              {/* 2.3c — organizer: number of divider boards inside the drawer (0 = none) */}
+              <span style={mono}>Bo'linma:</span>
+              <DimField label="×" value={selComp.organizer?.dividers ?? 0} onCommit={setDividers} min={0} suffix="×" />
             </>
           )}
           {/* E2 — drawer-in-drawer: a selected drawer can hold a nested drawer in its clear interior */}

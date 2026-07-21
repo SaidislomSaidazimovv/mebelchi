@@ -14,7 +14,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -317,6 +317,8 @@ interface KarkasState extends Derived {
   setHandle: (handle: HandleType | null) => void;
   /** Set (or clear with null) the selected door's lift hinge (2.1c). Forks per-instance. Facade only. */
   setLift: (lift: LiftType | null) => void;
+  /** Set the selected drawer's organizer divider count (2.3c). 0 clears it. Forks per-instance. Drawer only. */
+  setDividers: (n: number) => void;
   /** Set the block's width / height / depth in mm (C2). Content reflows proportionally. */
   resize: (dim: "w" | "h" | "d", mm: number) => void;
   /** Move a divider line by `delta` mm10 (Step 3.3b drag). `pushHistory` true on the FIRST frame of a
@@ -947,6 +949,14 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setLift: (lift) => {
       const f = forkSelected();
       if (f) apply(setComponentLift(f.model, f.compId, lift), true);
+    },
+    // 2.3c — drawer organizer divider count on the selected drawer. Fork first (like setLift); 0 clears the
+    // organizer (byte-identical). Clamped 0..8; axis "x" (side-by-side) for now — the data supports "z" too.
+    setDividers: (n) => {
+      const f = forkSelected();
+      if (!f) return;
+      const count = Math.max(0, Math.min(8, Math.round(n)));
+      apply(setComponentOrganizer(f.model, f.compId, count > 0 ? { dividers: count, axis: "x" } : null), true);
     },
     // Yashik balandligi — per-drawer front/box height (mm). Clamp ≥ 50mm so the box never collapses;
     // solve/layout clamp the top at the section height, so an over-tall value just fills the bay.

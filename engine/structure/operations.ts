@@ -34,6 +34,7 @@ import type {
   Component,
   ComponentId,
   DrawerInterior,
+  DrawerOrganizer,
   HandleType,
   LiftType,
   FreeEdge,
@@ -2001,6 +2002,39 @@ export function setComponentLift(
         return rest;
       }
       return { ...c, lift };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Set (or clear with null) a drawer component's organizer (Phase 2.3). A mirror of setComponentLift, but the
+ * value is an object, so the no-op check compares BY VALUE (dividers + axis). Cleared → the field is dropped
+ * so a plain drawer round-trips byte-identically. No role guard — the UI gates it to drawers.
+ */
+export function setComponentOrganizer(
+  model: StructuralModel,
+  componentId: ComponentId,
+  organizer: DrawerOrganizer | null,
+): StructuralModel {
+  const same = (a?: DrawerOrganizer | null, b?: DrawerOrganizer | null): boolean =>
+    (a ?? null) === null && (b ?? null) === null
+      ? true
+      : !!a && !!b && a.dividers === b.dividers && (a.axis ?? "x") === (b.axis ?? "x");
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if (same(block.components[idx]!.organizer, organizer)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (organizer === null) {
+        const { organizer: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, organizer };
     });
     return { ...block, components };
   });
