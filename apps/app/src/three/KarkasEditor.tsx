@@ -10,7 +10,7 @@ import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
-import type { Box3D, HandleType, LiftType } from "../../../../engine/contracts/structure";
+import type { Box3D, HandleType, LiftType, ApplianceKind } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
@@ -21,13 +21,14 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
+import { applianceFittings, withApplianceCutouts } from "./appliances";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
-import { estimate, hardwareEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
+import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
+import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
 
 /**
@@ -65,6 +66,7 @@ interface RT {
   holeGroup: THREE.Group | null; // «Teshiklar» — drill-hole markers, toggled on/off
   kromkaGroup: THREE.Group | null; // Step 8.2 — coloured banded-edge lines, shown in Frame view
   handleGroup: THREE.Group | null; // Phase 1.3d — 3D handle meshes (bow bar / knob) on handled doors
+  applianceGroup: THREE.Group | null; // Phase 3.b — 3D appliance meshes (oven / hob / sink / …)
   ghostGroup: THREE.Group | null; // Step 9 — Application-view ghost props (boiler / clothes / …)
   // Live 3D dimension lines, built on drag-start and torn down on pointer-up. A list because a divider
   // drag needs TWO at once — the bay either side of it.
@@ -337,6 +339,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setHandle = useKarkas((s) => s.setHandle);
   const setLift = useKarkas((s) => s.setLift);
   const setDividers = useKarkas((s) => s.setDividers);
+  const setAppliance = useKarkas((s) => s.setAppliance);
   const combineSelectedDoor = useKarkas((s) => s.combineSelectedDoor);
   const splitSelectedDoor = useKarkas((s) => s.splitSelectedDoor);
   // Select PRIMITIVES (booleans), not a fresh object — a new-object selector trips React 18's
@@ -467,7 +470,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       return;
     }
     try {
-      const text = exportModelToSWJ008(model, {}, materialMap(plan), Object.fromEntries(BOARDS.map((b) => [b.id, b.name])));
+      const text = exportModelToSWJ008(withApplianceCutouts(model), {}, materialMap(plan), Object.fromEntries(BOARDS.map((b) => [b.id, b.name]))); // 3.c — mill the hob/sink worktop cutout
       const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
       const a = document.createElement("a");
       a.href = url;
@@ -486,7 +489,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // (print) window render the same sheet. Rebuilds only when the model / material plan changes.
   const drawingSvg = useMemo(() => {
     try {
-      const drawing = buildBlockDrawing(solveLayout(model, planThickness(plan)), solveModelToParts(model, planThickness(plan)));
+      const drawing = buildBlockDrawing(solveLayout(withApplianceCutouts(model), planThickness(plan)), solveModelToParts(withApplianceCutouts(model), planThickness(plan)));
       const boardName = (id: string) => BOARDS.find((b) => b.id === id)?.name ?? "—";
       const carcass = boardName(plan.carcass);
       const edge = EDGES.find((e) => e.id === plan.edge)?.name ?? "—";
@@ -569,7 +572,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
     const grid = makeGrid("light"); scene3.add(grid); // U2.1b — Moblo floor grid (theme-swapped by the effect below)
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
     // dev-only: expose the three runtime so local tooling (puppeteer) can assert on the SCENE GRAPH — a
     // 3D overlay like the dimension line has no DOM to query. Stripped from prod builds, like __karkas.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
@@ -913,8 +916,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       }
       const g = rt.current?.group; if (!g) return;
       const hit = raycaster.intersectObjects(g.children, false)[0]; // faces only (not edge lines)
+      // 3.d — appliances live in a separate group (no board part); raycast it too (recurse into the per-kind
+      // sub-groups) and take the NEARER hit, so tapping an oven/hob selects its instance.
+      const ag = rt.current?.applianceGroup;
+      const aHit = ag ? raycaster.intersectObjects(ag.children, true)[0] : undefined;
+      const pick = aHit && (!hit || aHit.distance < hit.distance) ? aHit : hit;
       useKarkas.getState().selectHole(null); // a panel tap clears any hole selection
-      tapPart((hit?.object.userData.partId as string) ?? null);
+      tapPart((pick?.object.userData.partId as string) ?? null);
     };
     renderer.domElement.addEventListener("pointerdown", onDown);
     renderer.domElement.addEventListener("pointermove", onMove);
@@ -962,6 +970,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
       if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
       if (rt.current?.handleGroup) disposeStructureGroup(rt.current.handleGroup);
+      if (rt.current?.applianceGroup) disposeStructureGroup(rt.current.applianceGroup);
       if (rt.current?.ghostGroup) disposeStructureGroup(rt.current.ghostGroup);
       labels.w.remove(); labels.h.remove(); labels.d.remove();
       renderer.dispose();
@@ -1074,6 +1083,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const hg = buildHandleGroup(handleFittings(solveModelToParts(model, planThickness(plan)), hplaces), layoutBounds(hplaces));
     r.scene.add(hg);
     r.handleGroup = hg;
+    // Phase 3.b — rebuild the 3D appliance meshes from the appliance fittings (real size in each section).
+    if (r.applianceGroup) { r.scene.remove(r.applianceGroup); disposeStructureGroup(r.applianceGroup); }
+    const ag = buildApplianceGroup(applianceFittings(model, hplaces));
+    r.scene.add(ag);
+    r.applianceGroup = ag;
     highlightBoard(group, selectedId);
     // C5 — refresh the dimension overlay: bounding box + W/H/D text (mm)
     r.aabb = new THREE.Box3().setFromObject(group);
@@ -1577,6 +1591,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     <button className="mob-addbtn" type="button" onClick={() => add("drawer")}>＋ Yashik</button>
                     <button className="mob-addbtn" type="button" onClick={() => add("divider")}>＋ Razdelitel</button>
                     <button className={"mob-addbtn" + (showDivide ? " is-active" : "")} type="button" onClick={() => togglePanel("divide")}>⊟ Bo'lish</button>
+                    {/* Phase 3.d — built-in appliances (Техника): one button per kind, adds + selects it */}
+                    {(Object.keys(APPLIANCE) as (keyof typeof APPLIANCE)[]).map((kind) => (
+                      <button key={kind} className="mob-addbtn" type="button" style={{ borderColor: "#6b7280", color: "#374151" }} onClick={() => { add("appliance", { appliance: kind }); if (compact) setRpanel("none"); }}>🔌 {APPLIANCE[kind].name}</button>
+                    ))}
                   </div>
                 ) : (
                   <p className="mob-hint">Bir taxtani tanlang — so'ng burchak, o'yiq yoki jiyak qo'shing.</p>
@@ -1867,6 +1885,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             {selComp?.role === "facade" && canSplitDoor && (
               <button type="button" className="mob-props-toggle" onClick={splitSelectedDoor}>⤢ Ajratish</button>
             )}
+            {/* 3.d — appliance kind on the mobile quick bar too */}
+            {selComp?.appliance && (
+              <label className="mob-props-f"><span>Texnika</span>
+                <select value={selComp.appliance} onChange={(e) => setAppliance(e.target.value as ApplianceKind)}>
+                  {(Object.keys(APPLIANCE) as (keyof typeof APPLIANCE)[]).map((k) => <option key={k} value={k}>{APPLIANCE[k].name}</option>)}
+                </select>
+              </label>
+            )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
                 be nudged by accident while dragging something else. */}
@@ -2087,6 +2113,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           )}
           {selComp.role === "facade" && canSplitDoor && (
             <button style={{ ...act, borderColor: "#8a6d1f", background: "#faf1dc", color: "#7a5a12" }} onClick={splitSelectedDoor} type="button" title="Birlashgan eshikni yana bitta bo'limga qaytarish">⤢ Ajratish</button>
+          )}
+          {/* 3.d — appliance kind on a selected built-in appliance (oven → hob …); drives mesh + price + cutout */}
+          {selComp.appliance && (
+            <>
+              <span style={mono}>Texnika:</span>
+              <select value={selComp.appliance} onChange={(e) => setAppliance(e.target.value as ApplianceKind)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 170 }}>
+                {(Object.keys(APPLIANCE) as (keyof typeof APPLIANCE)[]).map((k) => <option key={k} value={k}>{APPLIANCE[k].name}</option>)}
+              </select>
+            </>
           )}
           {/* 1.3c — handle (dastak) per door/drawer front: drives the Ø4.5 holes + the hardware price */}
           {(selComp.role === "facade" || selComp.drawer) && (
@@ -2515,7 +2550,8 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
   const money = useMoney();
   const e = estimate(parts, plan);
   const hw = hardwareEstimate(model);
-  const total = e.priceUzs + hw.priceUzs;
+  const ap = applianceEstimate(model); // Phase 3 — «Техника» (bought appliances)
+  const total = e.priceUzs + hw.priceUzs + ap.priceUzs;
   // Step 6 — per-K painted kromka metres from the features overlay (counted once per physical panel,
   // matching the render board id or its layout base id so a 32mm double isn't double-counted).
   const kromkaByVar = useMemo(() => {
@@ -2537,7 +2573,7 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
   // plan / front / section — shrunk to read at a glance above the cut list. Rebuilt only with the model.
   const ortho = useMemo(() => {
     try {
-      const d = buildBlockDrawing(solveLayout(model, planThickness(plan)), solveModelToParts(model, planThickness(plan)));
+      const d = buildBlockDrawing(solveLayout(withApplianceCutouts(model), planThickness(plan)), solveModelToParts(withApplianceCutouts(model), planThickness(plan)));
       return [
         { key: "top", label: "Ustidan", svg: viewThumbSvg(d.plan, 120) },
         { key: "front", label: "Oldidan", svg: viewThumbSvg(d.front, 120) },
@@ -2605,6 +2641,11 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
       {hw.lines.length > 0 && (
         <div style={{ ...mono, padding: "0 14px 6px" }}>
           Фурнитура: {hw.lines.map((l) => `${l.name} ×${l.qty}`).join(" · ")} — {money(hw.priceUzs)}
+        </div>
+      )}
+      {ap.lines.length > 0 && (
+        <div style={{ ...mono, padding: "0 14px 6px" }}>
+          Техника: {ap.lines.map((l) => `${l.name} ×${l.qty}`).join(" · ")} — {money(ap.priceUzs)}
         </div>
       )}
       <div style={totalRow}>

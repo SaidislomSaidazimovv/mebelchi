@@ -5,7 +5,7 @@
 // call the engine's PURE immutable operations (divideSection / addInstance) and re-derive.
 
 import { create } from "zustand";
-import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind } from "../../../../engine/contracts/structure.js";
 
 /** The shapes furniture is actually made of — what the ＋ panel offers. */
 export type PrimitiveKind = "board" | "panel" | "post" | "box";
@@ -14,7 +14,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -28,6 +28,7 @@ import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
 import { layoutBounds, layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
+import { withApplianceCutouts } from "./appliances";
 import { snapCandidates, snapSpan, type SnapCandidate } from "../../../../engine/structure/snap.js";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, withPlanDefaults, type MaterialPlan } from "./materials";
 
@@ -55,7 +56,10 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   // Recentre on the UNROTATED bounds: turning a cabinet is placement-only, so it must not move anything
   // else. Centring on the rotated AABB slid the entire model sideways as the cabinet turned.
   const flat = solveLayout(model, tk);
-  const scene = layoutToScene(rotateBlockPlacements(flat, model.blocks), model.features, layoutBounds(flat));
+  // Phase 3.c — a hob/sink derives a worktop cutout; feed the augmented features to the render (both the
+  // scene and the CNC read model.features, so this one overlay punches the hole). Same ref when none apply.
+  const feats = withApplianceCutouts(model).features;
+  const scene = layoutToScene(rotateBlockPlacements(flat, model.blocks), feats, layoutBounds(flat));
   return { model, parts: solveStructure(model, tk), scene, warnings, sections };
 }
 
@@ -332,6 +336,8 @@ interface KarkasState extends Derived {
   setLift: (lift: LiftType | null) => void;
   /** Set the selected drawer's organizer divider count (2.3c). 0 clears it. Forks per-instance. Drawer only. */
   setDividers: (n: number) => void;
+  /** Set (or clear with null) the selected appliance's kind (3.d). Forks per-instance. Appliance only. */
+  setAppliance: (kind: ApplianceKind | null) => void;
   /** 2.2b — combine the selected door with its siblings: move it onto its parent section (spans them all). */
   combineSelectedDoor: () => void;
   /** 2.2b — split a combined door back to one compartment: move it to its section's first leaf child. */
@@ -934,7 +940,17 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     add: (kind, opts) => {
       const t = targetSection();
-      if (t) apply(addInstance(get().model, t, kind, opts));
+      if (!t) return;
+      // 3.d — an appliance is invisible until selected (no board mesh), so auto-select the new one so its
+      // kind picker + delete show at once. Diff the instance ids to find the just-added instance.
+      const before = new Set(get().model.blocks.flatMap((b) => b.instances.map((i) => i.id)));
+      apply(addInstance(get().model, t, kind, opts));
+      if (kind === "appliance") {
+        for (const b of get().model.blocks) {
+          const ni = b.instances.find((i) => !before.has(i.id));
+          if (ni) { set({ selectedId: `${b.id}__inst_${ni.id}` }); break; }
+        }
+      }
     },
     remove: () => {
       const s = get();
@@ -976,6 +992,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!f) return;
       const count = Math.max(0, Math.min(8, Math.round(n)));
       apply(setComponentOrganizer(f.model, f.compId, count > 0 ? { dividers: count, axis: "x" } : null), true);
+    },
+    // 3.d — change the selected appliance's kind (oven → hob …). Fork first (like setLift); keepSel.
+    setAppliance: (kind) => {
+      const f = forkSelected();
+      if (f) apply(setComponentAppliance(f.model, f.compId, kind), true);
     },
     // 2.2b — combine the selected door with its siblings: move the instance onto its PARENT section (no fork —
     // sectionId is per-instance). keepSel so the same door stays selected as it widens.

@@ -6,7 +6,7 @@
 // straight from it. Rates live in materials.ts (realistic-but-illustrative until a live feed lands).
 
 import type { Part } from "../../../../engine/contracts/types.js";
-import type { StructuralModel, Section } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Section, ApplianceKind } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { edgeLengths } from "../../../../engine/structure/features.js";
 import {
@@ -15,6 +15,7 @@ import {
   DEFAULT_PLAN,
   withPlanDefaults,
   HARDWARE,
+  APPLIANCE,
   hingesForDoorHeightMm,
   CAMS_PER_CARCASS,
   DOWELS_PER_CARCASS,
@@ -196,6 +197,30 @@ export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
 }
 
 /**
+ * Phase 3 — count the built-in appliances a model holds, per kind (like handles: one per instance whose
+ * component carries `appliance`). Appliances are BOUGHT (never cut), so they're counted off the MODEL.
+ */
+export function applianceCounts(model: StructuralModel): Record<ApplianceKind, number> {
+  const counts: Record<ApplianceKind, number> = { oven: 0, hob: 0, sink: 0, dishwasher: 0, hood: 0, microwave: 0, fridge: 0 };
+  for (const b of model.blocks) {
+    for (const inst of b.instances) {
+      const kind = b.components.find((c) => c.id === inst.componentId)?.appliance;
+      if (kind) counts[kind] += 1;
+    }
+  }
+  return counts;
+}
+
+/** Phase 3 — a «Техника» price estimate: one bought line per appliance kind present, at the mock unit price. */
+export function applianceEstimate(model: StructuralModel): HardwareEstimate {
+  const counts = applianceCounts(model);
+  const lines = (Object.keys(counts) as ApplianceKind[])
+    .map((kind) => ({ name: APPLIANCE[kind].name, qty: counts[kind], priceUzs: counts[kind] * APPLIANCE[kind].priceUzs }))
+    .filter((l) => l.qty > 0);
+  return { lines, priceUzs: sum(lines.map((l) => l.priceUzs)) };
+}
+
+/**
  * The full UZS price of a saved karkas block (boards + edges + hardware), solved fresh from its
  * on-disk `{model, plan}` JSON. Used to fold placed project-blocks into the kitchen quote + handoff.
  * Tolerant: a malformed / empty block prices at 0 rather than throwing.
@@ -206,7 +231,7 @@ export function blockPriceUzs(karkasJson: string): number {
     if (!model?.blocks?.length) return 0;
     const p = withPlanDefaults(plan); // migrate an old saved plan missing later slots
     const parts = solveStructure(model, planThickness(p));
-    return estimate(parts, p).priceUzs + hardwareEstimate(model).priceUzs;
+    return estimate(parts, p).priceUzs + hardwareEstimate(model).priceUzs + applianceEstimate(model).priceUzs; // + «Техника»
   } catch {
     return 0;
   }

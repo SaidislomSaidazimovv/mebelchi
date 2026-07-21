@@ -347,6 +347,86 @@ export function buildHandleGroup(
   return g;
 }
 
+/**
+ * Phase 3.b — procedural per-kind APPLIANCE meshes from the fittings appliances.ts derives (a fitting = the
+ * appliance's real-size box centred in its section). Steel/glass palette (metalness tuned for the envMap-less
+ * scene, like the handle mesh). Front of the cabinet = −Z (doors/controls face −Z). Cosmetic dimensions.
+ * Empty when nothing is an appliance → an empty group, so a model without appliances renders byte-identically.
+ */
+export function buildApplianceGroup(
+  fittings: readonly { id: string; kind: string; center: [number, number, number]; size: [number, number, number] }[],
+): THREE.Group {
+  const g = new THREE.Group();
+  const steel = new THREE.MeshStandardMaterial({ color: 0xc2c6cc, metalness: 0.5, roughness: 0.42 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x26292f, metalness: 0.3, roughness: 0.35 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x14161a, metalness: 0.25, roughness: 0.18 });
+  const UP = new THREE.Vector3(0, 1, 0);
+  /** A box of size (w,h,d) centred at (x,y,z). */
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material): THREE.Mesh => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.001, w), Math.max(0.001, h), Math.max(0.001, d)), mat);
+    m.position.set(x, y, z);
+    return m;
+  };
+  /** A cylinder of radius r, length len, long axis "x"|"y"|"z", centred at (x,y,z). */
+  const cyl = (r: number, len: number, axis: "x" | "y" | "z", x: number, y: number, z: number, mat: THREE.Material): THREE.Mesh => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, Math.max(0.001, len), 16), mat);
+    if (axis !== "y") m.quaternion.setFromUnitVectors(UP, new THREE.Vector3(axis === "x" ? 1 : 0, 0, axis === "z" ? 1 : 0));
+    m.position.set(x, y, z);
+    return m;
+  };
+
+  for (const f of fittings) {
+    const [cx, cy, cz] = f.center;
+    const [w, h, d] = f.size;
+    const front = cz - d / 2; // the cabinet-front face (−Z)
+    const sub = new THREE.Group();
+    const add = (...ms: THREE.Mesh[]) => ms.forEach((m) => sub.add(m));
+    switch (f.kind) {
+      case "oven":
+        add(box(w, h, d, cx, cy, cz, steel),
+            box(w * 0.88, h * 0.62, 0.02, cx, cy - h * 0.06, front - 0.011, glass),           // dark glass door
+            box(w * 0.92, h * 0.14, 0.03, cx, cy + h * 0.4, front - 0.006, dark),               // top control strip
+            cyl(0.011, w * 0.8, "x", cx, cy + h * 0.28, front - 0.028, steel));                 // handle bar
+        break;
+      case "hob":
+        add(box(w, h, d, cx, cy, cz, glass));                                                    // dark glass slab
+        for (const dx of [-w * 0.24, w * 0.24]) for (const dz of [-d * 0.24, d * 0.24])          // 4 burners
+          add(cyl(Math.min(w, d) * 0.15, 0.01, "y", cx + dx, cy + h / 2 + 0.005, cz + dz, dark));
+        break;
+      case "sink":
+        add(box(w, h * 0.22, d, cx, cy + h * 0.39, cz, steel),                                   // steel rim/top
+            box(w * 0.78, h * 0.72, d * 0.72, cx, cy - h * 0.12, cz, dark),                       // recessed bowl
+            cyl(0.014, h * 0.85, "y", cx + w * 0.28, cy + h * 0.4, cz + d * 0.34, steel),         // faucet stem
+            cyl(0.011, d * 0.32, "z", cx + w * 0.28, cy + h * 0.78, cz + d * 0.18, steel));       // spout
+        break;
+      case "dishwasher":
+        add(box(w, h, 0.03, cx, cy, front + 0.015, steel),                                        // steel front facade
+            cyl(0.011, w * 0.86, "x", cx, cy + h * 0.42, front - 0.012, steel));                  // handle
+        break;
+      case "hood":
+        add(box(w, h * 0.6, d, cx, cy + h * 0.2, cz, steel),                                      // body
+            box(w, h * 0.4, d * 0.5, cx, cy - h * 0.3, front + d * 0.25, steel));                 // lower intake lip
+        break;
+      case "microwave":
+        add(box(w, h, d, cx, cy, cz, steel),
+            box(w * 0.6, h * 0.72, 0.015, cx - w * 0.12, cy, front - 0.008, glass),               // window (left)
+            box(w * 0.24, h * 0.78, 0.015, cx + w * 0.32, cy, front - 0.008, dark));              // controls (right)
+        break;
+      case "fridge":
+        add(box(w, h, d, cx, cy, cz, steel),
+            box(w, 0.02, d * 0.3, cx, cy + h * 0.12, front - 0.011, dark),                        // door split line
+            cyl(0.013, h * 0.36, "y", cx - w * 0.4, cy + h * 0.26, front - 0.03, steel),          // upper handle
+            cyl(0.013, h * 0.42, "y", cx - w * 0.4, cy - h * 0.22, front - 0.03, steel));         // lower handle
+        break;
+      default:
+        add(box(w, h, d, cx, cy, cz, steel)); // unknown kind → a plain steel box
+    }
+    sub.traverse((o) => { o.userData.partId = f.id; }); // 3.d — tap the appliance mesh → select its instance
+    g.add(sub);
+  }
+  return g;
+}
+
 const GHOST_COLOR: Record<string, number> = {
   boiler: 0xd9534f, hanging: 0x5b8def, storage: 0xcaa15a, appliance: 0x8a8f98, display: 0x6fbf8f, drawer: 0xc9a24b, structural: 0x9aa0a6,
 };
