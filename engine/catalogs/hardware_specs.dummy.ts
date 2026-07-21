@@ -100,4 +100,25 @@ export const hardwareSpecRaw = {
     comment_rowSetbacks:
       "GROUNDED from factory file tests/golden/xml/ORTA_BAK_6_1.XML: Ø5 shelf-pin rows sit 91.5mm from each Y edge (Face5 Y=91.5/411.5 on a 503-wide panel → 91.5 front, 503−411.5=91.5 back). Was a 37mm placeholder. verified:false kept until full S3-E7 factory sign-off (front/back confirmed separately, plus the Face6 mirror).",
   },
+
+  handles: {
+    DUMMY_HANDLE_STD: {
+      brand: "TBD — handle SKU/brand unknown; hole Ø/depth verified against factory door export",
+      verified: false,
+      grade: "browse",
+      source:
+        "Ø4.5×17 GROUNDED (mined_dump_holeclasses.csv:16, face-drill Ø4.500×17.000 ×24 in SHKOF…ESHIK door panels). The POSITION (128 c-c pair, 50mm edge offset) is a provisional standard like System-32 — not yet confirmed per handle SKU.",
+      screw: {
+        diameter: 4.5,
+        depth: 17,
+        comment: "GROUNDED: Ø4.500 × 17.000 face-drill, a through-hole in a 16mm door for M4 handle screws.",
+      },
+      centres: 128,
+      comment_centres:
+        "PROVISIONAL: 128mm is the common bow-handle c-c standard; retune per SKU once the handle catalog is verified.",
+      edgeOffset: 50,
+      comment_edgeOffset:
+        "PROVISIONAL: 50mm inset from the door's opening edge (opposite the hinge). Retune once real handle placement is confirmed.",
+    },
+  },
 } as const;

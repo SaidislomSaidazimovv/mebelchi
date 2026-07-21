@@ -5,13 +5,16 @@
 // call the engine's PURE immutable operations (divideSection / addInstance) and re-derive.
 
 import { create } from "zustand";
-import type { StructuralModel, Component, Block, Instance, FreePart } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType } from "../../../../engine/contracts/structure.js";
+
+/** The shapes furniture is actually made of — what the ＋ panel offers. */
+export type PrimitiveKind = "board" | "panel" | "post" | "box";
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -25,7 +28,8 @@ import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
 import { layoutBounds, layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
-import { DEFAULT_PLAN, planThickness, boardThicknessMm10, type MaterialPlan } from "./materials";
+import { snapCandidates, snapSpan, type SnapCandidate } from "../../../../engine/structure/snap.js";
+import { DEFAULT_PLAN, planThickness, boardThicknessMm10, withPlanDefaults, type MaterialPlan } from "./materials";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
 interface Derived {
@@ -137,6 +141,19 @@ function resolveInstance(model: StructuralModel, partId: string): { block: Block
   return null;
 }
 
+/** 2.2b — find a section (leaf OR parent) by id anywhere in a block's zone trees. */
+function sectionInBlock(block: Block, id: string): Section | null {
+  for (const z of block.zones) {
+    const stack: Section[] = [z.root];
+    while (stack.length) {
+      const s = stack.pop()!;
+      if (s.id === id) return s;
+      for (const c of s.children) stack.push(c);
+    }
+  }
+  return null;
+}
+
 // The DEEPEST drawer instance a part id names, following the `__in_<id>` nesting chain into `interior`s —
 // so selecting a NESTED drawer resolves to THAT drawer, not its top-level ancestor (which the plain
 // resolveInstance returns). Also hands back the component scope (for the drawer flag) + the id path
@@ -211,6 +228,10 @@ interface KarkasState extends Derived {
   rotateFreePartTo: (fpId: string, deg: number, first: boolean) => void;
   /** gizmos «rotate» — turn a whole cabinet about the vertical axis (deg, placement-only, not machined). */
   rotateBlockTo: (blockId: string, deg: number, first: boolean) => void;
+  /** Phase 1.1b — set a cabinet's sokol/plinth height (mm10); `≤ 0` removes it. */
+  setPlinth: (blockId: string, mm10: number) => void;
+  /** Phase 1.2c — toggle a cabinet's worktop/stoleshnitsa on or off. */
+  setWorktop: (blockId: string, on: boolean) => void;
   /** U4.2 — the set of whole blocks ticked in the block-navigator for grouping. */
   selectedBlockIds: string[];
   /** U4.2 — toggle a block in the group-selection (clears any part selection). */
@@ -226,7 +247,8 @@ interface KarkasState extends Derived {
   /** U4.5 — set one member's rule (Fixed mm / Ratio weight / Flex); the run re-solves at its length. */
   setRunMemberRule: (runId: string, blockId: string, rule: DivisionRule) => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
-  addFreeBoard: () => void;
+  /** Add a free primitive at the floor, centred: a flat board, a side panel, a leg, or a plain solid. */
+  addFreeBoard: (kind?: PrimitiveKind) => void;
   moveFreePart: (fpId: string, delta: { x: number; y: number; z: number }, first: boolean) => void;
   /** gizmos — put a free board's `axis` coord at `idealPos` (mm10), MAGNETICALLY clicking to a nearby
    *  compartment face first. Absolute (no drift over a long drag); reports where it landed + whether it snapped. */
@@ -304,6 +326,18 @@ interface KarkasState extends Derived {
   setMaterial: (id: string | null) => void;
   /** Set the hinge side of the selected door (facade instance). No-op if the selection isn't a door. */
   setHinge: (edge: "left" | "right") => void;
+  /** Set (or clear with null) the selected door/drawer-front handle type (1.3c). Forks per-instance. */
+  setHandle: (handle: HandleType | null) => void;
+  /** Set (or clear with null) the selected door's lift hinge (2.1c). Forks per-instance. Facade only. */
+  setLift: (lift: LiftType | null) => void;
+  /** Set the selected drawer's organizer divider count (2.3c). 0 clears it. Forks per-instance. Drawer only. */
+  setDividers: (n: number) => void;
+  /** 2.2b — combine the selected door with its siblings: move it onto its parent section (spans them all). */
+  combineSelectedDoor: () => void;
+  /** 2.2b — split a combined door back to one compartment: move it to its section's first leaf child. */
+  splitSelectedDoor: () => void;
+  /** 2.2b — whether the selected door can combine (leaf, parent has >1 child) or split (on a non-leaf). */
+  selectedDoorCombine: () => { canCombine: boolean; canSplit: boolean } | null;
   /** Set the block's width / height / depth in mm (C2). Content reflows proportionally. */
   resize: (dim: "w" | "h" | "d", mm: number) => void;
   /** Move a divider line by `delta` mm10 (Step 3.3b drag). `pushHistory` true on the FIRST frame of a
@@ -387,38 +421,40 @@ interface ProjectFile {
   lockedQuote?: { total: number; date: string } | null;
 }
 
-/** U3.2c — snap a free board's box (block-local mm10) so any face within `thr` of a compartment face
- *  (a wall / shelf / floor / front / back) clicks flush to it. Magnetic placement, evaluated per axis. */
 type XBox = { x: number; y: number; z: number; w: number; h: number; d: number };
-function snapFreeBox(box: XBox, secBoxes: readonly XBox[], thr: number): { x: number; y: number; z: number } {
-  const snap = (lo: number, size: number, cands: number[]): number => {
-    const hi = lo + size;
-    let best = lo, bestD = thr;
-    for (const c of cands) {
-      if (Math.abs(c - lo) < bestD) { best = c; bestD = Math.abs(c - lo); }
-      if (Math.abs(c - hi) < bestD) { best = c - size; bestD = Math.abs(c - hi); }
-    }
-    return best;
-  };
-  const xs: number[] = [], ys: number[] = [], zs: number[] = [];
-  for (const s of secBoxes) { xs.push(s.x, s.x + s.w); ys.push(s.y, s.y + s.h); zs.push(s.z, s.z + s.d); }
-  return { x: snap(box.x, box.w, xs), y: snap(box.y, box.h, ys), z: snap(box.z, box.d, zs) };
-}
 
-/** Magnetic pull for a gizmo drag — 40 mm, the same reach as the drop-snap (snapFreeBox). */
+/** Monotonic counter behind every new free-part id — see addFreeBoard. */
+let freeSeq = 0;
+
+/** Magnetic pull — 40 mm, the same reach for a live drag and for the drop. */
 const SNAP_PULL = 400; // mm10
 
-/** Nearest magnetic snap for a span `[pos, pos+size]` along ONE axis against candidate face coords —
- *  the single-axis form of snapFreeBox's rule (either end may click to a face). Used live during a gizmo
- *  drag so a board / cabinet clicks flush while you pull it, not only when you let go. */
-function snapAxis(pos: number, size: number, cands: readonly number[], thr: number): { pos: number; snapped: boolean } {
-  let best = pos, bestD = thr, hit = false;
-  for (const c of cands) {
-    const dLo = Math.abs(c - pos), dHi = Math.abs(c - (pos + size));
-    if (dLo < bestD) { best = c; bestD = dLo; hit = true; }
-    if (dHi < bestD) { best = c - size; bestD = dHi; hit = true; }
-  }
-  return { pos: best, snapped: hit };
+/**
+ * What a free board may click onto. Compartments were the ONLY targets before, which meant a board had
+ * nothing to snap to unless a cabinet was on screen — and building furniture from nothing is exactly the
+ * case with no cabinet. OTHER FREE BOARDS are now targets too, so a leg clicks under a table top and the
+ * next leg lines up with the first.
+ *
+ * The board itself is excluded by id, not by identity, because the store hands us a fresh object each
+ * time it re-derives.
+ */
+function freeSnapTargets(block: Block, excludeFreeId?: string): Box3D[] {
+  const out: Box3D[] = [];
+  // Compartments are real surfaces to click against — but ONLY in a cabinet. In a BARE block the single
+  // root section is just the working envelope: an invisible box the master never drew. Offering its faces
+  // made them compete with real ones — a leg pushed up under a table top was pulled to the envelope's
+  // ceiling instead, and left floating clear of the floor.
+  if (!block.bare) for (const z of block.zones) for (const sec of leafSections(z.root)) out.push(sec.box);
+  for (const f of block.freeParts ?? []) if (f.id !== excludeFreeId) out.push(f.box);
+  return out;
+}
+
+/** Snap candidates for one axis: the boards/compartments above, plus the FLOOR — the one face of the
+ *  envelope that is physically real, so a board can always be set down on the ground. */
+function freeSnapCandidates(block: Block, axis: "x" | "y" | "z", excludeFreeId?: string): SnapCandidate[] {
+  const cands = snapCandidates(freeSnapTargets(block, excludeFreeId), axis);
+  if (axis === "y") cands.push({ at: 0, kind: "edge" });
+  return cands;
 }
 
 /** U3.3 fix — keep a free board's box sane relative to its block `B` so a drag/resize can never explode the
@@ -473,24 +509,39 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setTarget: (id) => set({ targetId: id }),
     // U3.2 — free assembly: a board that lives OUTSIDE the carcass sections, placed by its own box and
     // draggable anywhere (Moblo free-primitive). The engine already cuts + renders block.freeParts.
-    addFreeBoard: () => {
+    addFreeBoard: (kind = "board") => {
       const s = get();
       const block = s.model.blocks[0];
       if (!block) return;
       const bx = block.box;
-      const w = Math.min(4000, Math.round(bx.w * 0.55)); // mm10
-      const d = Math.min(3000, Math.round(bx.d * 0.6));
+      const T = 160; // 16 mm stock
+      // One primitive was never enough: a leg had to be made by adding a flat shelf and then fighting it
+      // through a rotate and three resizes. These are the shapes furniture is actually made of, each
+      // already the right way round and already a sensible size.
+      const spec = {
+        board: { name: "Taxta", role: "shelf" as const, axis: "y" as const, w: Math.min(4000, Math.round(bx.w * 0.55)), h: T, d: Math.min(3000, Math.round(bx.d * 0.6)) },
+        panel: { name: "Yon panel", role: "panel" as const, axis: "x" as const, w: T, h: Math.min(7200, bx.h), d: Math.min(3000, Math.round(bx.d * 0.6)) },
+        post: { name: "Oyoq", role: "leg" as const, axis: "x" as const, w: 500, h: Math.min(7100, bx.h), d: 500 },
+        box: { name: "Quti", role: "panel" as const, axis: "y" as const, w: 3000, h: 3000, d: 3000 },
+      }[kind];
+      // Placed ON THE FLOOR and centred, nudged clear of what is already there — a new part that lands
+      // inside an existing one looks like nothing happened.
+      const n = (block.freeParts ?? []).length;
       const fp: FreePart = {
-        id: `free_${Date.now().toString(36)}`,
-        name: "Erkin taxta",
-        role: "shelf",
-        thicknessAxis: "y", // horizontal board (thickness along Y)
-        // float it just ABOVE the carcass top, centred — clearly visible so the master grabs and drags it
-        // down into place (U3.2b) instead of it hiding among the existing shelves.
-        box: { x: Math.round((bx.w - w) / 2), y: bx.h + 1000, z: Math.round((bx.d - d) / 2), w, h: 160, d },
+        // A clock alone is not unique enough: two parts added inside the same millisecond got the SAME
+        // id, and the engine rightly refuses that (ADD_FREEPART_DUPLICATE_ID) — so a quick run of taps
+        // threw. Adding four legs is the most ordinary thing a master does, so the counter is not
+        // optional. The timestamp stays only because it makes ids readable while debugging.
+        id: `free_${Date.now().toString(36)}_${(freeSeq++).toString(36)}`,
+        name: spec.name,
+        role: spec.role,
+        thicknessAxis: spec.axis,
+        box: { x: Math.round((bx.w - spec.w) / 2) + n * 600, y: 0, z: Math.round((bx.d - spec.d) / 2), w: spec.w, h: spec.h, d: spec.d },
+        // a solid post takes no edge banding — see FreePart.edgeBands
+        ...(kind === "post" ? { edgeBands: [0, 0, 0, 0] as const } : {}),
       };
       apply(addFreePartOp(s.model, block.id, fp));
-      set({ selectedId: `${block.id}__free_${fp.id}` }); // select it so it highlights (and, in U3.2b, drags)
+      set({ selectedId: `${block.id}__free_${fp.id}` }); // select it so it highlights and can be dragged
     },
     // U4.1 — add a SECOND cabinet (block) beside the current one. Grouping (E1 `groupBlocks`) needs ≥2
     // blocks, so this is the foundation. A fresh bare carcass (same dims as block-0) is tiled just to the
@@ -543,9 +594,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const size = pick(blk.box, true) - pick(blk.box, false);
       // candidates: every OTHER cabinet's two faces on this axis (so they click flush side-by-side),
       // plus the floor on Y (a cabinet drops onto y=0).
-      const cands: number[] = axis === "y" ? [0] : [];
-      for (const o of s.model.blocks) { if (o.id !== blockId) cands.push(pick(o.box, false), pick(o.box, true)); }
-      const t = snapAxis(idealPos, size, cands, SNAP_PULL);
+      // every OTHER cabinet's faces (so they click flush side-by-side), plus the floor on Y. Same magnet
+      // as the free boards use, so a cabinet and a board behave identically under the finger.
+      const cands = snapCandidates(s.model.blocks.filter((o) => o.id !== blockId).map((o) => o.box), axis);
+      if (axis === "y") cands.push({ at: 0, kind: "edge" }); // a cabinet drops onto the floor
+      const t = snapSpan(idealPos, size, cands, SNAP_PULL);
       const delta = { x: 0, y: 0, z: 0 };
       delta[axis] = t.pos - pick(blk.box, false);
       if (delta[axis] !== 0) get().moveBlock(blockId, delta, first);
@@ -580,6 +633,40 @@ export const useKarkas = create<KarkasState>((set, get) => {
       };
       if (first) apply(model, true);
       else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
+    },
+    // Phase 1.1b — sokol / plinth height for a whole cabinet (mm10). `≤ 0` clears the field (no plinth).
+    // Mirrors rotateBlockTo: a block-level patch, keepSel, one undo step. box.h is untouched; the plinth
+    // is an extra part below (solve/layout), so the scene recentres and the cabinet stands on it.
+    setPlinth: (blockId, mm10) => {
+      const s = get();
+      if (!s.model.blocks.some((b) => b.id === blockId)) return;
+      const v = Math.round(mm10);
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => {
+          if (b.id !== blockId) return b;
+          if (v > 0) return { ...b, plinth_mm10: v };
+          const { plinth_mm10: _drop, ...rest } = b; // clear the field entirely when off
+          return rest;
+        }),
+      };
+      apply(model, true); // keepSel — same cabinet, one undo step
+    },
+    // Phase 1.2c — worktop/stoleshnitsa on or off. Like setPlinth: block-level patch, keepSel, one undo
+    // step; when off the field is DELETED so the model is byte-identical to a never-worktopped cabinet.
+    setWorktop: (blockId, on) => {
+      const s = get();
+      if (!s.model.blocks.some((b) => b.id === blockId)) return;
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => {
+          if (b.id !== blockId) return b;
+          if (on) return { ...b, worktop: true };
+          const { worktop: _drop, ...rest } = b; // clear the field entirely when off
+          return rest;
+        }),
+      };
+      apply(model, true); // keepSel — same cabinet, one undo step
     },
     // gizmos «duplicate» — copy whatever is selected: a free board (copy lands beside it, and is SELECTED
     // so the gizmo moves straight onto it) or, for any carcass panel, the WHOLE cabinet.
@@ -712,9 +799,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!block || !fp) return { pos: idealPos, snapped: false };
       const pick = (b: XBox, hi: boolean) => (axis === "x" ? (hi ? b.x + b.w : b.x) : axis === "y" ? (hi ? b.y + b.h : b.y) : hi ? b.z + b.d : b.z);
       const size = pick(fp.box, true) - pick(fp.box, false);
-      const cands: number[] = [];
-      for (const z of block.zones) for (const sec of leafSections(z.root)) { cands.push(pick(sec.box, false), pick(sec.box, true)); }
-      const t = snapAxis(idealPos, size, cands, SNAP_PULL);
+      // same targets and same rule as the drop-snap — one magnet, not two that drift apart
+      const t = snapSpan(idealPos, size, freeSnapCandidates(block, axis, fpId), SNAP_PULL);
       const delta = { x: 0, y: 0, z: 0 };
       delta[axis] = t.pos - pick(fp.box, false);
       if (delta[axis] !== 0) get().moveFreePart(fpId, delta, first);
@@ -728,9 +814,12 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!block?.freeParts) return;
       const fp = block.freeParts.find((f) => f.id === fpId);
       if (!fp) return;
-      const secBoxes: XBox[] = [];
-      for (const z of block.zones) for (const sec of leafSections(z.root)) secBoxes.push(sec.box);
-      const snapped = snapFreeBox(fp.box, secBoxes, 400); // 400 mm10 = 40 mm pull
+      // per-axis, so the floor candidate can join the Y axis only
+      const snapped = {
+        x: snapSpan(fp.box.x, fp.box.w, freeSnapCandidates(block, "x", fpId), SNAP_PULL).pos,
+        y: snapSpan(fp.box.y, fp.box.h, freeSnapCandidates(block, "y", fpId), SNAP_PULL).pos,
+        z: snapSpan(fp.box.z, fp.box.d, freeSnapCandidates(block, "z", fpId), SNAP_PULL).pos,
+      };
       if (snapped.x === fp.box.x && snapped.y === fp.box.y && snapped.z === fp.box.z) return; // already flush
       const model: StructuralModel = {
         ...s.model,
@@ -867,6 +956,53 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const s = get();
       const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
       if (r) apply(setHingeEdge(s.model, r.inst.id, edge), true); // keepSel — same door, just re-hinged
+    },
+    // 1.3c — handle (dastak) type on the selected door/drawer front. Fork first (like setLip/setMaterial)
+    // so one leaf's handle is independent of its siblings; null clears the field (byte-identical).
+    setHandle: (handle) => {
+      const f = forkSelected();
+      if (f) apply(setComponentHandle(f.model, f.compId, handle), true);
+    },
+    // 2.1c — lift hinge on the selected door. Fork first (like setHandle) so one door's lift is independent
+    // of its siblings; null clears the field (byte-identical, back to a side-hinged door).
+    setLift: (lift) => {
+      const f = forkSelected();
+      if (f) apply(setComponentLift(f.model, f.compId, lift), true);
+    },
+    // 2.3c — drawer organizer divider count on the selected drawer. Fork first (like setLift); 0 clears the
+    // organizer (byte-identical). Clamped 0..8; axis "x" (side-by-side) for now — the data supports "z" too.
+    setDividers: (n) => {
+      const f = forkSelected();
+      if (!f) return;
+      const count = Math.max(0, Math.min(8, Math.round(n)));
+      apply(setComponentOrganizer(f.model, f.compId, count > 0 ? { dividers: count, axis: "x" } : null), true);
+    },
+    // 2.2b — combine the selected door with its siblings: move the instance onto its PARENT section (no fork —
+    // sectionId is per-instance). keepSel so the same door stays selected as it widens.
+    combineSelectedDoor: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r || r.block.components.find((c) => c.id === r.inst.componentId)?.role !== "facade") return;
+      const parent = parentSectionOf(r.block, r.inst.sectionId);
+      if (parent) apply(moveInstanceToSection(s.model, r.inst.id, parent.id), true);
+    },
+    // 2.2b — split a combined door back to one compartment: move it to its section's FIRST leaf child.
+    splitSelectedDoor: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r || r.block.components.find((c) => c.id === r.inst.componentId)?.role !== "facade") return;
+      const sec = sectionInBlock(r.block, r.inst.sectionId);
+      const firstLeaf = sec && sec.children.length > 0 ? [...leafSections(sec)][0] : null;
+      if (firstLeaf) apply(moveInstanceToSection(s.model, r.inst.id, firstLeaf.id), true);
+    },
+    selectedDoorCombine: () => {
+      const s = get();
+      const r = s.selectedId ? resolveInstance(s.model, s.selectedId) : null;
+      if (!r || r.block.components.find((c) => c.id === r.inst.componentId)?.role !== "facade") return null;
+      const sec = sectionInBlock(r.block, r.inst.sectionId);
+      if (!sec) return null;
+      const parent = parentSectionOf(r.block, r.inst.sectionId);
+      return { canCombine: sec.children.length === 0 && !!parent && parent.children.length > 1, canSplit: sec.children.length > 0 };
     },
     // Yashik balandligi — per-drawer front/box height (mm). Clamp ≥ 50mm so the box never collapses;
     // solve/layout clamp the top at the section height, so an over-tall value just fills the bay.
@@ -1143,7 +1279,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!data || !data.model || !Array.isArray(data.model.blocks)) {
         throw new Error("BAD_PROJECT: not a karkas project file");
       }
-      const plan = data.plan ?? DEFAULT_PLAN;
+      const plan = withPlanDefaults(data.plan); // migrate an old plan missing later slots (e.g. worktop)
       // §3.2 — a library block may carry decors the project pool lacks; flag them for the map-or-create
       // prompt (the block still loads so it's visible; resolveBinding/cancelBinding reconciles the pool).
       const foreign = foreignDecors(get().materialPool, data.model, plan);

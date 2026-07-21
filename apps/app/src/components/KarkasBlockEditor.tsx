@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useT } from "../i18n/useT";
 import { blockDimsMm } from "../three/karkasLayer";
-import { partColor, boardForRole, boardById, BOARDS, type MaterialPlan } from "../three/materials";
+import { partColor, boardForRole, boardById, BOARDS, withPlanDefaults, type MaterialPlan } from "../three/materials";
 import type { StructuralModel, Component } from "../../../../engine/contracts/structure.js";
 
 const cmOf = (mm: number): number => Math.round(mm / 10);
@@ -15,7 +15,7 @@ const hex6 = (int: number): string => `#${(int >>> 0).toString(16).padStart(6, "
 function parseBlock(json: string): { model: StructuralModel; plan: MaterialPlan | null } | null {
   try {
     const d = JSON.parse(json) as { model?: StructuralModel; plan?: MaterialPlan };
-    return d.model && Array.isArray(d.model.blocks) ? { model: d.model, plan: d.plan ?? null } : null;
+    return d.model && Array.isArray(d.model.blocks) ? { model: d.model, plan: d.plan ? withPlanDefaults(d.plan) : null } : null;
   } catch {
     return null;
   }

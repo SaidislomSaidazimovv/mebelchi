@@ -90,6 +90,8 @@ export type PanelRole =
   | "carcass_back"
   | "carcass_bottom"
   | "carcass_top"
+  | "carcass_plinth" // the toe-kick / sokol under the carcass (carcass material, no drilling)
+  | "carcass_worktop" // the worktop / stoleshnitsa on top (its own material + thickness, no drilling)
   | "facade"
   | "internal_shelf";
 
@@ -106,6 +108,28 @@ export type SectionPurpose =
 
 /** Composition kind of a `Row` above the carcasses. */
 export type RowKind = "base" | "upper" | "tall";
+
+/** Handle / dastak kind on a door or drawer (Phase 1.3). Absent on a Component = no handle (Без). */
+export type HandleType = "bow" | "profile" | "knob";
+
+/**
+ * Lift-hinge kind on a door (Phase 2.1) — a top-opening wall-cabinet door on a gas-strut/arm mechanism
+ * instead of side hinges. `"swing"` = Aventos HK-class (the door tilts up as one piece); `"parallel"` =
+ * HL-class (the door lifts straight up, staying parallel). Absent on a Component = a normal side-hinged
+ * door. Expandable later (bifold / up-&-over).
+ */
+export type LiftType = "swing" | "parallel";
+
+/**
+ * Drawer organizer (Phase 2.3): `dividers` partition boards inside a drawer body. `axis "x"` (default) runs
+ * them front-to-back → side-by-side compartments; `axis "z"` runs them left-to-right → front-back
+ * compartments. They are real cut parts (role carcass_side), evenly spaced (compartment k at the
+ * `k/(dividers+1)` fraction across the interior).
+ */
+export interface DrawerOrganizer {
+  readonly dividers: number;
+  readonly axis?: "x" | "z";
+}
 
 // ---------------------------------------------------------------------------
 // Line — first-class entity (DB/19_FUNCTION_MAP.md §3.1)
@@ -211,12 +235,33 @@ export interface Component {
    */
   readonly hingeEdge?: "left" | "right";
   /**
+   * Handle / dastak on a door or drawer front (Phase 1.3). `"bow"` = Скоба (a bow/D handle, two
+   * screws), `"knob"` = Кнопка (one screw), `"profile"` = gola/integral profile (no separate drilling).
+   * Absent = Без / handle-less (every existing door unchanged). Placement is DERIVED opposite the hinge
+   * (`hingeEdge`) when drilling/rendering, not stored. The handle is counted + priced as hardware.
+   */
+  readonly handle?: HandleType;
+  /**
+   * Lift hinge on a door (Phase 2.1): a top-opening wall-cabinet door on a gas-strut/arm mechanism. When
+   * set, the door opens UPWARD, so `hingeEdge` (a side choice) is irrelevant, and it counts a LIFT
+   * MECHANISM as hardware instead of side hinges — and carries no side hinge cups. Optional/additive —
+   * absent = a normal side-hinged door, byte-identical. The lift's own mounting holes come in 2.1b.
+   */
+  readonly lift?: LiftType;
+  /**
    * Drawer box (Phase 7.3): `true` = this placement is a drawer, so the solver emits a 5-panel box
    * (facade front + two carcass sides + carcass back + a thin bottom) sized to the section with a
    * runner clearance, instead of a single panel. The component's `role` is null (a drawer takes
    * slides, not hinges — hardware counts it as a slide set). Optional/additive — absent = not a drawer.
    */
   readonly drawer?: boolean;
+  /**
+   * Drawer organizer (Phase 2.3): partition panels inside a drawer body that split it into compartments.
+   * Only meaningful on a drawer component. Emits `dividers` real cut boards (role carcass_side) inside the
+   * box — `axis "x"` (default) runs them front-to-back (side-by-side compartments), `axis "z"` runs them
+   * left-to-right (front-back compartments). Optional/additive — absent = a plain drawer, byte-identical.
+   */
+  readonly organizer?: DrawerOrganizer;
   /**
    * Glazed-GRID facade (CONSTRUCTION_FRAME_v3 Piece 2): the door is a frame of `lights` glass
    * panes stacked along its height, separated by muntins. The solver emits the assembly — outer
@@ -485,6 +530,13 @@ export interface FreePart {
    * resize, so a top spans and legs hold the corners. `box` and `anchor` must agree at build time.
    */
   readonly anchor?: FreePartAnchor;
+  /**
+   * Per-edge kromka for THIS board (mm10, `[front, back, left, right]` in the same order a Component's
+   * `edgeBands` uses). Absent = every edge banded, which is right for a visible board like a table top
+   * but wrong for a solid post: a 50×50 leg was being charged 1.5 m of banding it never receives, and
+   * on a small table that phantom kromka reached about a third of the price. `[0,0,0,0]` = bare.
+   */
+  readonly edgeBands?: readonly [mm10, mm10, mm10, mm10];
 }
 
 export interface Block {
@@ -518,6 +570,22 @@ export interface Block {
    * placement); dividers/instances/free parts inside it still solve.
    */
   readonly bare?: boolean;
+  /**
+   * Sokol / plinth height (mm10) — a recessed toe-kick UNDER the carcass. Absent = no plinth (every
+   * existing model is unchanged). `box.h` stays the CARCASS height; the plinth is an EXTRA part below,
+   * at `y ∈ [box.y − plinth, box.y]`, so the carcass placement never moves — the scene recentres on the
+   * new lowest point (`layoutBounds` minY) and the furniture stands on the plinth. Kitchen default 1000
+   * (= 100 mm), grounded in `apps/app/src/three/kitchen3d.ts` (PLINTH) + `model/layout.ts` (GEOM.plinth).
+   */
+  readonly plinth_mm10?: mm10;
+  /**
+   * Worktop / stoleshnitsa on TOP of the carcass. Absent = none (every existing model unchanged). A
+   * boolean, not a dimension: the thickness comes from the worktop material slot (38 mm for postforming)
+   * and the front overhang is a constant — nothing here is user-chosen, unlike the plinth's height. The
+   * worktop is an EXTRA part above `box.y + box.h` (box.h stays the carcass height), overhanging the
+   * front; the scene recentres via `layoutBounds` exactly as the plinth does below.
+   */
+  readonly worktop?: boolean;
 }
 
 // ---------------------------------------------------------------------------

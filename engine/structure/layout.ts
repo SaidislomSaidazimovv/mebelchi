@@ -12,6 +12,7 @@ import type {
   Block,
   Component,
   DrawerInterior,
+  DrawerOrganizer,
   FreePart,
   Instance,
   Junction3D,
@@ -25,6 +26,7 @@ import type { mm10 } from "../contracts/types.js";
 import {
   BOARD_MM10,
   CORNER_FILLER_W,
+  WORKTOP_OVERHANG_MM10,
   drawerInteriorFromBox,
   GLASS_MM10,
   GLAZED_FRAME_W,
@@ -100,8 +102,29 @@ function carcassPlace(idBase: string, label: string, box: Box6, t: ResolvedT, om
   return omitSideR ? ps.filter((p) => !p.id.endsWith("__side_r")) : ps;
 }
 
+/** Toe-kick recess: how far the plinth sits BACK from the carcass front, so it reads as recessed. */
+const PLINTH_RECESS_MM10 = 500; // 50 mm, the usual kitchen toe-kick setback
+
 function carcass(block: Block, t: ResolvedT): PanelPlacement[] {
-  return carcassPlace(block.id, "", block.box, t);
+  const ps = carcassPlace(block.id, "", block.box, t);
+  // Sokol / plinth (Phase 1.1): a recessed board spanning the inner width, standing at the FRONT and
+  // BELOW the carcass (y from box.y − plinth up to box.y). box.y is untouched, so every carcass panel
+  // keeps its exact position; the scene recentres on the new minY (layoutBounds) and stands the
+  // furniture on the plinth. Thickness = carcass, along Z, so its face looks out the front.
+  const p = block.plinth_mm10;
+  if (p && p > 0) {
+    const { x, y, z, w } = block.box;
+    const c = t.carcass;
+    ps.push(place(`${block.id}__plinth`, "Цоколь", x + c, y - p, z + PLINTH_RECESS_MM10, w - 2 * c, p, c));
+  }
+  // Sokol-usti / worktop (Phase 1.2): ON TOP (y + h), spanning the full width, its front edge overhanging
+  // forward (z − overhang) and its depth grown to match. box.y/box.h untouched — the scene recentres on
+  // the new bounds (layoutBounds), same as the plinth below.
+  if (block.worktop) {
+    const { x, y, z, w, h, d } = block.box;
+    ps.push(place(`${block.id}__worktop`, "Столешница", x, y + h, z - WORKTOP_OVERHANG_MM10, w, t.worktop, d + WORKTOP_OVERHANG_MM10));
+  }
+  return ps;
 }
 
 /** Carcass positioned for a return run along Z (the L's second leg, rotated 90°). The corner-end
@@ -168,6 +191,20 @@ function sectionById(block: Block, sectionId: string): Section | null {
   for (const zone of block.zones) {
     for (const leaf of leafSections(zone.root)) {
       if (leaf.id === sectionId) return leaf;
+    }
+  }
+  return null;
+}
+
+/** Phase 2.2 — resolve ANY section (leaf OR parent) for a combined door (a facade on a parent section).
+ *  Mirrors solve.ts; used only as a facade fallback, so it never changes a non-facade placement. */
+function sectionByIdAny(block: Block, sectionId: string): Section | null {
+  for (const zone of block.zones) {
+    const stack: Section[] = [zone.root];
+    while (stack.length) {
+      const s = stack.pop()!;
+      if (s.id === sectionId) return s;
+      for (const c of s.children) stack.push(c);
     }
   }
   return null;
@@ -245,12 +282,22 @@ function shelfLipPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPla
 
 /** A facade/door placement: covers its section's front opening (single door only; the glazed-grid
  *  assembly layout is a follow-up). */
+/**
+ * Phase 2.1d — a lift door renders OPEN (tilted up on its top edge) so the client reads "podyomnik".
+ * RENDER-ONLY via rotX_deg (like a tilted shelf): the cut size is untouched. Negative angle tilts the
+ * door up from the top-front edge. `parallel` (HL) lifts flatter/higher than `swing` (HK). Provisional
+ * cosmetic angles.
+ */
+const LIFT_OPEN_DEG: Record<NonNullable<Component["lift"]>, number> = { swing: 60, parallel: 72 };
+
 function facadePlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement | null {
-  const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
-  if (!section || !component || component.role !== "facade" || component.glazedGrid) return null;
+  if (!component || component.role !== "facade" || component.glazedGrid) return null;
+  // Phase 2.2 — a combined door sits on a PARENT section; fall back to the full-tree lookup for it.
+  const section = sectionById(block, inst.sectionId) ?? sectionByIdAny(block, inst.sectionId);
+  if (!section) return null;
   const s = section.box;
-  return place(
+  const p = place(
     `${block.id}__inst_${inst.id}`,
     component.name,
     block.box.x + s.x,
@@ -260,6 +307,7 @@ function facadePlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlace
     s.h,
     boardThickness(component, t.facade), // 18mm МДФ / 32mm doubled door — matches the cut list
   );
+  return component.lift ? { ...p, rotX_deg: LIFT_OPEN_DEG[component.lift] } : p; // 2.1d — render open (cut size unchanged)
 }
 
 /** Runner clearance per drawer side (mm10) — mirrors DRAWER_SLIDE_CLEAR_MM10 in solve.ts so the box
@@ -281,6 +329,7 @@ function drawerBoxPlaceInto(
   openingX0: mm10,
   openingW: mm10,
   t: ResolvedT,
+  organizer?: DrawerOrganizer,
 ): PanelPlacement[] {
   const c = t.carcass, bk = t.back, fa = t.facade; // box walls = carcass, bottom = thin back, facade = МДФ
   const bodyX = box.x + openingX0 + DRAWER_SLIDE_CLEAR_MM10; // opening inner face + left runner clearance
@@ -290,24 +339,41 @@ function drawerBoxPlaceInto(
   const sideH = box.h - 2 * c; // box side height within the opening
   const boxZ = box.z + fa; // behind the front facade (its own thickness)
   const boxD = box.d - fa - c; // body depth (behind the facade, small back clearance)
-  return [
+  const out = [
     place(`${idBase}__front`, "Ящик · фасад", box.x, box.y, box.z, box.w, box.h, fa), // full front opening
     place(`${idBase}__side_l`, "Ящик · бок Л", bodyX, bodyY, boxZ, c, sideH, boxD),
     place(`${idBase}__side_r`, "Ящик · бок П", bodyX + bodyW - c, bodyY, boxZ, c, sideH, boxD),
     place(`${idBase}__back`, "Ящик · задняя", bodyX + c, bodyY, boxZ + boxD - c, innerW, sideH, c),
     place(`${idBase}__bottom`, "Ящик · дно", bodyX + c, bodyY, boxZ, innerW, bk, boxD),
   ];
+  // Phase 2.3 — organizer dividers, evenly spaced inside the body (compartment k at k/(N+1) across it),
+  // matching solve.ts's drawerBoxFromBox exactly. axis "x" splits the WIDTH (dividers run depth-wise);
+  // axis "z" splits the DEPTH (dividers run width-wise). Each divider is centred on its divide line.
+  if (organizer && organizer.dividers > 0) {
+    const n = organizer.dividers;
+    const x0 = bodyX + c; // left inner face
+    for (let k = 0; k < n; k += 1) {
+      if (organizer.axis === "z") {
+        const zc = boxZ + Math.round((boxD * (k + 1)) / (n + 1)) - Math.round(c / 2); // divide line along depth
+        out.push(place(`${idBase}__org_${k}`, "Ящик · разделитель", x0, bodyY, zc, innerW, sideH, c));
+      } else {
+        const xc = x0 + Math.round((innerW * (k + 1)) / (n + 1)) - Math.round(c / 2); // divide line along width
+        out.push(place(`${idBase}__org_${k}`, "Ящик · разделитель", xc, bodyY, boxZ, c, sideH, boxD));
+      }
+    }
+  }
+  return out;
 }
 
 /** Place a drawer (its 5-panel box + any nested content) into a WORLD-space `box` through a clear opening
  *  `openingW`@`openingX0`, then SLIDE the whole subtree forward by `inst.open × travel` (v5 E2.5, layout
  *  only — the master pulls a drawer out to reach its contents; the cut parts never move). Shared by a
  *  top-level drawer and every nested one, so each drawer's open state composes with its parent's. */
-function placeDrawer(idBase: string, box: Box6, openingX0: mm10, openingW: mm10, inst: Instance, t: ResolvedT): PanelPlacement[] {
+function placeDrawer(idBase: string, box: Box6, openingX0: mm10, openingW: mm10, inst: Instance, t: ResolvedT, organizer?: DrawerOrganizer): PanelPlacement[] {
   // honour this drawer's OWN height (nested drawers pass the full parent box; top-level arrives pre-clamped
   // in drawerBoxPlacement, so re-clamping here is idempotent). Unset = fills the box, as before.
   const dbox = inst.drawerHeight_mm10 != null ? { ...box, h: Math.min(box.h, inst.drawerHeight_mm10) } : box;
-  const out = drawerBoxPlaceInto(idBase, dbox, openingX0, openingW, t);
+  const out = drawerBoxPlaceInto(idBase, dbox, openingX0, openingW, t, organizer);
   if (inst.interior) {
     out.push(...drawerInteriorPlacements(idBase, drawerInteriorFromBox(dbox, openingX0, openingW, t), inst.interior, t));
   }
@@ -326,7 +392,7 @@ function drawerInteriorPlacements(idBase: string, box: Box6, interior: DrawerInt
   const slices = stackSlices(box.y, box.h, drawers.map((d) => d.drawerHeight_mm10 ?? null));
   drawers.forEach((inst, i) => {
     const sub: Box6 = { ...box, y: slices[i]!.y, h: slices[i]!.h };
-    out.push(...placeDrawer(`${idBase}__in_${inst.id}`, sub, 0, sub.w, inst, t));
+    out.push(...placeDrawer(`${idBase}__in_${inst.id}`, sub, 0, sub.w, inst, t, byId.get(inst.componentId)?.organizer));
   });
   return out;
 }
@@ -340,7 +406,7 @@ function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPl
   // drawer renders as thin slats). Matches drawerBoxOf() in solve.ts so the 3D box == the cut list.
   const world = { x: block.box.x + s.x, y: block.box.y + s.y, z: block.box.z + s.z, w: s.w, h: Math.min(s.h, inst.drawerHeight_mm10 ?? DRAWER_HEIGHT_MM10), d: s.d };
   const span = shelfSpanX(block, section, t.carcass);
-  return placeDrawer(`${block.id}__inst_${inst.id}`, world, span.x0, span.width, inst, t);
+  return placeDrawer(`${block.id}__inst_${inst.id}`, world, span.x0, span.width, inst, t, component.organizer);
 }
 
 /**
@@ -352,9 +418,11 @@ function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPl
  * single covering panel so the viewport never draws a negative box.
  */
 function glazedGridPlacement(block: Block, inst: Instance): PanelPlacement[] | null {
-  const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
-  if (!section || !component || component.role !== "facade" || !component.glazedGrid) return null;
+  if (!component || component.role !== "facade" || !component.glazedGrid) return null;
+  // Phase 2.2 — a combined glazed door may sit on a PARENT section too.
+  const section = sectionById(block, inst.sectionId) ?? sectionByIdAny(block, inst.sectionId);
+  if (!section) return null;
 
   const s = section.box;
   const idBase = `${block.id}__inst_${inst.id}`;

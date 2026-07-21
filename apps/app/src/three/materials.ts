@@ -32,6 +32,12 @@ export const BOARDS: readonly BoardMaterial[] = [
   { id: "ldsp_anthracite", name: "ЛДСП Антрацит", hex: "#2f3237", pricePerM2: 195000, thickness_mm: 16 },
   { id: "mdf_white_matt", name: "МДФ Белый мат", hex: "#eceae4", pricePerM2: 380000, thickness_mm: 18 },
   { id: "hdf_white", name: "ХДФ Белый (задняя)", hex: "#e8e4d8", pricePerM2: 55000, thickness_mm: 3 },
+  // Sokol-usti / worktop (Phase 1.2). The real material is priced PER METRE in the kitchen world
+  // (packages/pricing/seed/rate-table.seed.json: «Столешница постформинг 38мм» @ 185000/m). Karkas
+  // prices by m², so we carry an m²-equivalent: 185000/m ÷ 0.6 m standard worktop depth ≈ 308333/m²
+  // (founder decision (a) — exact at ~600mm depth, an approximation for unusual depths; exact per-metre
+  // is a later refinement). thickness_mm = 38 is the real product; the kitchen's 40 was visual only.
+  { id: "worktop_postform_38", name: "Столешница постформинг 38мм", hex: "#b9ac93", pricePerM2: 308333, thickness_mm: 38 },
 ];
 
 export const EDGES: readonly EdgeMaterial[] = [
@@ -54,6 +60,7 @@ export interface MaterialPlan {
   back: string; // carcass_back
   shelf: string; // internal_shelf
   facade: string; // facade
+  worktop: string; // carcass_worktop (Phase 1.2 — the worktop's own decor)
   edge: string; // edge-band material id
 }
 
@@ -62,8 +69,17 @@ export const DEFAULT_PLAN: MaterialPlan = {
   back: "hdf_white",
   shelf: "ldsp_white",
   facade: "ldsp_white",
+  worktop: "worktop_postform_38",
   edge: "pvc_white_2",
 };
+
+/**
+ * Fill any missing slots of a loaded plan from DEFAULT_PLAN. Saved projects predate later slots (a v1
+ * plan has no `worktop`), so every place that parses a plan from JSON must merge the defaults, or the
+ * new slot loads `undefined` and its parts price at 0 / render as bare wood. One helper so a FUTURE
+ * slot addition is safe everywhere at once, instead of re-hunting parse sites. Absent → DEFAULT_PLAN.
+ */
+export const withPlanDefaults = (p?: Partial<MaterialPlan> | null): MaterialPlan => ({ ...DEFAULT_PLAN, ...(p ?? {}) });
 
 export const boardById = (id: string): BoardMaterial | undefined => BOARDS.find((b) => b.id === id);
 export const edgeById = (id: string): EdgeMaterial | undefined => EDGES.find((e) => e.id === id);
@@ -75,6 +91,14 @@ export const HARDWARE = {
   pin: { name: "Полкодержатель", priceUzs: 1200 },
   cam: { name: "Стяжка Minifix", priceUzs: 3500 },
   dowel: { name: "Шкант 8×30", priceUzs: 600 },
+  // Phase 1.3 — a handle unit. Mock price, grounded in the kitchen's bagannas handle (6000–7000) and
+  // provisional like every other value here (the pricing seed flags hardware as estimated); a gola
+  // profile is really per-metre, priced as one unit for now.
+  handle: { name: "Ручка", priceUzs: 7000 },
+  // Phase 2.1 — a lift (podyomnik) mechanism for a top-opening wall-cabinet door: a gas-strut/arm set,
+  // far pricier than a hinge. Mock, provisional like every value here; a per-type (swing/parallel) price
+  // is a later refinement — one lift set is counted per lift door.
+  lift: { name: "Подъёмник (механизм)", priceUzs: 150000 },
 } as const;
 
 /** Cam-and-dowel joints per carcass box: top↔side ×2 + bottom↔side ×2 = 4, each 2 cams + 2 dowels. */
@@ -99,6 +123,10 @@ export function planSlotForRole(role: string | undefined): keyof Omit<MaterialPl
       return "back";
     case "internal_shelf":
       return "shelf";
+    case "carcass_plinth":
+      return "carcass"; // the sokol is carcass stock (the `default` would already do this — explicit per the role rule)
+    case "carcass_worktop":
+      return "worktop"; // the stoleshnitsa has its OWN slot (postforming, its own decor + thickness)
     default:
       return "carcass"; // sides / top / bottom / dividers / mounts / untagged
   }
@@ -220,7 +248,7 @@ export const boardThicknessMm10 = (id: string): number => (boardById(id)?.thickn
 
 /** Per-role board thickness (mm10) derived from the plan's decors, fed to solveStructure so a МДФ
  *  facade is 18mm while a ЛДСП carcass stays 16mm and a ХДФ back is 3mm (Phase 7b). */
-export function planThickness(plan: MaterialPlan): { carcass: number; back: number; shelf: number; facade: number; divider: number } {
+export function planThickness(plan: MaterialPlan): { carcass: number; back: number; shelf: number; facade: number; divider: number; worktop: number } {
   const t = (id: string) => boardThicknessMm10(id);
-  return { carcass: t(plan.carcass), back: t(plan.back), shelf: t(plan.shelf), facade: t(plan.facade), divider: t(plan.carcass) };
+  return { carcass: t(plan.carcass), back: t(plan.back), shelf: t(plan.shelf), facade: t(plan.facade), divider: t(plan.carcass), worktop: t(plan.worktop) };
 }

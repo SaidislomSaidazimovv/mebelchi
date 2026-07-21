@@ -288,6 +288,65 @@ export function buildKromkaEdges(scene: Scene, colorOf: (kId: string) => number)
   return g;
 }
 
+/**
+ * Phase 1.3d — procedural, realistic-looking handle meshes from the fittings handles.ts derives off the
+ * Ø4.5 screw holes. A bow = a rounded metal bar on two posts; a knob = a rounded knob on a post; a gola
+ * `profile` (0 holes) draws nothing. Metal look (brushed-aluminium grey). Dimensions here are COSMETIC
+ * (not manufacturing), so the "no numeric literals" rule that governs the drilling spec does not apply.
+ * Empty when nothing is handled → an empty group, so a handle-less model renders byte-identically.
+ */
+export function buildHandleGroup(
+  fittings: readonly {
+    id: string; kind: "bow" | "knob"; seats: [number, number, number][];
+    normal: "x" | "y" | "z"; out: [number, number, number]; along?: [number, number, number];
+  }[],
+  bounds: { cx: number; cz: number; minY: number; ctrX: number; ctrY: number; ctrZ: number },
+): THREE.Group {
+  const g = new THREE.Group();
+  const M = (mm10: number): number => mm10 / 10_000;
+  // Cosmetic proportions (metres). A real bow handle stands off the face on two posts; a knob on one.
+  const STANDOFF = 0.028, POST_R = 0.005, BAR_R = 0.006, OVERHANG = 0.016, KNOB_R = 0.011, KNOB_POST_R = 0.006;
+  const UP = new THREE.Vector3(0, 1, 0);
+  // Brushed alu/steel. The scene has lights but NO environment map, so a full metalness:0.9 metal has
+  // nothing to reflect and renders near-black; tuned metalness/roughness + a light base give the intended
+  // brushed-aluminium look under these lights WITHOUT adding a scene envMap (which would alter the boards).
+  const mat = new THREE.MeshStandardMaterial({ color: 0xd2d6dc, metalness: 0.55, roughness: 0.4 });
+  // seat (mm, placement space) → scene metres, shifted exactly like buildHoleMarkers.
+  const scenePos = (s: [number, number, number]): THREE.Vector3 =>
+    new THREE.Vector3(M(s[0] * 10 - bounds.cx), M(s[1] * 10 - bounds.minY), M(s[2] * 10 - bounds.cz));
+  /** A cylinder/capsule of length `len` centred at `center`, its long axis turned from +Y to `dir`. */
+  const bar = (geom: THREE.BufferGeometry, center: THREE.Vector3, dir: THREE.Vector3): THREE.Mesh => {
+    const m = new THREE.Mesh(geom, mat);
+    m.quaternion.setFromUnitVectors(UP, dir.clone().normalize());
+    m.position.copy(center);
+    return m;
+  };
+
+  for (const f of fittings) {
+    const out = new THREE.Vector3(f.out[0], f.out[1], f.out[2]);
+    const seats = f.seats.map(scenePos);
+    if (f.kind === "bow" && seats.length >= 2 && f.along) {
+      const along = new THREE.Vector3(f.along[0], f.along[1], f.along[2]);
+      // two posts (face → standoff) at each seat
+      for (const s of seats) {
+        g.add(bar(new THREE.CylinderGeometry(POST_R, POST_R, STANDOFF, 12), s.clone().addScaledVector(out, STANDOFF / 2), out));
+      }
+      // the grip bar, pushed STANDOFF off the face, spanning the seats + a small overhang past each
+      const mid = seats[0]!.clone().add(seats[1]!).multiplyScalar(0.5).addScaledVector(out, STANDOFF);
+      const span = seats[0]!.distanceTo(seats[1]!) + 2 * OVERHANG;
+      g.add(bar(new THREE.CapsuleGeometry(BAR_R, Math.max(0.001, span - 2 * BAR_R), 6, 12), mid, along));
+    } else {
+      // knob: a post + a rounded knob head
+      const s = seats[0]!;
+      g.add(bar(new THREE.CylinderGeometry(KNOB_POST_R, KNOB_POST_R, STANDOFF, 12), s.clone().addScaledVector(out, STANDOFF / 2), out));
+      const head = new THREE.Mesh(new THREE.SphereGeometry(KNOB_R, 16, 12), mat);
+      head.position.copy(s.clone().addScaledVector(out, STANDOFF + KNOB_R * 0.5));
+      g.add(head);
+    }
+  }
+  return g;
+}
+
 const GHOST_COLOR: Record<string, number> = {
   boiler: 0xd9534f, hanging: 0x5b8def, storage: 0xcaa15a, appliance: 0x8a8f98, display: 0x6fbf8f, drawer: 0xc9a24b, structural: 0x9aa0a6,
 };

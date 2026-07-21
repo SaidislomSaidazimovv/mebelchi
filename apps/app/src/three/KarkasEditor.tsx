@@ -10,18 +10,19 @@ import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
-import type { Box3D } from "../../../../engine/contracts/structure";
+import type { Box3D, HandleType, LiftType } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
-import { buildDemoModel, buildLCornerModel } from "../../../../engine/structure/demoModel.js";
+import { buildDemoModel, buildEmptyModel, buildLCornerModel, buildTable } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008, solveModelToParts, defaultJointProfile } from "../../../../engine/cnc.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { kromkaMetersByVariable } from "../../../../engine/structure/features.js";
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
+import { handleFittings } from "./handles";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
@@ -48,7 +49,7 @@ const MOB_TABS: { id: MobTab; label: string }[] = [
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
-  const roles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "internal_shelf", "facade"];
+  const roles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "carcass_plinth", "carcass_worktop", "internal_shelf", "facade"];
   return Object.fromEntries(roles.map((r) => [r, boardForRole(plan, r)?.name ?? ""]));
 }
 
@@ -63,6 +64,7 @@ interface RT {
   gizmoGroup: THREE.Group | null; // gizmos — axis move-arrows on the selected free board
   holeGroup: THREE.Group | null; // «Teshiklar» — drill-hole markers, toggled on/off
   kromkaGroup: THREE.Group | null; // Step 8.2 — coloured banded-edge lines, shown in Frame view
+  handleGroup: THREE.Group | null; // Phase 1.3d — 3D handle meshes (bow bar / knob) on handled doors
   ghostGroup: THREE.Group | null; // Step 9 — Application-view ghost props (boiler / clothes / …)
   // Live 3D dimension lines, built on drag-start and torn down on pointer-up. A list because a divider
   // drag needs TWO at once — the bay either side of it.
@@ -143,6 +145,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const rotateBlockTo = useKarkas((s) => s.rotateBlockTo);
+  const setPlinth = useKarkas((s) => s.setPlinth);
+  const setWorktop = useKarkas((s) => s.setWorktop);
   const duplicateSelected = useKarkas((s) => s.duplicateSelected);
   const applyToAllIdentical = useKarkas((s) => s.applyToAllIdentical);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -330,6 +334,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setMaterial = useKarkas((s) => s.setMaterial);
   const setPlanMaterialTop = useKarkas((s) => s.setPlanMaterial);
   const setHinge = useKarkas((s) => s.setHinge);
+  const setHandle = useKarkas((s) => s.setHandle);
+  const setLift = useKarkas((s) => s.setLift);
+  const setDividers = useKarkas((s) => s.setDividers);
+  const combineSelectedDoor = useKarkas((s) => s.combineSelectedDoor);
+  const splitSelectedDoor = useKarkas((s) => s.splitSelectedDoor);
+  // Select PRIMITIVES (booleans), not a fresh object — a new-object selector trips React 18's
+  // useSyncExternalStore "getSnapshot should be cached" guard and bails the whole property bar out of render.
+  const canCombineDoor = useKarkas((s) => s.selectedDoorCombine()?.canCombine ?? false);
+  const canSplitDoor = useKarkas((s) => s.selectedDoorCombine()?.canSplit ?? false);
   const exportProject = useKarkas((s) => s.exportProject);
   const importProject = useKarkas((s) => s.importProject);
   const resize = useKarkas((s) => s.resize);
@@ -556,7 +569,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
     const grid = makeGrid("light"); scene3.add(grid); // U2.1b — Moblo floor grid (theme-swapped by the effect below)
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
     // dev-only: expose the three runtime so local tooling (puppeteer) can assert on the SCENE GRAPH — a
     // 3D overlay like the dimension line has no DOM to query. Stripped from prod builds, like __karkas.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
@@ -948,6 +961,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
       if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
       if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
+      if (rt.current?.handleGroup) disposeStructureGroup(rt.current.handleGroup);
       if (rt.current?.ghostGroup) disposeStructureGroup(rt.current.ghostGroup);
       labels.w.remove(); labels.h.remove(); labels.d.remove();
       renderer.dispose();
@@ -1053,6 +1067,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     kg.visible = modeRef.current === "wireframe";
     r.scene.add(kg);
     r.kromkaGroup = kg;
+    // Phase 1.3d — rebuild the 3D handle meshes (bow bar / knob) from the drilled Ø4.5 holes. Same parts
+    // + places as the hole markers (line ~405), so a handle sits exactly on its screw seats. Always on.
+    if (r.handleGroup) { r.scene.remove(r.handleGroup); disposeStructureGroup(r.handleGroup); }
+    const hplaces = solveLayout(model, planThickness(plan));
+    const hg = buildHandleGroup(handleFittings(solveModelToParts(model, planThickness(plan)), hplaces), layoutBounds(hplaces));
+    r.scene.add(hg);
+    r.handleGroup = hg;
     highlightBoard(group, selectedId);
     // C5 — refresh the dimension overlay: bounding box + W/H/D text (mm)
     r.aabb = new THREE.Box3().setFromObject(group);
@@ -1334,8 +1355,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   </>
                 )}
                 <div style={popSep} />
+                {/* Start from NOTHING. Every other entry hands over a finished cabinet, which is the
+                    wrong beginning for anything that is not a cabinet. */}
+                <button style={popItem} onClick={() => setModel(buildEmptyModel())} type="button">✦ Yangi — bo'sh</button>
+                <div style={popSep} />
                 <button style={popItem} onClick={() => setModel(buildDemoModel())} type="button">▢ Namuna: Тумба</button>
                 <button style={popItem} onClick={() => setModel(buildLCornerModel())} type="button">⌐ Namuna: L-burchak</button>
+                {/* The first NON-cabinet template. `buildTable` already existed in the engine, fully
+                    tested (a bare block whose body is edge-anchored free parts — the top spans, the legs
+                    are pinned to the corners, so it reflows on resize), but nothing in the UI could
+                    create one. 1200×750×700 is an ordinary dining table. */}
+                <button style={popItem} onClick={() => setModel(buildTable(1200, 750, 700))} type="button">🪑 Namuna: Stol</button>
                 {onClose && <><div style={popSep} /><button style={{ ...popItem, color: "#a01a2e" }} onClick={onClose} type="button">✕ Yopish</button></>}
               </div>
             )}
@@ -1547,11 +1577,23 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     <button className="mob-addbtn" type="button" onClick={() => add("drawer")}>＋ Yashik</button>
                     <button className="mob-addbtn" type="button" onClick={() => add("divider")}>＋ Razdelitel</button>
                     <button className={"mob-addbtn" + (showDivide ? " is-active" : "")} type="button" onClick={() => togglePanel("divide")}>⊟ Bo'lish</button>
-                    <button className="mob-addbtn" type="button" onClick={() => { addFreeBoard(); setRpanel("none"); }} style={{ gridColumn: "1 / -1", borderStyle: "dashed" }}>🪵 Erkin taxta (istalgan joyga)</button>
                   </div>
                 ) : (
                   <p className="mob-hint">Bir taxtani tanlang — so'ng burchak, o'yiq yoki jiyak qo'shing.</p>
                 )}
+                {/* Free primitives — the from-nothing path, and deliberately OUTSIDE the mode switch.
+                    They lived under «Bo'shliq» mode, so opening ＋ on an empty document showed only
+                    «select a board first» — with no board in existence to select. A free part answers to
+                    no compartment, so no mode should gate it. One flat board used to be the only shape on
+                    offer too: a leg meant adding a shelf and fighting it through a rotate and three
+                    resizes. Each of these arrives already the right way round and already sized. */}
+                <div className="mob-addgrid" style={{ marginTop: 10 }}>
+                  <span style={{ gridColumn: "1 / -1", ...mono, fontSize: 11, opacity: 0.6 }}>Erkin qismlar — istalgan joyga</span>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("board"); setRpanel("none"); }}>▬ Taxta</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("panel"); setRpanel("none"); }}>▮ Yon panel</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("post"); setRpanel("none"); }}>┃ Oyoq</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("box"); setRpanel("none"); }}>◧ Quti</button>
+                </div>
                 {selectedId && !selectedId.includes("__div_") && (
                   <div className="mob-addgrid" style={{ marginTop: 10 }}>
                     <button className={"mob-addbtn" + (showCorners ? " is-active" : "")} type="button" onClick={() => togglePanel("corners")}>⌜ Burchak</button>
@@ -1790,6 +1832,41 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <DimField label="mm" value={drawerHeightMm} onCommit={setDrawerHeight} min={50} units={units} />
               </label>
             )}
+            {/* 2.3c — drawer organizer: number of divider boards inside the drawer (0 = none). Drawer only. */}
+            {selComp?.drawer && (
+              <label className="mob-props-f"><span>Bo'linma</span>
+                <DimField label="×" value={selComp.organizer?.dividers ?? 0} onCommit={setDividers} min={0} suffix="×" />
+              </label>
+            )}
+            {/* 1.3c — handle on the mobile quick bar too (mobile-primary): drives the Ø4.5 holes + price */}
+            {(selComp?.role === "facade" || selComp?.drawer) && (
+              <label className="mob-props-f"><span>Dastak</span>
+                <select value={selComp.handle ?? ""} onChange={(e) => setHandle((e.target.value || null) as HandleType | null)}>
+                  <option value="">Yo'q</option>
+                  <option value="bow">Скоба</option>
+                  <option value="knob">Кнопка</option>
+                  <option value="profile">Профиль</option>
+                </select>
+              </label>
+            )}
+            {/* 2.1c — lift (podyomnik) on the mobile quick bar too: a top-opening door counts a lift not
+                hinges + drills no side cups. Doors only. */}
+            {selComp?.role === "facade" && (
+              <label className="mob-props-f"><span>Lift</span>
+                <select value={selComp.lift ?? ""} onChange={(e) => setLift((e.target.value || null) as LiftType | null)}>
+                  <option value="">Yo'q</option>
+                  <option value="swing">Ochiladigan</option>
+                  <option value="parallel">Parallel</option>
+                </select>
+              </label>
+            )}
+            {/* 2.2b — combine / split a door on the mobile quick bar too */}
+            {selComp?.role === "facade" && canCombineDoor && (
+              <button type="button" className="mob-props-toggle" onClick={combineSelectedDoor}>⧉ Birlashtirish</button>
+            )}
+            {selComp?.role === "facade" && canSplitDoor && (
+              <button type="button" className="mob-props-toggle" onClick={splitSelectedDoor}>⤢ Ajratish</button>
+            )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
                 be nudged by accident while dragging something else. */}
@@ -1797,6 +1874,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               <label className="mob-props-f"><span>Burilish</span>
                 <DimField label="°" value={Math.round(blk.rotY_deg ?? 0)} onCommit={(d) => rotateBlockTo(blk.id, ((d % 360) + 360) % 360, true)} min={0} suffix="°" />
               </label>
+            )}
+            {/* Phase 1.1b — sokol: 0 = none, 100 = the standard toe-kick. box.h is unchanged; the plinth
+                is an extra part below the carcass, so the cabinet rises onto it. */}
+            {blk && (
+              <label className="mob-props-f"><span>Sokol</span>
+                <DimField label="mm" value={Math.round((blk.plinth_mm10 ?? 0) / 10)} onCommit={(mm) => setPlinth(blk.id, mm * 10)} min={0} units={units} />
+              </label>
+            )}
+            {/* Phase 1.2c — worktop: a boolean, so a toggle (not a mm field). Its thickness comes from the
+                worktop material and the overhang is constant, so there is nothing to type. Tap the
+                worktop in 3D to pick its material. */}
+            {blk && (
+              <button
+                type="button"
+                className={"mob-props-toggle" + (blk.worktop ? " is-on" : "")}
+                aria-pressed={!!blk.worktop}
+                onClick={() => setWorktop(blk.id, !blk.worktop)}
+              >Stoleshnitsa{blk.worktop ? " ✓" : ""}</button>
             )}
           </div>
         );
@@ -1963,8 +2058,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <option value="">Rol bo'yicha</option>
             {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
-          {/* Task B — hinge side per door (engine drills the chosen edge; handle sits opposite) */}
-          {selComp.role === "facade" && (
+          {/* Task B — hinge side per door (engine drills the chosen edge; handle sits opposite). Hidden on a
+              LIFT door — a top-opening door has no side hinge (2.1c). */}
+          {selComp.role === "facade" && !selComp.lift && (
             <>
               <span style={mono}>Petlya:</span>
               <select value={selComp.hingeEdge === "right" ? "right" : "left"} onChange={(e) => setHinge(e.target.value as "left" | "right")} style={{ ...matSel, flex: "0 0 auto", maxWidth: 110 }}>
@@ -1973,11 +2069,45 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               </select>
             </>
           )}
+          {/* 2.1c — lift hinge (podyomnik) per door: a top-opening wall-cabinet door on a mechanism instead
+              of side hinges. Counts a lift not hinges + drills no side cups (2.1a). Doors only. */}
+          {selComp.role === "facade" && (
+            <>
+              <span style={mono}>Lift:</span>
+              <select value={selComp.lift ?? ""} onChange={(e) => setLift((e.target.value || null) as LiftType | null)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 140 }}>
+                <option value="">Yo'q</option>
+                <option value="swing">⤒ Ochiladigan</option>
+                <option value="parallel">⇈ Parallel</option>
+              </select>
+            </>
+          )}
+          {/* 2.2b — combine a door with its neighbours (move it onto the parent section) / split it back */}
+          {selComp.role === "facade" && canCombineDoor && (
+            <button style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" }} onClick={combineSelectedDoor} type="button" title="Bu eshikni yon bo'lim bilan bitta katta eshikka birlashtirish">⧉ Birlashtirish</button>
+          )}
+          {selComp.role === "facade" && canSplitDoor && (
+            <button style={{ ...act, borderColor: "#8a6d1f", background: "#faf1dc", color: "#7a5a12" }} onClick={splitSelectedDoor} type="button" title="Birlashgan eshikni yana bitta bo'limga qaytarish">⤢ Ajratish</button>
+          )}
+          {/* 1.3c — handle (dastak) per door/drawer front: drives the Ø4.5 holes + the hardware price */}
+          {(selComp.role === "facade" || selComp.drawer) && (
+            <>
+              <span style={mono}>Dastak:</span>
+              <select value={selComp.handle ?? ""} onChange={(e) => setHandle((e.target.value || null) as HandleType | null)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 120 }}>
+                <option value="">Yo'q</option>
+                <option value="bow">⊐ Скоба</option>
+                <option value="knob">● Кнопка</option>
+                <option value="profile">▭ Профиль</option>
+              </select>
+            </>
+          )}
           {/* Yashik balandligi — per-drawer front/box height (mm). solve/layout clamp the top at the bay. */}
           {selComp.drawer && (
             <>
               <span style={mono}>Yashik b.:</span>
               <DimField label="mm" value={drawerHeightMm ?? 200} onCommit={setDrawerHeight} min={50} units={units} />
+              {/* 2.3c — organizer: number of divider boards inside the drawer (0 = none) */}
+              <span style={mono}>Bo'linma:</span>
+              <DimField label="×" value={selComp.organizer?.dividers ?? 0} onCommit={setDividers} min={0} suffix="×" />
             </>
           )}
           {/* E2 — drawer-in-drawer: a selected drawer can hold a nested drawer in its clear interior */}
@@ -1996,9 +2126,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           / shelves / doors). It applies to the WHOLE carcass, so we say so. */}
       {!selComp && selectedId && (() => {
         const part = parts.find((p) => p.id === selectedId);
-        const carcassRoles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back"];
+        const carcassRoles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "carcass_plinth", "carcass_worktop"];
         if (!part || !carcassRoles.includes(part.role ?? "")) return null;
-        const slot: "carcass" | "back" = part.role === "carcass_back" ? "back" : "carcass";
+        const slot: "carcass" | "back" | "worktop" = part.role === "carcass_back" ? "back" : part.role === "carcass_worktop" ? "worktop" : "carcass";
         return (
           <div style={selBar}>
             <span style={mono}>{part.name}</span>

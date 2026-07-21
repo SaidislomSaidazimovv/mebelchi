@@ -10,7 +10,7 @@ import { solveStructure } from "../../../../engine/structure/solve.js";
 import type { StructuralModel } from "../../../../engine/contracts/structure.js";
 import { layoutToScene, sceneDimsMm } from "./structureScene";
 import { buildStructureGroup } from "./structureRenderer";
-import { partColorLookup, planThickness, DEFAULT_PLAN, type MaterialPlan } from "./materials";
+import { partColorLookup, planThickness, DEFAULT_PLAN, withPlanDefaults, type MaterialPlan } from "./materials";
 
 const GAP_M = 0.06; // 6 cm between placed blocks
 
@@ -18,7 +18,7 @@ const GAP_M = 0.06; // 6 cm between placed blocks
 function parseBlock(json: string): { model: StructuralModel; plan: MaterialPlan } | null {
   try {
     const d = JSON.parse(json) as { model?: StructuralModel; plan?: MaterialPlan };
-    return d.model && Array.isArray(d.model.blocks) && d.model.blocks.length ? { model: d.model, plan: d.plan ?? DEFAULT_PLAN } : null;
+    return d.model && Array.isArray(d.model.blocks) && d.model.blocks.length ? { model: d.model, plan: d.plan ? withPlanDefaults(d.plan) : DEFAULT_PLAN } : null;
   } catch {
     return null;
   }

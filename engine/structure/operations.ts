@@ -34,6 +34,9 @@ import type {
   Component,
   ComponentId,
   DrawerInterior,
+  DrawerOrganizer,
+  HandleType,
+  LiftType,
   FreeEdge,
   FreePart,
   FreePartAnchor,
@@ -729,7 +732,9 @@ export function addInstance(
   const located = findSection(model, sectionId);
   if (!located) throw new Error("ADD_INSTANCE_SECTION_NOT_FOUND");
   const { block, section } = located;
-  if (section.children.length > 0) throw new Error("ADD_INSTANCE_SECTION_NOT_LEAF");
+  // Phase 2.2 — a combined door may be added to a NON-leaf (parent) section: it covers the whole span, over
+  // the children behind it. Shelves/drawers still require a leaf (they live in one compartment).
+  if (section.children.length > 0 && kind !== "door") throw new Error("ADD_INSTANCE_SECTION_NOT_LEAF");
 
   if (kind === "drawer") return addDrawerInstance(model, block, section);
   const doubled = opts.doubled === true;
@@ -1723,6 +1728,51 @@ function findSectionIn(block: Block, sectionId: SectionId): Section | null {
   return null;
 }
 
+/** Phase 2.2b — the parent section whose `children` include `sectionId` (null for the root / not found).
+ *  Used to find where a combined door moves TO (leaf → its parent). */
+export function parentSectionOf(block: Block, sectionId: SectionId): Section | null {
+  const walk = (sec: Section): Section | null => {
+    if (sec.children.some((c) => c.id === sectionId)) return sec;
+    for (const c of sec.children) { const hit = walk(c); if (hit) return hit; }
+    return null;
+  };
+  for (const z of block.zones) { const hit = walk(z.root); if (hit) return hit; }
+  return null;
+}
+
+/**
+ * Phase 2.2b — move an instance from its current section to `targetSectionId`: drop its id from the old
+ * section's `instanceIds`, add it to the target's, and re-point `inst.sectionId` (+ its anchor to the new
+ * box origin). ONE tree pass handles both edits even when the two sections are nested (a leaf inside its
+ * parent — the combined-door case), where two sequential replaceSection calls would clobber each other. Pure;
+ * no-op if the instance is missing, already there, or the target section doesn't exist.
+ */
+export function moveInstanceToSection(model: StructuralModel, instanceId: InstanceId, targetSectionId: SectionId): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const inst = block.instances.find((i) => i.id === instanceId);
+    if (!inst || inst.sectionId === targetSectionId) return block;
+    const target = findSectionIn(block, targetSectionId);
+    if (!target) return block;
+    changed = true;
+    const oldId = inst.sectionId;
+    // one pass: recurse children first, then remove from the old section + add to the new one
+    const move = (sec: Section): Section => {
+      const children = sec.children.map(move);
+      let s = children.some((c, i) => c !== sec.children[i]) ? { ...sec, children } : sec;
+      if (s.id === oldId) s = { ...s, instanceIds: s.instanceIds.filter((id) => id !== instanceId) };
+      if (s.id === targetSectionId) s = { ...s, instanceIds: [...s.instanceIds, instanceId] };
+      return s;
+    };
+    const zones = block.zones.map((z) => { const root = move(z.root); return root === z.root ? z : { ...z, root }; });
+    const instances = block.instances.map((i) => (i.id === instanceId
+      ? { ...i, sectionId: targetSectionId, anchor: { x: target.box.x, y: target.box.y, z: target.box.z } }
+      : i));
+    return { ...block, instances, zones };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
 /**
  * The two child sections a divider sits BETWEEN, with their extents along the divider's own axis.
  *
@@ -1939,6 +1989,99 @@ export function setComponentLip(
         return rest;
       }
       return { ...c, lip_mm10: cleared };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Set (or clear with null) a component's handle (dastak) type. A mirror of setComponentLip: an optional
+ * field on the component, DROPPED when null so a handle-less door round-trips byte-identically. No role
+ * guard — a handle rides both a facade door AND a drawer front (role null, drawer:true); the UI gates
+ * eligibility. The count/price (estimate) and Ø4.5 drilling (drilling) already read `comp.handle`.
+ */
+export function setComponentHandle(
+  model: StructuralModel,
+  componentId: ComponentId,
+  handle: HandleType | null,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.handle ?? null) === (handle ?? null)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (handle === null) {
+        const { handle: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, handle };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Set (or clear with null) a door component's lift hinge (Phase 2.1). A mirror of setComponentHandle: an
+ * optional field on the component, DROPPED when null so a side-hinged door round-trips byte-identically. No
+ * role guard — the UI gates it to facade doors. When set, the count/price (estimate) and drilling (side-cup
+ * suppression) already read `comp.lift`. `hingeEdge` is left untouched (harmless while a lift is set).
+ */
+export function setComponentLift(
+  model: StructuralModel,
+  componentId: ComponentId,
+  lift: LiftType | null,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.lift ?? null) === (lift ?? null)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (lift === null) {
+        const { lift: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, lift };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Set (or clear with null) a drawer component's organizer (Phase 2.3). A mirror of setComponentLift, but the
+ * value is an object, so the no-op check compares BY VALUE (dividers + axis). Cleared → the field is dropped
+ * so a plain drawer round-trips byte-identically. No role guard — the UI gates it to drawers.
+ */
+export function setComponentOrganizer(
+  model: StructuralModel,
+  componentId: ComponentId,
+  organizer: DrawerOrganizer | null,
+): StructuralModel {
+  const same = (a?: DrawerOrganizer | null, b?: DrawerOrganizer | null): boolean =>
+    (a ?? null) === null && (b ?? null) === null
+      ? true
+      : !!a && !!b && a.dividers === b.dividers && (a.axis ?? "x") === (b.axis ?? "x");
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if (same(block.components[idx]!.organizer, organizer)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (organizer === null) {
+        const { organizer: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, organizer };
     });
     return { ...block, components };
   });

@@ -97,9 +97,25 @@ export interface System32Spec extends CatalogMeta {
   backRowSetback: number;
 }
 
+/**
+ * Handle (dastak) screw holes. Ø/depth are GROUNDED (Ø4.5 × 17 through-hole, mined_dump_holeclasses.csv:16,
+ * real SHKOF door panels for M4 handle screws). The POSITION — `centres` (the c-c spacing of a bow-handle
+ * screw pair) and `edgeOffset` (inset from the door's opening edge, opposite the hinge) — is a PROVISIONAL
+ * standard like System-32; it carries verified:false until confirmed per handle SKU.
+ */
+export interface HandleSpec extends CatalogMeta {
+  screw: { diameter: number; depth: number };
+  /** Centre-to-centre spacing of a bow handle's two screws. */
+  centres: number;
+  /** Screw inset from the opening edge (doors) — the offset a knob/near screw sits in from that edge. */
+  edgeOffset: number;
+}
+
 export interface HardwareSpec {
   hinges: Record<string, HingeSpec>;
   connectors: Record<string, ConnectorSpec>;
   shelfPins: Record<string, ShelfPinSpec>;
   system32: System32Spec;
+  /** Optional/additive — old specs without it drill no handle holes (guarded at the call site). */
+  handles?: Record<string, HandleSpec>;
 }

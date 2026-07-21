@@ -21,6 +21,10 @@
 //     ⬇ CNC button, so these provisional cups/pins DO land in a downloaded SWJ008. Nothing
 //     currently gates the export on verified:false — treat karkas SWJ008 as provisional until
 //     the factory sign-off lands (tracked as an open manufacturing-readiness item).
+//   • Plinth (carcass_plinth): intentionally UNDRILLED here — a toe-kick takes no System-32 pins or
+//     hinge cups; a plinth part simply falls through this pass with operations: []. (Phase 1.1.)
+//   • Worktop (carcass_worktop): likewise UNDRILLED — a stoleshnitsa carries no carcass drilling; it
+//     falls through with operations: []. (Phase 1.2.)
 //
 // PURITY / SAFETY: imports ONLY primitives + types — never the hardware catalog JSON. The
 // spec is passed IN by the caller (engine/cnc.ts), keeping the JSON import-attribute out of
@@ -28,16 +32,19 @@
 
 import type { Part, mm10, DrillOp, PanelFace, SawGrooveOp } from "../contracts/types.js";
 import type { HardwareSpec, ConnectorSpec } from "../primitives/types.js";
-import type { StructuralModel } from "../contracts/structure.js";
+import type { StructuralModel, HandleType } from "../contracts/structure.js";
 import { mmToMm10 } from "../core/units.js";
 import { shelfPinPattern } from "../primitives/shelfPinPattern.js";
 import { hingeCupPattern } from "../primitives/hingeCupPattern.js";
+import { handleScrewPattern } from "../primitives/handleScrewPattern.js";
 import { BOARD_MM10, sectionOfLine, shelfSpanY } from "./solve.js";
 
 /** The shelf-pin SKU drilled for adjustable internal shelves (dummy until factory sign-off). */
 const SHELF_PIN_SKU = "DUMMY_PIN_5";
 /** The hinge SKU drilled into facade/door panels (verified vs SHKOF_ORTA_CHAP_ESHIK_7_1.XML). */
 const HINGE_SKU = "DUMMY_CUP_110";
+/** The handle SKU drilled into handled door/drawer fronts (Ø4.5×17 grounded; position provisional). */
+const HANDLE_SKU = "DUMMY_HANDLE_STD";
 
 // Hinge placement is a Layer-2 (solver) rule; the primitive takes the positions as input.
 // GROUNDED against the golden door (Length 2170mm → 4 cups at 100 / 756 / 1414 / 2070): first &
@@ -201,6 +208,40 @@ function hingeEdgeByInstance(model: StructuralModel): Map<string, "y0" | "yMax">
     }
   }
   return out;
+}
+
+/** Instance id → its handle type, for the instances whose component declares one (else absent). */
+function handleByInstance(model: StructuralModel): Map<string, HandleType> {
+  const out = new Map<string, HandleType>();
+  for (const block of model.blocks) {
+    const handleOf = new Map(block.components.map((c) => [c.id, c.handle] as const));
+    for (const inst of block.instances) {
+      const h = handleOf.get(inst.componentId);
+      if (h) out.set(inst.id, h);
+    }
+  }
+  return out;
+}
+
+/** Instance ids whose component is a LIFT door (Phase 2.1): they open upward on a mechanism, so they get
+ *  NO side hinge cups (the lift's own mounting holes come in 2.1b). */
+function liftInstanceIds(model: StructuralModel): Set<string> {
+  const out = new Set<string>();
+  for (const block of model.blocks) {
+    const liftOf = new Map(block.components.map((c) => [c.id, c.lift] as const));
+    for (const inst of block.instances) {
+      if (liftOf.get(inst.componentId)) out.add(inst.id);
+    }
+  }
+  return out;
+}
+
+/** A drawer-front part id (`…__inst_<id>__front`) → its clean instance id, else null. */
+function drawerFrontInstId(partId: string): string | null {
+  const marker = "__inst_";
+  const i = partId.indexOf(marker);
+  if (i === -1 || !partId.endsWith("__front")) return null;
+  return partId.slice(i + marker.length, partId.length - "__front".length);
 }
 
 /** Hinge X-positions up a door of the given Length (see the constants above for the grounding). */
@@ -433,6 +474,9 @@ export function applyDrilling(
   const glazed = glazedInstanceIds(model);
   const glazedGrids = glazedGridInstanceIds(model);
   const hingeEdges = hingeEdgeByInstance(model);
+  const lifts = liftInstanceIds(model); // Phase 2.1 — lift doors carry no side hinge cups
+  const handles = handleByInstance(model);
+  const handleHw = spec.handles?.[HANDLE_SKU]; // undefined on old specs without a handles catalog → no holes
   const pin = spec.shelfPins[SHELF_PIN_SKU];
   const system32 = spec.system32;
   const hinge = spec.hinges[HINGE_SKU];
@@ -480,7 +524,7 @@ export function applyDrilling(
       // (yMax edge) instead of stile_l (y0).
       const gEdge = hingeEdges.get(gm.instId) ?? "y0";
       const hingeStile = gEdge === "yMax" ? "stile_r" : "stile_l";
-      if (hinge && gm.member === hingeStile && part.id.endsWith("__a")) {
+      if (hinge && gm.member === hingeStile && part.id.endsWith("__a") && !lifts.has(gm.instId)) {
         ops = [...ops, ...hingeCupPattern(part, gEdge, hingePositions(part.length_mm10), hinge)];
       }
       return ops === part.operations ? part : { ...part, operations: ops };
@@ -493,9 +537,27 @@ export function applyDrilling(
     if (instId && facades.has(instId)) {
       if (part.id.endsWith("__b")) return part; // inner glued layer — no face machining
       let ops = part.operations;
-      if (hinge) ops = [...ops, ...hingeCupPattern(part, hingeEdges.get(instId) ?? "y0", hingePositions(part.length_mm10), hinge)];
+      // Phase 2.1 — a lift door opens upward on a mechanism, so it gets NO side hinge cups.
+      if (hinge && !lifts.has(instId)) ops = [...ops, ...hingeCupPattern(part, hingeEdges.get(instId) ?? "y0", hingePositions(part.length_mm10), hinge)];
       if (glazed.has(instId)) ops = [...ops, ...glassRebate(part)];
+      // Handle screws (Ø4.5×17) on the OPENING edge — opposite the hinge (1.3b, position provisional).
+      const doorHandle = handles.get(instId);
+      if (handleHw && doorHandle) {
+        const openingEdge = (hingeEdges.get(instId) ?? "y0") === "y0" ? "yMax" : "y0";
+        ops = [...ops, ...handleScrewPattern(part, { type: doorHandle, layout: "door", openingEdge }, handleHw)];
+      }
       return ops === part.operations ? part : { ...part, operations: ops };
+    }
+
+    // Drawer front (`…__inst_<id>__front`, role "facade" in the part but its component is a drawer, so it
+    // never enters the door branch above) → a centred horizontal handle (1.3b). The drawer box's carcass
+    // sides/back/bottom are machined by the joinery pass; only the front carries a handle.
+    const drawerInst = drawerFrontInstId(part.id);
+    if (handleHw && drawerInst) {
+      const drawerHandle = handles.get(drawerInst);
+      if (drawerHandle) {
+        return { ...part, operations: [...part.operations, ...handleScrewPattern(part, { type: drawerHandle, layout: "drawer" }, handleHw)] };
+      }
     }
     return part;
   });

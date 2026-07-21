@@ -26,6 +26,7 @@ import {
   type Box3D,
   type Component,
   type DrawerInterior,
+  type DrawerOrganizer,
   type FreePart,
   type Instance,
   type Line,
@@ -59,8 +60,9 @@ export interface ThicknessSpec {
   readonly shelf?: mm10;
   readonly divider?: mm10;
   readonly facade?: mm10;
+  readonly worktop?: mm10; // Phase 1.2 — the worktop's own stock (38mm postforming)
 }
-export interface ResolvedT { carcass: mm10; back: mm10; shelf: mm10; divider: mm10; facade: mm10 }
+export interface ResolvedT { carcass: mm10; back: mm10; shelf: mm10; divider: mm10; facade: mm10; worktop: mm10 }
 export function resolveThickness(spec: ThicknessSpec = {}): ResolvedT {
   return {
     carcass: spec.carcass ?? BOARD_MM10,
@@ -68,6 +70,7 @@ export function resolveThickness(spec: ThicknessSpec = {}): ResolvedT {
     shelf: spec.shelf ?? BOARD_MM10,
     divider: spec.divider ?? BOARD_MM10,
     facade: spec.facade ?? BOARD_MM10,
+    worktop: spec.worktop ?? BOARD_MM10,
   };
 }
 
@@ -236,9 +239,29 @@ function boxCarcass(idBase: string, label: string, w: mm10, h: mm10, d: mm10, t:
   return omitSideR ? ps.filter((p) => !p.id.endsWith("__side_r")) : ps;
 }
 
+/** Worktop front overhang (mm10): how far the stoleshnitsa sticks out past the carcass front. The
+ *  depth grows by this in solve and the front edge moves forward by it in layout, so it lives here and
+ *  layout imports it — both must agree or the cut list and the render diverge. */
+export const WORKTOP_OVERHANG_MM10: mm10 = 300; // 30 mm, the standard kitchen worktop overhang
+
 function carcassParts(block: Block, t: ResolvedT): Part[] {
-  const { w, h, d } = block.box;
-  return boxCarcass(block.id, "", w, h, d, t);
+  const { w } = block.box;
+  const parts = boxCarcass(block.id, "", w, block.box.h, block.box.d, t);
+  // Sokol / plinth (Phase 1.1): a recessed toe-kick board spanning the inner width, standing at the
+  // front UNDER the carcass. `box.h` stays the carcass height — this is an extra part below it. Its
+  // edges are all concealed (bottom on the floor, top under the carcass, ends behind the sides), so it
+  // is unbanded like the hidden back panel. Carcass material; no drilling (a toe-kick takes none).
+  if (block.plinth_mm10 && block.plinth_mm10 > 0) {
+    parts.push(panel(`${block.id}__plinth`, "Цоколь", w - 2 * t.carcass, block.plinth_mm10, [0, 0, 0, 0], t.carcass, "carcass_plinth"));
+  }
+  // Sokol-usti / worktop (Phase 1.2): a board on TOP spanning the full width, its depth grown by the
+  // front overhang. box.h stays the carcass height — this is an extra part above it. Unbanded: a
+  // postforming worktop has an integral rolled front edge, not a PVC band, and its m² rate already
+  // includes that finished edge — banding here would add a wrong kromka charge. No drilling.
+  if (block.worktop) {
+    parts.push(panel(`${block.id}__worktop`, "Столешница", w, block.box.d + WORKTOP_OVERHANG_MM10, [0, 0, 0, 0], t.worktop, "carcass_worktop"));
+  }
+  return parts;
 }
 
 // Corner-filler width (blocker #6) — the strip that bridges the L junction. GROUNDED: the corner
@@ -311,6 +334,21 @@ function sectionById(block: Block, sectionId: string): Section | null {
   return null;
 }
 
+/** Phase 2.2 — resolve ANY section (leaf OR parent) by id, walking the full tree. Used ONLY as a facade
+ *  fallback: a combined door sits on a PARENT section (its box spans the children). Safe/additive — every
+ *  existing instance is on a leaf, so this only ever resolves a facade whose section has children. */
+function sectionByIdAny(block: Block, sectionId: string): Section | null {
+  for (const zone of block.zones) {
+    const stack: Section[] = [zone.root];
+    while (stack.length) {
+      const s = stack.pop()!;
+      if (s.id === sectionId) return s;
+      for (const c of s.children) stack.push(c);
+    }
+  }
+  return null;
+}
+
 function componentById(block: Block, componentId: string): Component | null {
   return block.components.find((c) => c.id === componentId) ?? null;
 }
@@ -368,26 +406,38 @@ const drawerBoxOf = (b: Box3D, height_mm10?: mm10): Box3D => ({ ...b, h: Math.mi
  *  opening of width `openingW`. Shared by a TOP-LEVEL drawer (opening = carcass clear span) and a NESTED
  *  one (opening = the parent interior's full width, no carcass). Part ids share `idBase` so the editor
  *  still selects the whole drawer. Height + depth inset the same way in both cases. */
-function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: ResolvedT): Part[] {
+function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: ResolvedT, organizer?: DrawerOrganizer): Part[] {
   const c = t.carcass, fa = t.facade, bk = t.back;
   const outerW = openingW - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width inside the runner clearance
   const innerW = outerW - 2 * c; // between the two box sides
   const sideH = box.h - 2 * c; // box side height within the opening
   const bodyD = box.d - fa - c; // depth behind the facade, small back clearance (matches drawerBoxPlacement)
-  return [
+  const parts: Part[] = [
     panel(`${idBase}__front`, "Ящик · фасад", box.h, box.w, allBand(), fa, "facade"),
     panel(`${idBase}__side_l`, "Ящик · бок Л", bodyD, sideH, frontBand(), c, "carcass_side"),
     panel(`${idBase}__side_r`, "Ящик · бок П", bodyD, sideH, frontBand(), c, "carcass_side"),
     panel(`${idBase}__back`, "Ящик · задняя", innerW, sideH, frontBand(), c, "carcass_side"),
     panel(`${idBase}__bottom`, "Ящик · дно", innerW, bodyD, [0, 0, 0, 0], bk, "carcass_back"),
   ];
+  // Phase 2.3 — organizer: `dividers` partition boards inside the body. axis "x" (default) spans the depth
+  // (like a box side); axis "z" spans the width (like the back). Real cut parts, priced as carcass_side.
+  if (organizer && organizer.dividers > 0) {
+    const zAxis = organizer.axis === "z";
+    for (let k = 0; k < organizer.dividers; k += 1) {
+      parts.push(zAxis
+        ? panel(`${idBase}__org_${k}`, "Ящик · разделитель", innerW, sideH, frontBand(), c, "carcass_side")
+        : panel(`${idBase}__org_${k}`, "Ящик · разделитель", bodyD, sideH, frontBand(), c, "carcass_side"));
+    }
+  }
+  return parts;
 }
 
 /** A TOP-LEVEL drawer in a carcass section: the opening is the clear span between the carcass sides /
  *  dividers (shelfSpanX subtracts a full board at a wall, half at a divider). */
 function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
   const openingW = shelfSpanX(block, section, t.carcass).width;
-  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box, inst.drawerHeight_mm10), openingW, t);
+  const comp = block.components.find((c) => c.id === inst.componentId);
+  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box, inst.drawerHeight_mm10), openingW, t, comp?.organizer);
 }
 
 /** Parts for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the parent's
@@ -423,7 +473,7 @@ function drawerInteriorParts(idBase: string, box: Box3D, interior: DrawerInterio
   drawers.forEach((inst, i) => {
     const sub: Box3D = { ...box, y: slices[i]!.y, h: slices[i]!.h };
     const innerBase = `${idBase}__in_${inst.id}`;
-    out.push(...drawerBoxFromBox(innerBase, sub, box.w, t));
+    out.push(...drawerBoxFromBox(innerBase, sub, box.w, t, byId.get(inst.componentId)?.organizer));
     if (inst.interior) out.push(...drawerInteriorParts(innerBase, drawerInteriorFromBox(sub, 0, box.w, t), inst.interior, t));
   });
   return out;
@@ -461,8 +511,10 @@ export function drawerInteriorBox(block: Block, section: Section, t: ResolvedT, 
  *  Returns two boards when the component is `doubled` (L1), one otherwise, or none for
  *  roles not yet emitted. */
 function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
-  const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
+  // Phase 2.2 — a combined door is a facade on a PARENT section; fall back to the full-tree lookup for a
+  // facade whose section isn't a leaf. Non-facades stay leaf-only (they're always added to leaves).
+  const section = sectionById(block, inst.sectionId) ?? (component?.role === "facade" ? sectionByIdAny(block, inst.sectionId) : null);
   if (!section || !component) return [];
   // F2 — carry the component's per-part material override onto every emitted part.
   const mat = component.material;
@@ -533,11 +585,26 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
  */
 export function freePartToPart(block: Block, fp: FreePart): Part {
   const { w, h, d } = fp.box;
+  // `thicknessAxis` is the author's declaration, fixed when the part was created — but the master then
+  // resizes it, and a board turned on its side keeps the stale axis. That put nonsense in the cut list:
+  // a bed's headboard came out "900 × 25 × 1610 thick", and no workshop can order 1610mm stock.
+  //
+  // A board's thickness IS its smallest dimension — that is what makes it a board. So the box decides,
+  // and the declared axis only settles a tie (a square post, where any choice is the same part). This
+  // also matches how the renderer already picks the face to draw.
+  const smallest = Math.min(w, h, d);
+  const axis = fp.thicknessAxis === "x" && w === smallest ? "x"
+    : fp.thicknessAxis === "y" && h === smallest ? "y"
+      : fp.thicknessAxis === "z" && d === smallest ? "z"
+        : w === smallest ? "x" : h === smallest ? "y" : "z";
   const [length, width, thickness] =
-    fp.thicknessAxis === "x" ? [h, d, w]
-      : fp.thicknessAxis === "y" ? [w, d, h]
+    axis === "x" ? [h, d, w]
+      : axis === "y" ? [w, d, h]
         : [w, h, d]; // "z"
-  const p = panel(`${block.id}__free_${fp.id}`, fp.name, length, width, allBand(), thickness);
+  // Banding defaults to every edge — right for a visible board (a table top), wrong for a solid post,
+  // so a free part may declare its own. See FreePart.edgeBands.
+  const bands = fp.edgeBands ? [...fp.edgeBands] as [mm10, mm10, mm10, mm10] : allBand();
+  const p = panel(`${block.id}__free_${fp.id}`, fp.name, length, width, bands, thickness);
   return fp.material ? { ...p, materialId: fp.material } : p;
 }
 
