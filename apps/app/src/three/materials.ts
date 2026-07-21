@@ -6,6 +6,8 @@
 // from. estimate.ts prices a solved model against a plan; the «Спецификация» panel picks the decors.
 // Rates are realistic-but-illustrative UZS figures — swap for a live rate table later.
 
+import type { ApplianceKind } from "../../../../engine/contracts/structure";
+
 /** A sheet-good decor: priced per square metre, drawn with a swatch colour, cut at a thickness (mm). */
 export interface BoardMaterial {
   id: string;
@@ -100,6 +102,21 @@ export const HARDWARE = {
   // is a later refinement — one lift set is counted per lift door.
   lift: { name: "Подъёмник (механизм)", priceUzs: 150000 },
 } as const;
+
+/**
+ * Phase 3 — built-in APPLIANCES («Техника»): BOUGHT objects (never cut). Each carries a mock UZS price
+ * (editable/provisional like every value here — real appliance prices vary wildly) and a standard
+ * built-in size in mm (used by the 3.b mesh + the fit-check). Priced per placed appliance, like hardware.
+ */
+export const APPLIANCE: Record<ApplianceKind, { name: string; priceUzs: number; w_mm: number; h_mm: number; d_mm: number }> = {
+  oven:       { name: "Духовка",              priceUzs: 3000000, w_mm: 596, h_mm: 595,  d_mm: 550 },
+  hob:        { name: "Варочная панель",      priceUzs: 2000000, w_mm: 590, h_mm: 52,   d_mm: 520 },
+  sink:       { name: "Мойка",                priceUzs: 800000,  w_mm: 800, h_mm: 200,  d_mm: 500 },
+  dishwasher: { name: "Посудомоечная машина", priceUzs: 4000000, w_mm: 600, h_mm: 820,  d_mm: 550 },
+  hood:       { name: "Вытяжка",              priceUzs: 1500000, w_mm: 600, h_mm: 350,  d_mm: 300 },
+  microwave:  { name: "СВЧ",                  priceUzs: 1200000, w_mm: 595, h_mm: 388,  d_mm: 380 },
+  fridge:     { name: "Холодильник",          priceUzs: 5000000, w_mm: 540, h_mm: 1770, d_mm: 545 },
+};
 
 /** Cam-and-dowel joints per carcass box: top↔side ×2 + bottom↔side ×2 = 4, each 2 cams + 2 dowels. */
 export const CAMS_PER_CARCASS = 8;

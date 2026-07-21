@@ -26,7 +26,7 @@ import { handleFittings } from "./handles";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
-import { estimate, hardwareEstimate } from "./estimate";
+import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
 import { BOARDS, EDGES, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
 
@@ -2515,7 +2515,8 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
   const money = useMoney();
   const e = estimate(parts, plan);
   const hw = hardwareEstimate(model);
-  const total = e.priceUzs + hw.priceUzs;
+  const ap = applianceEstimate(model); // Phase 3 — «Техника» (bought appliances)
+  const total = e.priceUzs + hw.priceUzs + ap.priceUzs;
   // Step 6 — per-K painted kromka metres from the features overlay (counted once per physical panel,
   // matching the render board id or its layout base id so a 32mm double isn't double-counted).
   const kromkaByVar = useMemo(() => {
@@ -2605,6 +2606,11 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
       {hw.lines.length > 0 && (
         <div style={{ ...mono, padding: "0 14px 6px" }}>
           Фурнитура: {hw.lines.map((l) => `${l.name} ×${l.qty}`).join(" · ")} — {money(hw.priceUzs)}
+        </div>
+      )}
+      {ap.lines.length > 0 && (
+        <div style={{ ...mono, padding: "0 14px 6px" }}>
+          Техника: {ap.lines.map((l) => `${l.name} ×${l.qty}`).join(" · ")} — {money(ap.priceUzs)}
         </div>
       )}
       <div style={totalRow}>

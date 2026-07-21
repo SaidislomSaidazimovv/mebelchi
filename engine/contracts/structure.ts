@@ -131,6 +131,14 @@ export interface DrawerOrganizer {
   readonly axis?: "x" | "z";
 }
 
+/**
+ * Built-in appliance kind (Phase 3) — a BOUGHT object that fills a cabinet opening (духовка / варочная /
+ * мойка / посудомоечная / вытяжка / СВЧ / холодильник). It is never CUT (emits no board part); it is
+ * counted + priced as a bought line («Техника»), rendered as a mesh (3.b) and may drive a worktop cutout
+ * (3.c). Absent on a Component = not an appliance.
+ */
+export type ApplianceKind = "oven" | "hob" | "sink" | "dishwasher" | "hood" | "microwave" | "fridge";
+
 // ---------------------------------------------------------------------------
 // Line — first-class entity (DB/19_FUNCTION_MAP.md §3.1)
 // ---------------------------------------------------------------------------
@@ -262,6 +270,13 @@ export interface Component {
    * left-to-right (front-back compartments). Optional/additive — absent = a plain drawer, byte-identical.
    */
   readonly organizer?: DrawerOrganizer;
+  /**
+   * Built-in appliance (Phase 3): this instance holds a BOUGHT appliance (oven / hob / sink / …) filling a
+   * cabinet opening. The component's `role` stays null — an appliance emits NO cut part; it is counted +
+   * priced as a «Техника» line, rendered as a mesh (3.b), and a hob/sink drives a worktop cutout (3.c).
+   * Optional/additive — absent = not an appliance, byte-identical.
+   */
+  readonly appliance?: ApplianceKind;
   /**
    * Glazed-GRID facade (CONSTRUCTION_FRAME_v3 Piece 2): the door is a frame of `lights` glass
    * panes stacked along its height, separated by muntins. The solver emits the assembly — outer
