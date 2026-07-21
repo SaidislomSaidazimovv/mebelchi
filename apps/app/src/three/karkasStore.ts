@@ -29,7 +29,7 @@ import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
 import { layoutBounds, layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
 import { snapCandidates, snapSpan, type SnapCandidate } from "../../../../engine/structure/snap.js";
-import { DEFAULT_PLAN, planThickness, boardThicknessMm10, type MaterialPlan } from "./materials";
+import { DEFAULT_PLAN, planThickness, boardThicknessMm10, withPlanDefaults, type MaterialPlan } from "./materials";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
 interface Derived {
@@ -1189,7 +1189,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (!data || !data.model || !Array.isArray(data.model.blocks)) {
         throw new Error("BAD_PROJECT: not a karkas project file");
       }
-      const plan = data.plan ?? DEFAULT_PLAN;
+      const plan = withPlanDefaults(data.plan); // migrate an old plan missing later slots (e.g. worktop)
       // §3.2 — a library block may carry decors the project pool lacks; flag them for the map-or-create
       // prompt (the block still loads so it's visible; resolveBinding/cancelBinding reconciles the pool).
       const foreign = foreignDecors(get().materialPool, data.model, plan);

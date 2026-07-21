@@ -32,6 +32,12 @@ export const BOARDS: readonly BoardMaterial[] = [
   { id: "ldsp_anthracite", name: "ЛДСП Антрацит", hex: "#2f3237", pricePerM2: 195000, thickness_mm: 16 },
   { id: "mdf_white_matt", name: "МДФ Белый мат", hex: "#eceae4", pricePerM2: 380000, thickness_mm: 18 },
   { id: "hdf_white", name: "ХДФ Белый (задняя)", hex: "#e8e4d8", pricePerM2: 55000, thickness_mm: 3 },
+  // Sokol-usti / worktop (Phase 1.2). The real material is priced PER METRE in the kitchen world
+  // (packages/pricing/seed/rate-table.seed.json: «Столешница постформинг 38мм» @ 185000/m). Karkas
+  // prices by m², so we carry an m²-equivalent: 185000/m ÷ 0.6 m standard worktop depth ≈ 308333/m²
+  // (founder decision (a) — exact at ~600mm depth, an approximation for unusual depths; exact per-metre
+  // is a later refinement). thickness_mm = 38 is the real product; the kitchen's 40 was visual only.
+  { id: "worktop_postform_38", name: "Столешница постформинг 38мм", hex: "#b9ac93", pricePerM2: 308333, thickness_mm: 38 },
 ];
 
 export const EDGES: readonly EdgeMaterial[] = [
@@ -54,6 +60,7 @@ export interface MaterialPlan {
   back: string; // carcass_back
   shelf: string; // internal_shelf
   facade: string; // facade
+  worktop: string; // carcass_worktop (Phase 1.2 — the worktop's own decor)
   edge: string; // edge-band material id
 }
 
@@ -62,8 +69,17 @@ export const DEFAULT_PLAN: MaterialPlan = {
   back: "hdf_white",
   shelf: "ldsp_white",
   facade: "ldsp_white",
+  worktop: "worktop_postform_38",
   edge: "pvc_white_2",
 };
+
+/**
+ * Fill any missing slots of a loaded plan from DEFAULT_PLAN. Saved projects predate later slots (a v1
+ * plan has no `worktop`), so every place that parses a plan from JSON must merge the defaults, or the
+ * new slot loads `undefined` and its parts price at 0 / render as bare wood. One helper so a FUTURE
+ * slot addition is safe everywhere at once, instead of re-hunting parse sites. Absent → DEFAULT_PLAN.
+ */
+export const withPlanDefaults = (p?: Partial<MaterialPlan> | null): MaterialPlan => ({ ...DEFAULT_PLAN, ...(p ?? {}) });
 
 export const boardById = (id: string): BoardMaterial | undefined => BOARDS.find((b) => b.id === id);
 export const edgeById = (id: string): EdgeMaterial | undefined => EDGES.find((e) => e.id === id);

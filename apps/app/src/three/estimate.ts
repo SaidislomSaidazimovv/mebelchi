@@ -13,6 +13,7 @@ import {
   partBoard,
   edgeById,
   DEFAULT_PLAN,
+  withPlanDefaults,
   HARDWARE,
   hingesForDoorHeightMm,
   CAMS_PER_CARCASS,
@@ -196,7 +197,7 @@ export function blockPriceUzs(karkasJson: string): number {
   try {
     const { model, plan } = JSON.parse(karkasJson) as { model?: StructuralModel; plan?: MaterialPlan };
     if (!model?.blocks?.length) return 0;
-    const p = plan ?? DEFAULT_PLAN;
+    const p = withPlanDefaults(plan); // migrate an old saved plan missing later slots
     const parts = solveStructure(model, planThickness(p));
     return estimate(parts, p).priceUzs + hardwareEstimate(model).priceUzs;
   } catch {
@@ -209,7 +210,7 @@ export function blockCutList(karkasJson: string): { part: string; material: stri
   try {
     const { model, plan } = JSON.parse(karkasJson) as { model?: StructuralModel; plan?: MaterialPlan };
     if (!model?.blocks?.length) return [];
-    const p = plan ?? DEFAULT_PLAN;
+    const p = withPlanDefaults(plan); // migrate an old saved plan missing later slots
     const parts = solveStructure(model, planThickness(p));
     return estimate(parts, p).parts.map((s) => ({ part: s.name, material: s.materialName, lengthMm: s.l_mm, widthMm: s.w_mm, thicknessMm: s.t_mm }));
   } catch {

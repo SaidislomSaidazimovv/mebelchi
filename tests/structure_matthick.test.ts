@@ -8,7 +8,7 @@ const S = () => useKarkas.getState();
 
 describe("Phase 7b — material thickness", () => {
   it("planThickness maps each role's decor to its thickness (mm10)", () => {
-    const t = planThickness({ carcass: "ldsp_white", back: "hdf_white", shelf: "ldsp_white", facade: "mdf_white_matt", edge: "pvc_white_2" });
+    const t = planThickness({ carcass: "ldsp_white", back: "hdf_white", shelf: "ldsp_white", facade: "mdf_white_matt", worktop: "worktop_postform_38", edge: "pvc_white_2" });
     expect(t.carcass).toBe(160); // 16mm ЛДСП
     expect(t.back).toBe(30); // 3mm ХДФ
     expect(t.facade).toBe(180); // 18mm МДФ
