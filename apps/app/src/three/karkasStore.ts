@@ -28,6 +28,7 @@ import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
 import { layoutBounds, layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
+import { withApplianceCutouts } from "./appliances";
 import { snapCandidates, snapSpan, type SnapCandidate } from "../../../../engine/structure/snap.js";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, withPlanDefaults, type MaterialPlan } from "./materials";
 
@@ -55,7 +56,10 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   // Recentre on the UNROTATED bounds: turning a cabinet is placement-only, so it must not move anything
   // else. Centring on the rotated AABB slid the entire model sideways as the cabinet turned.
   const flat = solveLayout(model, tk);
-  const scene = layoutToScene(rotateBlockPlacements(flat, model.blocks), model.features, layoutBounds(flat));
+  // Phase 3.c — a hob/sink derives a worktop cutout; feed the augmented features to the render (both the
+  // scene and the CNC read model.features, so this one overlay punches the hole). Same ref when none apply.
+  const feats = withApplianceCutouts(model).features;
+  const scene = layoutToScene(rotateBlockPlacements(flat, model.blocks), feats, layoutBounds(flat));
   return { model, parts: solveStructure(model, tk), scene, warnings, sections };
 }
 

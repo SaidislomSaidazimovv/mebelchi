@@ -23,7 +23,7 @@ import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
-import { applianceFittings } from "./appliances";
+import { applianceFittings, withApplianceCutouts } from "./appliances";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
@@ -469,7 +469,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       return;
     }
     try {
-      const text = exportModelToSWJ008(model, {}, materialMap(plan), Object.fromEntries(BOARDS.map((b) => [b.id, b.name])));
+      const text = exportModelToSWJ008(withApplianceCutouts(model), {}, materialMap(plan), Object.fromEntries(BOARDS.map((b) => [b.id, b.name]))); // 3.c — mill the hob/sink worktop cutout
       const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
       const a = document.createElement("a");
       a.href = url;
@@ -488,7 +488,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // (print) window render the same sheet. Rebuilds only when the model / material plan changes.
   const drawingSvg = useMemo(() => {
     try {
-      const drawing = buildBlockDrawing(solveLayout(model, planThickness(plan)), solveModelToParts(model, planThickness(plan)));
+      const drawing = buildBlockDrawing(solveLayout(withApplianceCutouts(model), planThickness(plan)), solveModelToParts(withApplianceCutouts(model), planThickness(plan)));
       const boardName = (id: string) => BOARDS.find((b) => b.id === id)?.name ?? "—";
       const carcass = boardName(plan.carcass);
       const edge = EDGES.find((e) => e.id === plan.edge)?.name ?? "—";
@@ -2546,7 +2546,7 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
   // plan / front / section — shrunk to read at a glance above the cut list. Rebuilt only with the model.
   const ortho = useMemo(() => {
     try {
-      const d = buildBlockDrawing(solveLayout(model, planThickness(plan)), solveModelToParts(model, planThickness(plan)));
+      const d = buildBlockDrawing(solveLayout(withApplianceCutouts(model), planThickness(plan)), solveModelToParts(withApplianceCutouts(model), planThickness(plan)));
       return [
         { key: "top", label: "Ustidan", svg: viewThumbSvg(d.plan, 120) },
         { key: "front", label: "Oldidan", svg: viewThumbSvg(d.front, 120) },
