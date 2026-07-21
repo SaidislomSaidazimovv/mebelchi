@@ -334,6 +334,21 @@ function sectionById(block: Block, sectionId: string): Section | null {
   return null;
 }
 
+/** Phase 2.2 — resolve ANY section (leaf OR parent) by id, walking the full tree. Used ONLY as a facade
+ *  fallback: a combined door sits on a PARENT section (its box spans the children). Safe/additive — every
+ *  existing instance is on a leaf, so this only ever resolves a facade whose section has children. */
+function sectionByIdAny(block: Block, sectionId: string): Section | null {
+  for (const zone of block.zones) {
+    const stack: Section[] = [zone.root];
+    while (stack.length) {
+      const s = stack.pop()!;
+      if (s.id === sectionId) return s;
+      for (const c of s.children) stack.push(c);
+    }
+  }
+  return null;
+}
+
 function componentById(block: Block, componentId: string): Component | null {
   return block.components.find((c) => c.id === componentId) ?? null;
 }
@@ -496,8 +511,10 @@ export function drawerInteriorBox(block: Block, section: Section, t: ResolvedT, 
  *  Returns two boards when the component is `doubled` (L1), one otherwise, or none for
  *  roles not yet emitted. */
 function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
-  const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
+  // Phase 2.2 — a combined door is a facade on a PARENT section; fall back to the full-tree lookup for a
+  // facade whose section isn't a leaf. Non-facades stay leaf-only (they're always added to leaves).
+  const section = sectionById(block, inst.sectionId) ?? (component?.role === "facade" ? sectionByIdAny(block, inst.sectionId) : null);
   if (!section || !component) return [];
   // F2 — carry the component's per-part material override onto every emitted part.
   const mat = component.material;

@@ -196,6 +196,20 @@ function sectionById(block: Block, sectionId: string): Section | null {
   return null;
 }
 
+/** Phase 2.2 — resolve ANY section (leaf OR parent) for a combined door (a facade on a parent section).
+ *  Mirrors solve.ts; used only as a facade fallback, so it never changes a non-facade placement. */
+function sectionByIdAny(block: Block, sectionId: string): Section | null {
+  for (const zone of block.zones) {
+    const stack: Section[] = [zone.root];
+    while (stack.length) {
+      const s = stack.pop()!;
+      if (s.id === sectionId) return s;
+      for (const c of s.children) stack.push(c);
+    }
+  }
+  return null;
+}
+
 function componentById(block: Block, componentId: string): Component | null {
   return block.components.find((c) => c.id === componentId) ?? null;
 }
@@ -277,9 +291,11 @@ function shelfLipPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPla
 const LIFT_OPEN_DEG: Record<NonNullable<Component["lift"]>, number> = { swing: 60, parallel: 72 };
 
 function facadePlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlacement | null {
-  const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
-  if (!section || !component || component.role !== "facade" || component.glazedGrid) return null;
+  if (!component || component.role !== "facade" || component.glazedGrid) return null;
+  // Phase 2.2 — a combined door sits on a PARENT section; fall back to the full-tree lookup for it.
+  const section = sectionById(block, inst.sectionId) ?? sectionByIdAny(block, inst.sectionId);
+  if (!section) return null;
   const s = section.box;
   const p = place(
     `${block.id}__inst_${inst.id}`,
@@ -402,9 +418,11 @@ function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPl
  * single covering panel so the viewport never draws a negative box.
  */
 function glazedGridPlacement(block: Block, inst: Instance): PanelPlacement[] | null {
-  const section = sectionById(block, inst.sectionId);
   const component = componentById(block, inst.componentId);
-  if (!section || !component || component.role !== "facade" || !component.glazedGrid) return null;
+  if (!component || component.role !== "facade" || !component.glazedGrid) return null;
+  // Phase 2.2 — a combined glazed door may sit on a PARENT section too.
+  const section = sectionById(block, inst.sectionId) ?? sectionByIdAny(block, inst.sectionId);
+  if (!section) return null;
 
   const s = section.box;
   const idBase = `${block.id}__inst_${inst.id}`;

@@ -732,7 +732,9 @@ export function addInstance(
   const located = findSection(model, sectionId);
   if (!located) throw new Error("ADD_INSTANCE_SECTION_NOT_FOUND");
   const { block, section } = located;
-  if (section.children.length > 0) throw new Error("ADD_INSTANCE_SECTION_NOT_LEAF");
+  // Phase 2.2 — a combined door may be added to a NON-leaf (parent) section: it covers the whole span, over
+  // the children behind it. Shelves/drawers still require a leaf (they live in one compartment).
+  if (section.children.length > 0 && kind !== "door") throw new Error("ADD_INSTANCE_SECTION_NOT_LEAF");
 
   if (kind === "drawer") return addDrawerInstance(model, block, section);
   const doubled = opts.doubled === true;
