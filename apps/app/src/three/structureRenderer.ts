@@ -421,6 +421,7 @@ export function buildApplianceGroup(
       default:
         add(box(w, h, d, cx, cy, cz, steel)); // unknown kind → a plain steel box
     }
+    sub.traverse((o) => { o.userData.partId = f.id; }); // 3.d — tap the appliance mesh → select its instance
     g.add(sub);
   }
   return g;

@@ -34,6 +34,7 @@ import type {
   Component,
   ComponentId,
   DrawerInterior,
+  ApplianceKind,
   DrawerOrganizer,
   HandleType,
   LiftType,
@@ -697,7 +698,7 @@ export function dissolveGroup(model: StructuralModel, componentId: ComponentId):
 }
 
 /** Kinds the UI's "Add" verb can place. First slice supports `"shelf"`. */
-export type AddKind = "shelf" | "rail" | "divider" | "drawer" | "door";
+export type AddKind = "shelf" | "rail" | "divider" | "drawer" | "door" | "appliance";
 
 /** Options for `addInstance` — the 32mm doubled build (L1) and a glazed-grid door (Piece 2). */
 export interface AddOpts {
@@ -708,6 +709,8 @@ export interface AddOpts {
   readonly glazed?: boolean;
   /** door only: hinge side — "right" drills cups on the yMax edge. Absent/"left" = the y0 edge. */
   readonly hingeEdge?: "left" | "right";
+  /** appliance only (Phase 3.d): which built-in appliance to place (oven / hob / sink / …). */
+  readonly appliance?: ApplianceKind;
 }
 
 /**
@@ -727,7 +730,7 @@ export function addInstance(
   if (kind === "divider") {
     return divideSection(model, sectionId, { kind: "equal", axis: "x", count: 2 });
   }
-  if (kind !== "shelf" && kind !== "door" && kind !== "drawer") return model; // rail = out-of-scope
+  if (kind !== "shelf" && kind !== "door" && kind !== "drawer" && kind !== "appliance") return model; // rail = out-of-scope
 
   const located = findSection(model, sectionId);
   if (!located) throw new Error("ADD_INSTANCE_SECTION_NOT_FOUND");
@@ -737,10 +740,33 @@ export function addInstance(
   if (section.children.length > 0 && kind !== "door") throw new Error("ADD_INSTANCE_SECTION_NOT_LEAF");
 
   if (kind === "drawer") return addDrawerInstance(model, block, section);
+  if (kind === "appliance") return addApplianceInstance(model, block, section, opts.appliance ?? "oven");
   const doubled = opts.doubled === true;
   return kind === "door"
     ? addDoorInstance(model, block, section, doubled, opts.glazedGrid, opts.glazed === true, opts.hingeEdge)
     : addShelfInstance(model, block, section, doubled);
+}
+
+/**
+ * Phase 3.d — place a built-in APPLIANCE (oven / hob / …) in a leaf section: a component reused per kind
+ * (`role: null`, `appliance` set → emits NO cut part; counted + priced + meshed by the app) + an instance.
+ * Mirrors addDoorInstance, minus the facade/hinge machinery.
+ */
+function addApplianceInstance(model: StructuralModel, block: Block, section: Section, kind: ApplianceKind): StructuralModel {
+  const id = `${block.id}__cmp_appliance_${kind}`;
+  let comp = block.components.find((c) => c.id === id) ?? null;
+  let components = block.components;
+  if (!comp) {
+    comp = { id, name: kind, partIds: [], role: null, appliance: kind };
+    components = [...block.components, comp];
+  }
+  const newId = nextInstanceId(block, "appliance");
+  const instances: Instance[] = [
+    ...block.instances,
+    { id: newId, componentId: comp.id, sectionId: section.id, anchor: { x: section.box.x, y: section.box.y, z: section.box.z }, link: "linked" },
+  ];
+  const zones = withSectionInstances(block, section, [...section.instanceIds, newId]);
+  return { ...model, blocks: model.blocks.map((b) => (b.id === block.id ? { ...block, components, instances, zones } : b)) };
 }
 
 /** Remove a placed instance (shelf / door / drawer) — drops it from its block's instances and from
@@ -2082,6 +2108,34 @@ export function setComponentOrganizer(
         return rest;
       }
       return { ...c, organizer };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * Set (or clear with null) a component's appliance kind (Phase 3.d). A mirror of setComponentLift: change the
+ * bought appliance (oven → hob …) or drop it (null → no longer an appliance). No role guard — the UI gates it.
+ */
+export function setComponentAppliance(
+  model: StructuralModel,
+  componentId: ComponentId,
+  appliance: ApplianceKind | null,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.appliance ?? null) === (appliance ?? null)) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (appliance === null) {
+        const { appliance: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, appliance };
     });
     return { ...block, components };
   });

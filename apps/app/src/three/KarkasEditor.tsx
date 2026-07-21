@@ -10,7 +10,7 @@ import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
-import type { Box3D, HandleType, LiftType } from "../../../../engine/contracts/structure";
+import type { Box3D, HandleType, LiftType, ApplianceKind } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
@@ -28,7 +28,7 @@ import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSessi
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
-import { BOARDS, EDGES, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
 
 /**
@@ -339,6 +339,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setHandle = useKarkas((s) => s.setHandle);
   const setLift = useKarkas((s) => s.setLift);
   const setDividers = useKarkas((s) => s.setDividers);
+  const setAppliance = useKarkas((s) => s.setAppliance);
   const combineSelectedDoor = useKarkas((s) => s.combineSelectedDoor);
   const splitSelectedDoor = useKarkas((s) => s.splitSelectedDoor);
   // Select PRIMITIVES (booleans), not a fresh object — a new-object selector trips React 18's
@@ -915,8 +916,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       }
       const g = rt.current?.group; if (!g) return;
       const hit = raycaster.intersectObjects(g.children, false)[0]; // faces only (not edge lines)
+      // 3.d — appliances live in a separate group (no board part); raycast it too (recurse into the per-kind
+      // sub-groups) and take the NEARER hit, so tapping an oven/hob selects its instance.
+      const ag = rt.current?.applianceGroup;
+      const aHit = ag ? raycaster.intersectObjects(ag.children, true)[0] : undefined;
+      const pick = aHit && (!hit || aHit.distance < hit.distance) ? aHit : hit;
       useKarkas.getState().selectHole(null); // a panel tap clears any hole selection
-      tapPart((hit?.object.userData.partId as string) ?? null);
+      tapPart((pick?.object.userData.partId as string) ?? null);
     };
     renderer.domElement.addEventListener("pointerdown", onDown);
     renderer.domElement.addEventListener("pointermove", onMove);
@@ -1585,6 +1591,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     <button className="mob-addbtn" type="button" onClick={() => add("drawer")}>＋ Yashik</button>
                     <button className="mob-addbtn" type="button" onClick={() => add("divider")}>＋ Razdelitel</button>
                     <button className={"mob-addbtn" + (showDivide ? " is-active" : "")} type="button" onClick={() => togglePanel("divide")}>⊟ Bo'lish</button>
+                    {/* Phase 3.d — built-in appliances (Техника): one button per kind, adds + selects it */}
+                    {(Object.keys(APPLIANCE) as (keyof typeof APPLIANCE)[]).map((kind) => (
+                      <button key={kind} className="mob-addbtn" type="button" style={{ borderColor: "#6b7280", color: "#374151" }} onClick={() => { add("appliance", { appliance: kind }); if (compact) setRpanel("none"); }}>🔌 {APPLIANCE[kind].name}</button>
+                    ))}
                   </div>
                 ) : (
                   <p className="mob-hint">Bir taxtani tanlang — so'ng burchak, o'yiq yoki jiyak qo'shing.</p>
@@ -1875,6 +1885,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             {selComp?.role === "facade" && canSplitDoor && (
               <button type="button" className="mob-props-toggle" onClick={splitSelectedDoor}>⤢ Ajratish</button>
             )}
+            {/* 3.d — appliance kind on the mobile quick bar too */}
+            {selComp?.appliance && (
+              <label className="mob-props-f"><span>Texnika</span>
+                <select value={selComp.appliance} onChange={(e) => setAppliance(e.target.value as ApplianceKind)}>
+                  {(Object.keys(APPLIANCE) as (keyof typeof APPLIANCE)[]).map((k) => <option key={k} value={k}>{APPLIANCE[k].name}</option>)}
+                </select>
+              </label>
+            )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
                 be nudged by accident while dragging something else. */}
@@ -2095,6 +2113,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           )}
           {selComp.role === "facade" && canSplitDoor && (
             <button style={{ ...act, borderColor: "#8a6d1f", background: "#faf1dc", color: "#7a5a12" }} onClick={splitSelectedDoor} type="button" title="Birlashgan eshikni yana bitta bo'limga qaytarish">⤢ Ajratish</button>
+          )}
+          {/* 3.d — appliance kind on a selected built-in appliance (oven → hob …); drives mesh + price + cutout */}
+          {selComp.appliance && (
+            <>
+              <span style={mono}>Texnika:</span>
+              <select value={selComp.appliance} onChange={(e) => setAppliance(e.target.value as ApplianceKind)} style={{ ...matSel, flex: "0 0 auto", maxWidth: 170 }}>
+                {(Object.keys(APPLIANCE) as (keyof typeof APPLIANCE)[]).map((k) => <option key={k} value={k}>{APPLIANCE[k].name}</option>)}
+              </select>
+            </>
           )}
           {/* 1.3c — handle (dastak) per door/drawer front: drives the Ø4.5 holes + the hardware price */}
           {(selComp.role === "facade" || selComp.drawer) && (
