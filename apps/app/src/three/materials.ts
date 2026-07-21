@@ -95,6 +95,10 @@ export const HARDWARE = {
   // provisional like every other value here (the pricing seed flags hardware as estimated); a gola
   // profile is really per-metre, priced as one unit for now.
   handle: { name: "Ручка", priceUzs: 7000 },
+  // Phase 2.1 — a lift (podyomnik) mechanism for a top-opening wall-cabinet door: a gas-strut/arm set,
+  // far pricier than a hinge. Mock, provisional like every value here; a per-type (swing/parallel) price
+  // is a later refinement — one lift set is counted per lift door.
+  lift: { name: "Подъёмник (механизм)", priceUzs: 150000 },
 } as const;
 
 /** Cam-and-dowel joints per carcass box: top↔side ×2 + bottom↔side ×2 = 4, each 2 cams + 2 dowels. */

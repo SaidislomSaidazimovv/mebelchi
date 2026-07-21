@@ -112,6 +112,14 @@ export type RowKind = "base" | "upper" | "tall";
 /** Handle / dastak kind on a door or drawer (Phase 1.3). Absent on a Component = no handle (Без). */
 export type HandleType = "bow" | "profile" | "knob";
 
+/**
+ * Lift-hinge kind on a door (Phase 2.1) — a top-opening wall-cabinet door on a gas-strut/arm mechanism
+ * instead of side hinges. `"swing"` = Aventos HK-class (the door tilts up as one piece); `"parallel"` =
+ * HL-class (the door lifts straight up, staying parallel). Absent on a Component = a normal side-hinged
+ * door. Expandable later (bifold / up-&-over).
+ */
+export type LiftType = "swing" | "parallel";
+
 // ---------------------------------------------------------------------------
 // Line — first-class entity (DB/19_FUNCTION_MAP.md §3.1)
 // ---------------------------------------------------------------------------
@@ -222,6 +230,13 @@ export interface Component {
    * (`hingeEdge`) when drilling/rendering, not stored. The handle is counted + priced as hardware.
    */
   readonly handle?: HandleType;
+  /**
+   * Lift hinge on a door (Phase 2.1): a top-opening wall-cabinet door on a gas-strut/arm mechanism. When
+   * set, the door opens UPWARD, so `hingeEdge` (a side choice) is irrelevant, and it counts a LIFT
+   * MECHANISM as hardware instead of side hinges — and carries no side hinge cups. Optional/additive —
+   * absent = a normal side-hinged door, byte-identical. The lift's own mounting holes come in 2.1b.
+   */
+  readonly lift?: LiftType;
   /**
    * Drawer box (Phase 7.3): `true` = this placement is a drawer, so the solver emits a 5-panel box
    * (facade front + two carcass sides + carcass back + a thin bottom) sized to the section with a

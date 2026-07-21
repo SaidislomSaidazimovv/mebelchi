@@ -223,6 +223,19 @@ function handleByInstance(model: StructuralModel): Map<string, HandleType> {
   return out;
 }
 
+/** Instance ids whose component is a LIFT door (Phase 2.1): they open upward on a mechanism, so they get
+ *  NO side hinge cups (the lift's own mounting holes come in 2.1b). */
+function liftInstanceIds(model: StructuralModel): Set<string> {
+  const out = new Set<string>();
+  for (const block of model.blocks) {
+    const liftOf = new Map(block.components.map((c) => [c.id, c.lift] as const));
+    for (const inst of block.instances) {
+      if (liftOf.get(inst.componentId)) out.add(inst.id);
+    }
+  }
+  return out;
+}
+
 /** A drawer-front part id (`…__inst_<id>__front`) → its clean instance id, else null. */
 function drawerFrontInstId(partId: string): string | null {
   const marker = "__inst_";
@@ -461,6 +474,7 @@ export function applyDrilling(
   const glazed = glazedInstanceIds(model);
   const glazedGrids = glazedGridInstanceIds(model);
   const hingeEdges = hingeEdgeByInstance(model);
+  const lifts = liftInstanceIds(model); // Phase 2.1 — lift doors carry no side hinge cups
   const handles = handleByInstance(model);
   const handleHw = spec.handles?.[HANDLE_SKU]; // undefined on old specs without a handles catalog → no holes
   const pin = spec.shelfPins[SHELF_PIN_SKU];
@@ -510,7 +524,7 @@ export function applyDrilling(
       // (yMax edge) instead of stile_l (y0).
       const gEdge = hingeEdges.get(gm.instId) ?? "y0";
       const hingeStile = gEdge === "yMax" ? "stile_r" : "stile_l";
-      if (hinge && gm.member === hingeStile && part.id.endsWith("__a")) {
+      if (hinge && gm.member === hingeStile && part.id.endsWith("__a") && !lifts.has(gm.instId)) {
         ops = [...ops, ...hingeCupPattern(part, gEdge, hingePositions(part.length_mm10), hinge)];
       }
       return ops === part.operations ? part : { ...part, operations: ops };
@@ -523,7 +537,8 @@ export function applyDrilling(
     if (instId && facades.has(instId)) {
       if (part.id.endsWith("__b")) return part; // inner glued layer — no face machining
       let ops = part.operations;
-      if (hinge) ops = [...ops, ...hingeCupPattern(part, hingeEdges.get(instId) ?? "y0", hingePositions(part.length_mm10), hinge)];
+      // Phase 2.1 — a lift door opens upward on a mechanism, so it gets NO side hinge cups.
+      if (hinge && !lifts.has(instId)) ops = [...ops, ...hingeCupPattern(part, hingeEdges.get(instId) ?? "y0", hingePositions(part.length_mm10), hinge)];
       if (glazed.has(instId)) ops = [...ops, ...glassRebate(part)];
       // Handle screws (Ø4.5×17) on the OPENING edge — opposite the hinge (1.3b, position provisional).
       const doorHandle = handles.get(instId);
