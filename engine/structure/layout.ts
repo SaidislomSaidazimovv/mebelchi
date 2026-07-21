@@ -100,8 +100,22 @@ function carcassPlace(idBase: string, label: string, box: Box6, t: ResolvedT, om
   return omitSideR ? ps.filter((p) => !p.id.endsWith("__side_r")) : ps;
 }
 
+/** Toe-kick recess: how far the plinth sits BACK from the carcass front, so it reads as recessed. */
+const PLINTH_RECESS_MM10 = 500; // 50 mm, the usual kitchen toe-kick setback
+
 function carcass(block: Block, t: ResolvedT): PanelPlacement[] {
-  return carcassPlace(block.id, "", block.box, t);
+  const ps = carcassPlace(block.id, "", block.box, t);
+  // Sokol / plinth (Phase 1.1): a recessed board spanning the inner width, standing at the FRONT and
+  // BELOW the carcass (y from box.y − plinth up to box.y). box.y is untouched, so every carcass panel
+  // keeps its exact position; the scene recentres on the new minY (layoutBounds) and stands the
+  // furniture on the plinth. Thickness = carcass, along Z, so its face looks out the front.
+  const p = block.plinth_mm10;
+  if (p && p > 0) {
+    const { x, y, z, w } = block.box;
+    const c = t.carcass;
+    ps.push(place(`${block.id}__plinth`, "Цоколь", x + c, y - p, z + PLINTH_RECESS_MM10, w - 2 * c, p, c));
+  }
+  return ps;
 }
 
 /** Carcass positioned for a return run along Z (the L's second leg, rotated 90°). The corner-end

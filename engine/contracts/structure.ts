@@ -90,6 +90,7 @@ export type PanelRole =
   | "carcass_back"
   | "carcass_bottom"
   | "carcass_top"
+  | "carcass_plinth" // the toe-kick / sokol under the carcass (carcass material, no drilling)
   | "facade"
   | "internal_shelf";
 
@@ -525,6 +526,14 @@ export interface Block {
    * placement); dividers/instances/free parts inside it still solve.
    */
   readonly bare?: boolean;
+  /**
+   * Sokol / plinth height (mm10) — a recessed toe-kick UNDER the carcass. Absent = no plinth (every
+   * existing model is unchanged). `box.h` stays the CARCASS height; the plinth is an EXTRA part below,
+   * at `y ∈ [box.y − plinth, box.y]`, so the carcass placement never moves — the scene recentres on the
+   * new lowest point (`layoutBounds` minY) and the furniture stands on the plinth. Kitchen default 1000
+   * (= 100 mm), grounded in `apps/app/src/three/kitchen3d.ts` (PLINTH) + `model/layout.ts` (GEOM.plinth).
+   */
+  readonly plinth_mm10?: mm10;
 }
 
 // ---------------------------------------------------------------------------

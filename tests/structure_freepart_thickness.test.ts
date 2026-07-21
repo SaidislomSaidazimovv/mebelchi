@@ -29,7 +29,9 @@ function model(fp: FreePart): StructuralModel {
 }
 
 const part = (fp: FreePart) => solveStructure(model(fp))[0]!;
-const dims = (fp: FreePart) => { const p = part(fp); return [p.length_mm10, p.width_mm10, p.thickness_mm10]; };
+// A fixed 3-tuple so destructured L/W/T stay `number` under noUncheckedIndexedAccess (a bare array
+// would make each `number | undefined`, which `toBeLessThanOrEqual` rejects).
+const dims = (fp: FreePart): [number, number, number] => { const p = part(fp); return [p.length_mm10, p.width_mm10, p.thickness_mm10]; };
 const board = (box: FreePart["box"], thicknessAxis: FreePart["thicknessAxis"]): FreePart =>
   ({ id: "f", name: "Doska", role: "panel", thicknessAxis, box });
 

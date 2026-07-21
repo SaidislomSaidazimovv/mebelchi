@@ -237,8 +237,16 @@ function boxCarcass(idBase: string, label: string, w: mm10, h: mm10, d: mm10, t:
 }
 
 function carcassParts(block: Block, t: ResolvedT): Part[] {
-  const { w, h, d } = block.box;
-  return boxCarcass(block.id, "", w, h, d, t);
+  const { w } = block.box;
+  const parts = boxCarcass(block.id, "", w, block.box.h, block.box.d, t);
+  // Sokol / plinth (Phase 1.1): a recessed toe-kick board spanning the inner width, standing at the
+  // front UNDER the carcass. `box.h` stays the carcass height — this is an extra part below it. Its
+  // edges are all concealed (bottom on the floor, top under the carcass, ends behind the sides), so it
+  // is unbanded like the hidden back panel. Carcass material; no drilling (a toe-kick takes none).
+  if (block.plinth_mm10 && block.plinth_mm10 > 0) {
+    parts.push(panel(`${block.id}__plinth`, "Цоколь", w - 2 * t.carcass, block.plinth_mm10, [0, 0, 0, 0], t.carcass, "carcass_plinth"));
+  }
+  return parts;
 }
 
 // Corner-filler width (blocker #6) — the strip that bridges the L junction. GROUNDED: the corner

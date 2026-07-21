@@ -48,7 +48,7 @@ const MOB_TABS: { id: MobTab; label: string }[] = [
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
 function materialMap(plan: MaterialPlan): Record<string, string> {
-  const roles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "internal_shelf", "facade"];
+  const roles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "carcass_plinth", "internal_shelf", "facade"];
   return Object.fromEntries(roles.map((r) => [r, boardForRole(plan, r)?.name ?? ""]));
 }
 
@@ -2017,7 +2017,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           / shelves / doors). It applies to the WHOLE carcass, so we say so. */}
       {!selComp && selectedId && (() => {
         const part = parts.find((p) => p.id === selectedId);
-        const carcassRoles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back"];
+        const carcassRoles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "carcass_plinth"];
         if (!part || !carcassRoles.includes(part.role ?? "")) return null;
         const slot: "carcass" | "back" = part.role === "carcass_back" ? "back" : "carcass";
         return (

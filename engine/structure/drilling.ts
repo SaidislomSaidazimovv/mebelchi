@@ -21,6 +21,8 @@
 //     ⬇ CNC button, so these provisional cups/pins DO land in a downloaded SWJ008. Nothing
 //     currently gates the export on verified:false — treat karkas SWJ008 as provisional until
 //     the factory sign-off lands (tracked as an open manufacturing-readiness item).
+//   • Plinth (carcass_plinth): intentionally UNDRILLED here — a toe-kick takes no System-32 pins or
+//     hinge cups; a plinth part simply falls through this pass with operations: []. (Phase 1.1.)
 //
 // PURITY / SAFETY: imports ONLY primitives + types — never the hardware catalog JSON. The
 // spec is passed IN by the caller (engine/cnc.ts), keeping the JSON import-attribute out of

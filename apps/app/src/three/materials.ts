@@ -99,6 +99,8 @@ export function planSlotForRole(role: string | undefined): keyof Omit<MaterialPl
       return "back";
     case "internal_shelf":
       return "shelf";
+    case "carcass_plinth":
+      return "carcass"; // the sokol is carcass stock (the `default` would already do this — explicit per the role rule)
     default:
       return "carcass"; // sides / top / bottom / dividers / mounts / untagged
   }
