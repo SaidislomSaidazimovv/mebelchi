@@ -91,6 +91,10 @@ export const HARDWARE = {
   pin: { name: "Полкодержатель", priceUzs: 1200 },
   cam: { name: "Стяжка Minifix", priceUzs: 3500 },
   dowel: { name: "Шкант 8×30", priceUzs: 600 },
+  // Phase 1.3 — a handle unit. Mock price, grounded in the kitchen's bagannas handle (6000–7000) and
+  // provisional like every other value here (the pricing seed flags hardware as estimated); a gola
+  // profile is really per-metre, priced as one unit for now.
+  handle: { name: "Ручка", priceUzs: 7000 },
 } as const;
 
 /** Cam-and-dowel joints per carcass box: top↔side ×2 + bottom↔side ×2 = 4, each 2 cams + 2 dowels. */

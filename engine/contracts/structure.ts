@@ -109,6 +109,9 @@ export type SectionPurpose =
 /** Composition kind of a `Row` above the carcasses. */
 export type RowKind = "base" | "upper" | "tall";
 
+/** Handle / dastak kind on a door or drawer (Phase 1.3). Absent on a Component = no handle (Без). */
+export type HandleType = "bow" | "profile" | "knob";
+
 // ---------------------------------------------------------------------------
 // Line — first-class entity (DB/19_FUNCTION_MAP.md §3.1)
 // ---------------------------------------------------------------------------
@@ -212,6 +215,13 @@ export interface Component {
    * before, so only an explicitly right-hung door changes. Handle sits opposite the hinge.
    */
   readonly hingeEdge?: "left" | "right";
+  /**
+   * Handle / dastak on a door or drawer front (Phase 1.3). `"bow"` = Скоба (a bow/D handle, two
+   * screws), `"knob"` = Кнопка (one screw), `"profile"` = gola/integral profile (no separate drilling).
+   * Absent = Без / handle-less (every existing door unchanged). Placement is DERIVED opposite the hinge
+   * (`hingeEdge`) when drilling/rendering, not stored. The handle is counted + priced as hardware.
+   */
+  readonly handle?: HandleType;
   /**
    * Drawer box (Phase 7.3): `true` = this placement is a drawer, so the solver emits a 5-panel box
    * (facade front + two carcass sides + carcass back + a thin bottom) sized to the section with a

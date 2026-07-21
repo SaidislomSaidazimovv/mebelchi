@@ -151,12 +151,13 @@ function sectionHeightMm(roots: Section[], id: string): number | null {
 /** Raw hardware counts for a model — the numbers behind hardwareEstimate, reused by the kitchen
  *  quote to price a hybrid cabinet's real hardware (drawer slides etc.) instead of the fill/count
  *  approximation. */
-export function hardwareCounts(model: StructuralModel): { hinges: number; slides: number; pins: number; cams: number; dowels: number } {
+export function hardwareCounts(model: StructuralModel): { hinges: number; slides: number; pins: number; cams: number; dowels: number; handles: number } {
   let hinges = 0;
   let slides = 0;
   let pins = 0;
   let cams = 0;
   let dowels = 0;
+  let handles = 0;
   for (const b of model.blocks) {
     cams += CAMS_PER_CARCASS;
     dowels += DOWELS_PER_CARCASS;
@@ -171,19 +172,21 @@ export function hardwareCounts(model: StructuralModel): { hinges: number; slides
       } else if (comp.role === "internal_shelf") {
         pins += PINS_PER_SHELF;
       }
+      if (comp.handle) handles += 1; // Phase 1.3 — one handle per handled door/drawer leaf (per-instance, like hinges)
     }
   }
-  return { hinges, slides, pins, cams, dowels };
+  return { hinges, slides, pins, cams, dowels, handles };
 }
 
 export function hardwareEstimate(model: StructuralModel): HardwareEstimate {
-  const { hinges, slides, pins, cams, dowels } = hardwareCounts(model);
+  const { hinges, slides, pins, cams, dowels, handles } = hardwareCounts(model);
   const lines = [
     { name: HARDWARE.hinge.name, qty: hinges, priceUzs: hinges * HARDWARE.hinge.priceUzs },
     { name: HARDWARE.slide.name, qty: slides, priceUzs: slides * HARDWARE.slide.priceUzs },
     { name: HARDWARE.pin.name, qty: pins, priceUzs: pins * HARDWARE.pin.priceUzs },
     { name: HARDWARE.cam.name, qty: cams, priceUzs: cams * HARDWARE.cam.priceUzs },
     { name: HARDWARE.dowel.name, qty: dowels, priceUzs: dowels * HARDWARE.dowel.priceUzs },
+    { name: HARDWARE.handle.name, qty: handles, priceUzs: handles * HARDWARE.handle.priceUzs },
   ].filter((l) => l.qty > 0);
   return { lines, priceUzs: sum(lines.map((l) => l.priceUzs)) };
 }
