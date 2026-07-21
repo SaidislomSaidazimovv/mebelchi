@@ -21,8 +21,9 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
+import { applianceFittings } from "./appliances";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
@@ -65,6 +66,7 @@ interface RT {
   holeGroup: THREE.Group | null; // «Teshiklar» — drill-hole markers, toggled on/off
   kromkaGroup: THREE.Group | null; // Step 8.2 — coloured banded-edge lines, shown in Frame view
   handleGroup: THREE.Group | null; // Phase 1.3d — 3D handle meshes (bow bar / knob) on handled doors
+  applianceGroup: THREE.Group | null; // Phase 3.b — 3D appliance meshes (oven / hob / sink / …)
   ghostGroup: THREE.Group | null; // Step 9 — Application-view ghost props (boiler / clothes / …)
   // Live 3D dimension lines, built on drag-start and torn down on pointer-up. A list because a divider
   // drag needs TWO at once — the bay either side of it.
@@ -569,7 +571,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
     const grid = makeGrid("light"); scene3.add(grid); // U2.1b — Moblo floor grid (theme-swapped by the effect below)
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
     // dev-only: expose the three runtime so local tooling (puppeteer) can assert on the SCENE GRAPH — a
     // 3D overlay like the dimension line has no DOM to query. Stripped from prod builds, like __karkas.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
@@ -962,6 +964,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
       if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
       if (rt.current?.handleGroup) disposeStructureGroup(rt.current.handleGroup);
+      if (rt.current?.applianceGroup) disposeStructureGroup(rt.current.applianceGroup);
       if (rt.current?.ghostGroup) disposeStructureGroup(rt.current.ghostGroup);
       labels.w.remove(); labels.h.remove(); labels.d.remove();
       renderer.dispose();
@@ -1074,6 +1077,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const hg = buildHandleGroup(handleFittings(solveModelToParts(model, planThickness(plan)), hplaces), layoutBounds(hplaces));
     r.scene.add(hg);
     r.handleGroup = hg;
+    // Phase 3.b — rebuild the 3D appliance meshes from the appliance fittings (real size in each section).
+    if (r.applianceGroup) { r.scene.remove(r.applianceGroup); disposeStructureGroup(r.applianceGroup); }
+    const ag = buildApplianceGroup(applianceFittings(model, hplaces));
+    r.scene.add(ag);
+    r.applianceGroup = ag;
     highlightBoard(group, selectedId);
     // C5 — refresh the dimension overlay: bounding box + W/H/D text (mm)
     r.aabb = new THREE.Box3().setFromObject(group);
