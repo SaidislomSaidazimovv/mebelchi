@@ -215,6 +215,8 @@ interface KarkasState extends Derived {
   rotateFreePartTo: (fpId: string, deg: number, first: boolean) => void;
   /** gizmos «rotate» — turn a whole cabinet about the vertical axis (deg, placement-only, not machined). */
   rotateBlockTo: (blockId: string, deg: number, first: boolean) => void;
+  /** Phase 1.1b — set a cabinet's sokol/plinth height (mm10); `≤ 0` removes it. */
+  setPlinth: (blockId: string, mm10: number) => void;
   /** U4.2 — the set of whole blocks ticked in the block-navigator for grouping. */
   selectedBlockIds: string[];
   /** U4.2 — toggle a block in the group-selection (clears any part selection). */
@@ -604,6 +606,24 @@ export const useKarkas = create<KarkasState>((set, get) => {
       };
       if (first) apply(model, true);
       else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
+    },
+    // Phase 1.1b — sokol / plinth height for a whole cabinet (mm10). `≤ 0` clears the field (no plinth).
+    // Mirrors rotateBlockTo: a block-level patch, keepSel, one undo step. box.h is untouched; the plinth
+    // is an extra part below (solve/layout), so the scene recentres and the cabinet stands on it.
+    setPlinth: (blockId, mm10) => {
+      const s = get();
+      if (!s.model.blocks.some((b) => b.id === blockId)) return;
+      const v = Math.round(mm10);
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => {
+          if (b.id !== blockId) return b;
+          if (v > 0) return { ...b, plinth_mm10: v };
+          const { plinth_mm10: _drop, ...rest } = b; // clear the field entirely when off
+          return rest;
+        }),
+      };
+      apply(model, true); // keepSel — same cabinet, one undo step
     },
     // gizmos «duplicate» — copy whatever is selected: a free board (copy lands beside it, and is SELECTED
     // so the gizmo moves straight onto it) or, for any carcass panel, the WHOLE cabinet.

@@ -143,6 +143,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const rotateBlockTo = useKarkas((s) => s.rotateBlockTo);
+  const setPlinth = useKarkas((s) => s.setPlinth);
   const duplicateSelected = useKarkas((s) => s.duplicateSelected);
   const applyToAllIdentical = useKarkas((s) => s.applyToAllIdentical);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -1817,6 +1818,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             {blk && (
               <label className="mob-props-f"><span>Burilish</span>
                 <DimField label="°" value={Math.round(blk.rotY_deg ?? 0)} onCommit={(d) => rotateBlockTo(blk.id, ((d % 360) + 360) % 360, true)} min={0} suffix="°" />
+              </label>
+            )}
+            {/* Phase 1.1b — sokol: 0 = none, 100 = the standard toe-kick. box.h is unchanged; the plinth
+                is an extra part below the carcass, so the cabinet rises onto it. */}
+            {blk && (
+              <label className="mob-props-f"><span>Sokol</span>
+                <DimField label="mm" value={Math.round((blk.plinth_mm10 ?? 0) / 10)} onCommit={(mm) => setPlinth(blk.id, mm * 10)} min={0} units={units} />
               </label>
             )}
           </div>
