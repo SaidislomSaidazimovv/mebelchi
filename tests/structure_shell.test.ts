@@ -9,6 +9,7 @@ import { solveStructure } from "../engine/structure/solve.js";
 import { solveLayout } from "../engine/structure/layout.js";
 import { solveModelToParts } from "../engine/cnc.js";
 import { buildCarcassModel, buildLCornerModel } from "../engine/structure/demoModel.js";
+import { useKarkas } from "../apps/app/src/three/karkasStore.js";
 import { planThickness, DEFAULT_PLAN } from "../apps/app/src/three/materials.js";
 import type { PanelShell, StructuralModel } from "../engine/contracts/structure.js";
 
@@ -93,5 +94,30 @@ describe("M2.2 — Block.shell on an L-corner (both legs)", () => {
     const solveIds = solveStructure(m, tk).map((p) => p.id).sort();
     const layoutIds = solveLayout(m, tk).map((p) => p.id).sort();
     expect(solveIds).toEqual(layoutIds);
+  });
+});
+
+describe("M2.3 — setBlockShell store action", () => {
+  it("dropping a panel removes it from the solved parts", () => {
+    useKarkas.getState().setModel(buildCarcassModel(600, 720, 560));
+    useKarkas.getState().setBlockShell("blk_main", { back: false });
+    expect(useKarkas.getState().parts.length).toBe(4);
+    expect(useKarkas.getState().parts.some((p) => p.id.endsWith("__back"))).toBe(false);
+  });
+
+  it("toggling a panel back to present deletes the mask (byte-identical)", () => {
+    useKarkas.getState().setModel(buildCarcassModel(600, 720, 560));
+    useKarkas.getState().setBlockShell("blk_main", { back: false });
+    useKarkas.getState().setBlockShell("blk_main", { back: true });
+    expect(useKarkas.getState().model.blocks[0]!.shell).toBeUndefined(); // mask cleared entirely
+    expect(useKarkas.getState().parts.length).toBe(5); // full carcass restored
+  });
+
+  it("is undoable", () => {
+    useKarkas.getState().setModel(buildCarcassModel(600, 720, 560));
+    useKarkas.getState().setBlockShell("blk_main", { top: false, back: false });
+    expect(useKarkas.getState().parts.length).toBe(3);
+    useKarkas.getState().undo();
+    expect(useKarkas.getState().parts.length).toBe(5);
   });
 });

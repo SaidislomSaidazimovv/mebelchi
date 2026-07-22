@@ -185,6 +185,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const rotateBlockTo = useKarkas((s) => s.rotateBlockTo);
   const setPlinth = useKarkas((s) => s.setPlinth);
   const setWorktop = useKarkas((s) => s.setWorktop);
+  const setBlockShell = useKarkas((s) => s.setBlockShell);
   const duplicateSelected = useKarkas((s) => s.duplicateSelected);
   const applyToAllIdentical = useKarkas((s) => s.applyToAllIdentical);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
@@ -2017,6 +2018,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 aria-pressed={!!blk.worktop}
                 onClick={() => setWorktop(blk.id, !blk.worktop)}
               >Stoleshnitsa{blk.worktop ? " ✓" : ""}</button>
+            )}
+            {/* M2.3 — carcass shell: drop panels for open shelving / a back-less or open-top unit. Each chip
+                toggles one wall; ✕ = removed. L-corner: top/bottom/back hit both legs; sides hit leg-A. */}
+            {blk && (
+              <div className="mob-props-f" style={{ alignItems: "flex-start" }}>
+                <span>Devorlar</span>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {(([["sideL", "Chap"], ["sideR", "O'ng"], ["top", "Tepa"], ["bottom", "Tag"], ["back", "Orqa"]] as const)).map(([k, label]) => {
+                    const shown = blk.shell?.[k] !== false;
+                    return (
+                      <button key={k} type="button" className={"mob-props-toggle" + (shown ? " is-on" : "")} aria-pressed={shown}
+                        title={shown ? `${label} — bor` : `${label} — olib tashlangan`}
+                        onClick={() => setBlockShell(blk.id, { [k]: !shown })}
+                        style={{ padding: "3px 9px", fontSize: 12 }}>{label}{shown ? "" : " ✕"}</button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
             {/* 4.a — L-corner: toggle the block to/from an L, then size the return leg */}
             {blk && (

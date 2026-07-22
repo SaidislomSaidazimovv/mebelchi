@@ -5,7 +5,7 @@
 // call the engine's PURE immutable operations (divideSection / addInstance) and re-derive.
 
 import { create } from "zustand";
-import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind, PanelShell } from "../../../../engine/contracts/structure.js";
 
 /** The shapes furniture is actually made of — what the ＋ panel offers. */
 export type PrimitiveKind = "board" | "panel" | "post" | "box";
@@ -241,6 +241,9 @@ interface KarkasState extends Derived {
   setPlinth: (blockId: string, mm10: number) => void;
   /** Phase 1.2c — toggle a cabinet's worktop/stoleshnitsa on or off. */
   setWorktop: (blockId: string, on: boolean) => void;
+  /** M2.3 — toggle carcass shell panels (open shelving / back-less). A panel set back to present drops
+   *  out of the mask, and an all-present shell is deleted → byte-identical to a never-masked carcass. */
+  setBlockShell: (blockId: string, patch: Partial<PanelShell>) => void;
   /** U4.2 — the set of whole blocks ticked in the block-navigator for grouping. */
   selectedBlockIds: string[];
   /** U4.2 — toggle a block in the group-selection (clears any part selection). */
@@ -710,6 +713,23 @@ export const useKarkas = create<KarkasState>((set, get) => {
         }),
       };
       apply(model, true); // keepSel — same cabinet, one undo step
+    },
+    setBlockShell: (blockId, patch) => {
+      const s = get();
+      if (!s.model.blocks.some((b) => b.id === blockId)) return;
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => {
+          if (b.id !== blockId) return b;
+          const merged: Partial<PanelShell> = { ...(b.shell ?? {}), ...patch };
+          // keep ONLY real removals (false); a panel back to present drops out of the mask entirely, and
+          // an empty mask deletes `shell` → byte-identical to a never-masked carcass.
+          for (const k of Object.keys(merged) as (keyof PanelShell)[]) if (merged[k] !== false) delete merged[k];
+          if (Object.keys(merged).length === 0) { const { shell: _drop, ...rest } = b; return rest; }
+          return { ...b, shell: merged };
+        }),
+      };
+      apply(model, true); // keepSel, one undo step
     },
     // gizmos «duplicate» — copy whatever is selected: a free board (copy lands beside it, and is SELECTED
     // so the gizmo moves straight onto it) or, for any carcass panel, the WHOLE cabinet.
