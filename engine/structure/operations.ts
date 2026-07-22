@@ -37,6 +37,7 @@ import type {
   ApplianceKind,
   DrawerOrganizer,
   HandleType,
+  LCornerFootprint,
   LiftType,
   FreeEdge,
   FreePart,
@@ -1205,6 +1206,29 @@ export function resizeBlockDepth(
   newDepth_mm10: mm10,
 ): StructuralModel {
   return resizeBlockAxis(model, blockId, "z", newDepth_mm10);
+}
+
+/**
+ * Phase 4.a — attach or drop an L-corner footprint on a block. When set: `box.w = legA.length`,
+ * `box.d = legA.depth + legB.length` (the L's bounding envelope), `box.h` unchanged. Converting a
+ * rectangular block with `legA = { length: box.w, depth: box.d }` keeps leg-A === the original box, so the
+ * root section + all its content stay valid (no reflow). When cleared (null): drop the footprint + restore
+ * `box.d = legA.depth` (the usable rectangle) → a byte-identical round-trip. Same ref if nothing changes.
+ */
+export function setBlockFootprint(model: StructuralModel, blockId: BlockId, footprint: LCornerFootprint | null): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((b) => {
+    if (b.id !== blockId) return b;
+    if (footprint === null) {
+      if (!b.footprint) return b; // already rectangular — no-op
+      changed = true;
+      const { footprint: _drop, ...rest } = b;
+      return { ...rest, box: { ...b.box, d: b.footprint.legA.depth_mm10 } };
+    }
+    changed = true;
+    return { ...b, footprint, box: { ...b.box, w: footprint.legA.length_mm10, d: footprint.legA.depth_mm10 + footprint.legB.length_mm10 } };
+  });
+  return changed ? { ...model, blocks } : model;
 }
 
 /** Structure-level WIDTH edit (the ⤢ handle's second axis, L6): set a block's width; panels and
