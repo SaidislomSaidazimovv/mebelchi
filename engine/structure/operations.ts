@@ -1008,14 +1008,18 @@ function scaleBlockAxis(block: Block, axis: Axis, factor: number): Block {
   );
 
   const base: Block = { ...block, box: scaleBox(block.box), zones, instances, lines };
-  if (block.footprint && axis === "z") {
-    return {
-      ...base,
-      footprint: {
-        legA: { ...block.footprint.legA, depth_mm10: scale(block.footprint.legA.depth_mm10) },
-        legB: { ...block.footprint.legB, depth_mm10: scale(block.footprint.legB.depth_mm10) },
-      },
-    };
+  // Phase 4.b — scale the CORRECT leg params per axis so box + legs stay consistent (box.w = legA.length;
+  // box.d = legA.depth + legB.length). X carries legA.length + legB.depth (leg-B's X-width); Z carries
+  // legA.depth + legB.length (leg-B's Z-run). Y (height) is shared → no footprint change. Same `scale()` as
+  // the box/sections, so every shared coordinate rounds identically (no drift). Rectangular blocks skip this.
+  if (block.footprint) {
+    const f = block.footprint;
+    if (axis === "x") {
+      return { ...base, footprint: { legA: { ...f.legA, length_mm10: scale(f.legA.length_mm10) }, legB: { ...f.legB, depth_mm10: scale(f.legB.depth_mm10) } } };
+    }
+    if (axis === "z") {
+      return { ...base, footprint: { legA: { ...f.legA, depth_mm10: scale(f.legA.depth_mm10) }, legB: { ...f.legB, length_mm10: scale(f.legB.length_mm10) } } };
+    }
   }
   return base;
 }
