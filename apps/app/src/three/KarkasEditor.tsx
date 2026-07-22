@@ -252,6 +252,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // Step 7 — Joint profile (System-32 grid + cam). jointProfile() returns a fresh object → memo on model.
   const jointProfileFn = useKarkas((s) => s.jointProfile);
   const joint = useMemo(() => jointProfileFn(), [jointProfileFn, model]);
+  // Phase 6.2 — workshop (factory) profile: store actions + primitive per-role thickness overrides (mm; 0 =
+  // the decor default). Selectors return primitives (never a fresh object — the React 18 useSyncExternalStore rule).
+  const setRoleThickness = useKarkas((s) => s.setRoleThickness);
+  const saveWorkshopDefault = useKarkas((s) => s.saveWorkshopDefault);
+  const applyWorkshopDefault = useKarkas((s) => s.applyWorkshopDefault);
+  const workshopSummaryFn = useKarkas((s) => s.workshopSummary);
+  const thkCarcass = useKarkas((s) => (s.thickness.carcass ? Math.round(s.thickness.carcass / 10) : 0));
+  const thkBack = useKarkas((s) => (s.thickness.back ? Math.round(s.thickness.back / 10) : 0));
+  const thkShelf = useKarkas((s) => (s.thickness.shelf ? Math.round(s.thickness.shelf / 10) : 0));
+  const thkFacade = useKarkas((s) => (s.thickness.facade ? Math.round(s.thickness.facade / 10) : 0));
+  const thkWorktop = useKarkas((s) => (s.thickness.worktop ? Math.round(s.thickness.worktop / 10) : 0));
   const setJointProfile = useKarkas((s) => s.setJointProfile);
   // Only ONE tool/panel is open at a time (mobile fix): a single active-panel state, toggled per button,
   // replaces the old independent booleans so panels never stack/overlap.
@@ -261,7 +272,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // Mobile: float these panels as a CONTENT-HEIGHT card just ABOVE the bottom bar (not a full-height box),
   // so a short list (materials legend / joints / hole / app) is only as tall as its content, Moblo-style.
   const compactSheet: CSSProperties = compact ? { left: 8, right: 8, bottom: 122, top: "auto", width: "auto", maxWidth: "none", maxHeight: "56vh", borderRadius: 16, overflowY: "auto", zIndex: 80 } : {};
-  const [activePanel, setActivePanel] = useState<null | "divide" | "corners" | "cutout" | "kromka" | "materials" | "app" | "joints" | "tree" | "spec">(null);
+  const [activePanel, setActivePanel] = useState<null | "divide" | "corners" | "cutout" | "kromka" | "materials" | "app" | "joints" | "workshop" | "tree" | "spec">(null);
   const togglePanel = (p: NonNullable<typeof activePanel>) => setActivePanel((cur) => (cur === p ? null : p));
   const showDivide = activePanel === "divide";
   const showCorners = activePanel === "corners";
@@ -270,6 +281,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const showMaterials = activePanel === "materials";
   const appView = activePanel === "app";
   const showJoints = activePanel === "joints";
+  const showWorkshop = activePanel === "workshop"; // Phase 6.2 — the factory profile panel
+  const [wsSaved, setWsSaved] = useState(0); // Phase 6.2 — bump on save (forces the summary to refresh + a ✓)
   const showTree = activePanel === "tree";
   const showSpec = activePanel === "spec";
   const jointFindingsFn = useKarkas((s) => s.jointFindings);
@@ -2009,6 +2022,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         {/* (holes toggle → Moblo left toolbar, U2.2) */}
         {/* Step 7 — Birikma (joints) mode: the JointProfile editor; turning it on shows the drilled holes */}
         <button style={{ ...act, ...(showJoints ? { borderColor: "#8a5a1f", background: "#f2e3cd", color: "#6b3f0f" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => { if (activePanel !== "joints") setShowHoles(true); togglePanel("joints"); }} type="button" title="Birikma profili (System-32 teshiklar)">⚙ Birikma</button>
+        {/* Phase 6.2 — the factory (workshop) profile: per-role thickness + save/apply the global default */}
+        <button style={{ ...act, ...(showWorkshop ? { borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" } : { borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }) }} onClick={() => togglePanel("workshop")} type="button" title="Fabrika profili (qalinlik + saqlangan default)">📋 Fabrika profili</button>
         <button style={{ ...act, borderColor: "#6b7280", background: "#eef0f3", color: "#374151" }} onClick={() => togglePanel("tree")} type="button">☰ Detallar</button>
         <button style={{ ...act, borderColor: "#c9a24b", background: "#f7efd8", color: "#8a6d1f" }} onClick={() => togglePanel("spec")} type="button">📋 Spec</button>
         <button style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a" }} onClick={printDrawing} type="button">📐 Chizma</button>
@@ -2363,6 +2378,41 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             )}
           </div>
         )}
+        {/* Phase 6.2 — the factory (workshop) profile: per-role thickness + save / apply the GLOBAL default */}
+        {showWorkshop && (() => {
+          void wsSaved; // referenced so a save (which bumps it) re-runs this + refreshes the summary below
+          const ws = workshopSummaryFn(); // the saved factory default (read from localStorage)
+          const decor = (id: string): string => BOARDS.find((b) => b.id === id)?.name ?? id;
+          const roles: readonly [string, "carcass" | "back" | "shelf" | "facade" | "worktop", number][] = [
+            ["Korpus", "carcass", thkCarcass], ["Orqa", "back", thkBack], ["Polka", "shelf", thkShelf],
+            ["Fasad", "facade", thkFacade], ["Stoleshnitsa", "worktop", thkWorktop],
+          ];
+          return (
+            <div style={{ position: "absolute", right: 10, top: 10, zIndex: 44, background: "#fff", color: PAPER_INK, borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 260, ...compactSheet }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <b style={{ fontSize: 13 }}>📋 Fabrika profili</b>
+                <button onClick={() => setActivePanel(null)} type="button" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }}>✕</button>
+              </div>
+              <p style={{ fontSize: 11, color: "#777", margin: "0 0 8px", lineHeight: 1.35 }}>Material «Materiallar»da, birikma «⚙ Birikma»da. Bu yerda <b>qalinlik</b> (decordan alohida) + saqlangan <b>fabrika default</b>.</p>
+              {roles.map(([label, role, mm]) => (
+                <div key={role} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, color: "#444" }}>{label}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <DimField label={mm ? "mm" : "decor"} value={mm} onCommit={(v) => setRoleThickness(role, v)} min={0} />
+                    {mm > 0 && <button onClick={() => setRoleThickness(role, 0)} type="button" title="Decor qalinligiga qaytarish" style={{ border: "1px solid #ccc", background: "#f6f6f6", borderRadius: 6, cursor: "pointer", fontSize: 12, padding: "2px 6px" }}>↺</button>}
+                  </div>
+                </div>
+              ))}
+              <div style={{ marginTop: 8, padding: 8, borderRadius: 8, background: "#f4f6f9", border: "1px solid #dde3ea", fontSize: 11, color: "#555", lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, color: "#1f478a", marginBottom: 3 }}>Saqlangan fabrika default{wsSaved > 0 ? " ✓" : ""}</div>
+                <div>Korpus: {decor(ws.plan.carcass)} · Fasad: {decor(ws.plan.facade)}</div>
+                <div>Qalinlik override: {ws.thickness && Object.keys(ws.thickness).length ? Object.keys(ws.thickness).length + " ta rol" : "yo'q"}</div>
+              </div>
+              <button onClick={() => { saveWorkshopDefault(); setWsSaved((n) => n + 1); }} type="button" style={{ width: "100%", marginTop: 8, padding: "7px 10px", borderRadius: 8, border: "1px solid #1f5570", background: "#e0e8f7", color: "#1f478a", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>💾 Joriyni fabrika sifatida saqlash</button>
+              <button onClick={() => { applyWorkshopDefault(); setWsSaved(0); }} type="button" style={{ width: "100%", marginTop: 6, padding: "6px 10px", borderRadius: 8, border: "1px solid #bbb", background: "#f6f6f6", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>↺ Fabrikaga qaytarish</button>
+            </div>
+          );
+        })()}
         {/* Step 7c — the selected drill hole: move it on the panel face (persists as an override) or reset */}
         {selectedHole && (
           <div style={{ position: "absolute", left: 10, bottom: 10, zIndex: 45, background: "#fff", color: PAPER_INK, borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 12, width: 214, ...compactSheet }}>
