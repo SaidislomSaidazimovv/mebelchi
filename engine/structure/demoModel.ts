@@ -175,14 +175,14 @@ export function buildLCornerModel(): StructuralModel {
   // depth = legB.length (Z), shared height. Empty → emits no part (the demo's cut list is unchanged); it
   // simply appears as a second «bo'lim» you can add content to. Ids match operations.ts LEGB_*_ID.
   const legBRoot: Section = {
-    id: "sec_legB",
+    id: "blk_l__sec_legB", // Audit S1 — per-block leg-B section id (block is blk_l)
     box: { x: 0, y: 0, z: legA.depth_mm10, w: legB.depth_mm10, h: H, d: legB.length_mm10 },
     dividers: [],
     children: [],
     instanceIds: [],
     purpose: null,
   };
-  const legBZone: Zone = { id: "z_legB", name: "Плечо B", rule: "manual", facing: "-x", root: legBRoot }; // −X: leg-B facades open sideways (Phase 4.d-2)
+  const legBZone: Zone = { id: "blk_l__z_legB", name: "Плечо B", rule: "manual", facing: "-x", root: legBRoot }; // Audit S1 — per-block leg-B zone id
   const shelf: Component = { id: "cmp_l_shelf", name: "Полка", partIds: [], role: "internal_shelf" };
   const shelfInst: Instance = {
     id: "inst_l_shelf",

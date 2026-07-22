@@ -11,7 +11,7 @@ import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, Hand
 export type PrimitiveKind = "board" | "panel" | "post" | "box";
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
-import { solveStructure } from "../../../../engine/structure/solve.js";
+import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
 import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
@@ -594,7 +594,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
         : { w: 600, h: 720, d: 560 };
       const fresh = buildCarcassModel(dims.w, dims.h, dims.d).blocks[0];
       if (!fresh) return; // buildCarcassModel always yields a block — the guard only narrows the type
-      const uid = Date.now().toString(36);
+      const uid = Date.now().toString(36) + "_" + (freeSeq++).toString(36); // + a monotonic counter → no same-ms collision
       const zone = fresh.zones[0];
       if (!zone) return; // a fresh carcass always has one zone — narrows Zone | undefined → Zone
       const rightEdge = s.model.blocks.reduce((mx, b) => Math.max(mx, b.box.x + b.box.w), 0);
@@ -713,7 +713,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const sel = s.selectedId;
       const block = sel ? blockOfPart(s.model, sel) : undefined;
       if (!sel || !block) return;
-      const uid = Date.now().toString(36);
+      const uid = Date.now().toString(36) + "_" + (freeSeq++).toString(36); // + a monotonic counter → no same-ms collision
       try {
         if (sel.includes("__free_")) {
           const fpId = sel.slice(sel.indexOf("__free_") + "__free_".length);
@@ -818,7 +818,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     // 5.r2 — snap the run to a room wall (its blocks tile + orient along it), or free it (null).
     snapRunToWall: (runId, wallId) => {
       const s = get();
-      apply(snapRunToWall(s.model, runId, wallId));
+      try { apply(snapRunToWall(s.model, runId, wallId)); } catch { /* engine guard — ignore a bad snap */ }
     },
     // 5.r3 — drop an L-corner block into the L room's corner: legs sized to the run depth (flush), hand =
     // room.turn, auto-positioned + oriented; the wall-1 run insets to clear it.
@@ -826,20 +826,21 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const s = get();
       const room = s.model.room;
       if (!room || room.walls.length < 2) return;
+      if (s.model.blocks.some((b) => b.name === "Burchak shkaf")) return; // already has a corner block — no double
       const ref = s.model.blocks[0];
       const height_mm = ref ? Math.round(ref.box.h / 10) : 720;
       const depth_mm = ref ? Math.round(ref.box.d / 10) : 560; // corner leg depth = the run cabinets' depth (flush)
       const legLen_mm = depth_mm + 340; // leg reach along the wall = depth + a standard corner overhang
       const fresh = buildCarcassModel(legLen_mm, height_mm, depth_mm).blocks[0];
       if (!fresh) return;
-      const uid = Date.now().toString(36);
+      const uid = Date.now().toString(36) + "_" + (freeSeq++).toString(36); // + a monotonic counter → no same-ms collision
       const zone = fresh.zones[0];
       if (!zone) return;
       const block: Block = { ...fresh, id: `blk_${uid}`, name: "Burchak shkaf", zones: [{ ...zone, id: `z_${uid}`, root: { ...zone.root, id: `sec_${uid}` } }] };
       const withBlock: StructuralModel = { ...s.model, blocks: [...s.model.blocks, block] };
       const leg = { length_mm10: legLen_mm * 10, depth_mm10: depth_mm * 10 };
       const asL = setBlockFootprint(withBlock, block.id, { legA: leg, legB: leg, hand: room.turn ?? "left" });
-      apply(fitCorner(asL, block.id));
+      try { apply(fitCorner(asL, block.id)); } catch { /* engine guard — ignore a bad corner-fit */ }
     },
     moveFreePart: (fpId, delta, first) => {
       const s = get();
@@ -1176,7 +1177,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       // show the drawer's ACTUAL solved front height (front part length = box height) so an unset nested
       // drawer reads its real fill height, not the 200 fallback — editing then grows/shrinks from what's seen.
       const front = s.parts.find((p) => p.id === `${r.base}__front`);
-      return Math.round((front ? front.length_mm10 : r.inst.drawerHeight_mm10 ?? 2000) / 10);
+      return Math.round((front ? front.length_mm10 : r.inst.drawerHeight_mm10 ?? DRAWER_HEIGHT_MM10) / 10);
     },
     selectedParts: () => {
       const s = get();
@@ -1359,7 +1360,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     workshopSummary: () => loadWorkshopProfile(),
     jointFindings: () => {
       const s = get();
-      return checkJointConstraints(solveModelToParts(s.model, planThickness(s.plan)), s.jointProfile().minEdgeMargin_mm10);
+      return checkJointConstraints(solveModelToParts(s.model, { ...planThickness(s.plan), ...s.thickness }), s.jointProfile().minEdgeMargin_mm10); // Phase 6 — honour the thickness override
     },
     exportOverride: false,
     setExportOverride: (on) => set({ exportOverride: on }),

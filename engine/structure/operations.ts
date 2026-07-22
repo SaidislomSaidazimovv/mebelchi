@@ -1216,10 +1216,13 @@ export function resizeBlockDepth(
 }
 
 /** Phase 4.d-1 — the L's return leg (leg-B) is carried as its own zone/section, so content (shelves /
- *  dividers) can live in BOTH legs. These ids are engine-controlled; `buildLCornerModel` uses the same
- *  literals (kept in sync by hand to avoid a demoModel→operations import cycle). */
-export const LEGB_ZONE_ID = "z_legB";
-export const LEGB_SECTION_ID = "sec_legB";
+ *  dividers) can live in BOTH legs. Audit S1 — the ids are keyed PER BLOCK (`${blockId}__z_legB` /
+ *  `${blockId}__sec_legB`), so a model with MULTIPLE L-blocks (two corner units, an L + a corner-fit) never
+ *  shares a section id — a fixed literal made them collide → the «N-bo'lim» picker rendered a duplicate key
+ *  and content landed in the wrong cabinet. `isLegBZone` matches both the per-block id and the legacy literal. */
+export const legBZoneId = (blockId: BlockId): string => `${blockId}__z_legB`;
+export const legBSectionId = (blockId: BlockId): string => `${blockId}__sec_legB`;
+const isLegBZone = (z: { readonly id: string }): boolean => z.id.endsWith("z_legB"); // per-block + legacy "z_legB"
 
 /**
  * Phase 4.a — attach or drop an L-corner footprint on a block. When set: `box.w = legA.length`,
@@ -1245,7 +1248,7 @@ export function setBlockFootprint(model: StructuralModel, blockId: BlockId, foot
       changed = true;
       const { footprint: _drop, ...rest } = b;
       // drop the auto-added leg-B zone so the round-trip is byte-identical
-      return { ...rest, box: { ...b.box, d: b.footprint.legA.depth_mm10 }, zones: b.zones.filter((z) => z.id !== LEGB_ZONE_ID) };
+      return { ...rest, box: { ...b.box, d: b.footprint.legA.depth_mm10 }, zones: b.zones.filter((z) => !isLegBZone(z)) };
     }
     changed = true;
     // Phase 4 polish — handedness: a right-hand L puts leg-B at leg-A's max-X end, opening +X; the default
@@ -1255,11 +1258,11 @@ export function setBlockFootprint(model: StructuralModel, blockId: BlockId, foot
     const legBX = right ? footprint.legA.length_mm10 - footprint.legB.depth_mm10 : 0;
     const facing: FaceDir = right ? "+x" : "-x";
     const legBBox = { x: legBX, y: 0, z: footprint.legA.depth_mm10, w: footprint.legB.depth_mm10, h: b.box.h, d: footprint.legB.length_mm10 };
-    const existing = b.zones.find((z) => z.id === LEGB_ZONE_ID);
+    const existing = b.zones.find(isLegBZone);
     const legBZone: Zone = existing
       ? { ...existing, facing, root: { ...existing.root, box: legBBox } } // re-set (leg-B resized / hand flipped) — keep content
-      : { id: LEGB_ZONE_ID, name: "Плечо B", rule: "manual", facing, root: { id: LEGB_SECTION_ID, box: legBBox, dividers: [], children: [], instanceIds: [], purpose: null } };
-    const zones = existing ? b.zones.map((z) => (z.id === LEGB_ZONE_ID ? legBZone : z)) : [...b.zones, legBZone];
+      : { id: legBZoneId(b.id), name: "Плечо B", rule: "manual", facing, root: { id: legBSectionId(b.id), box: legBBox, dividers: [], children: [], instanceIds: [], purpose: null } };
+    const zones = existing ? b.zones.map((z) => (isLegBZone(z) ? legBZone : z)) : [...b.zones, legBZone];
     return { ...b, footprint, box: { ...b.box, w: footprint.legA.length_mm10, d: footprint.legA.depth_mm10 + footprint.legB.length_mm10 }, zones };
   });
   return changed ? { ...model, blocks } : model;

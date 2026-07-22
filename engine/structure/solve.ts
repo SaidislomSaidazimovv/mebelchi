@@ -425,12 +425,12 @@ export function shelfSpanZ(block: Block, section: Section, board: mm10): { z0: m
 }
 
 /** Runner clearance per drawer side (mm10) — the gap the slide occupies between box and carcass. */
-const DRAWER_SLIDE_CLEAR_MM10 = 130;
+export const DRAWER_SLIDE_CLEAR_MM10 = 130;
 
 /** Default drawer height (mm10): a fresh drawer is this tall, sitting at the BOTTOM of its section —
  *  NOT the full section height (a full-height drawer renders as thin slats and reads as "broken"). Capped
  *  to the section when it's shorter. MUST match DRAWER_HEIGHT_MM10 in layout.ts so the cut list + 3D agree. */
-const DRAWER_HEIGHT_MM10 = 2000; // 200 mm
+export const DRAWER_HEIGHT_MM10 = 2000; // 200 mm
 /** The drawer's own box: the section's footprint but only DRAWER_HEIGHT tall, kept at the section floor. */
 const drawerBoxOf = (b: Box3D, height_mm10?: mm10): Box3D => ({ ...b, h: Math.min(b.h, height_mm10 ?? DRAWER_HEIGHT_MM10) });
 

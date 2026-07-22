@@ -27,6 +27,8 @@ import type { mm10 } from "../contracts/types.js";
 import {
   BOARD_MM10,
   CORNER_FILLER_W,
+  DRAWER_HEIGHT_MM10,
+  DRAWER_SLIDE_CLEAR_MM10,
   WORKTOP_OVERHANG_MM10,
   drawerInteriorFromBox,
   GLASS_MM10,
@@ -336,12 +338,8 @@ function facadePlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlace
   return component.lift && !sideways ? { ...p, rotX_deg: LIFT_OPEN_DEG[component.lift] } : p;
 }
 
-/** Runner clearance per drawer side (mm10) — mirrors DRAWER_SLIDE_CLEAR_MM10 in solve.ts so the box
- *  the viewport draws sits exactly where the cut-list box is. */
-const DRAWER_SLIDE_CLEAR_MM10 = 130;
-/** Default drawer height (mm10) — mirrors DRAWER_HEIGHT_MM10 in solve.ts (a fresh drawer sits this tall at
- *  the section floor, not the full section height). Kept in sync so the 3D box matches the cut list. */
-const DRAWER_HEIGHT_MM10 = 2000; // 200 mm
+// Audit E1 — DRAWER_SLIDE_CLEAR_MM10 + DRAWER_HEIGHT_MM10 now imported from solve.ts (single source of truth,
+// compiler-enforced), instead of re-declared here (the two copies could drift silently).
 
 /** A drawer placement → the 5-panel box (facade front + 2 sides + back + bottom) laid into its
  *  section, matching the ids + geometry `drawerBoxParts` emits in solve.ts so the 3D shows the drawer

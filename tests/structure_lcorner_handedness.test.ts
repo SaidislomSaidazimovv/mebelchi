@@ -44,10 +44,10 @@ describe("Phase 4 polish — right-hand L mirrors the return leg", () => {
   });
 
   it("the leg-B section origin + facing follow the hand", () => {
-    const rz = lModel("right").blocks[0]!.zones.find((z) => z.id === "z_legB")!;
+    const rz = lModel("right").blocks[0]!.zones.find((z) => z.id.endsWith("z_legB"))!;
     expect(rz.root.box.x).toBe(LEGA.length_mm10 - LEGB.depth_mm10); // 2000 (max-X end)
     expect(rz.facing).toBe("+x");
-    const lz = lModel().blocks[0]!.zones.find((z) => z.id === "z_legB")!;
+    const lz = lModel().blocks[0]!.zones.find((z) => z.id.endsWith("z_legB"))!;
     expect(lz.root.box.x).toBe(0);
     expect(lz.facing).toBe("-x");
   });
@@ -55,7 +55,7 @@ describe("Phase 4 polish — right-hand L mirrors the return leg", () => {
 
 describe("Phase 4 polish — right-hand leg-B facades hang on the +X face", () => {
   it("a right-hand leg-B DOOR is thin-in-X on the +X face, spanning legB.length in Z", () => {
-    const R = addInstance(lModel("right"), "sec_legB", "door");
+    const R = addInstance(lModel("right"), "blk_main__sec_legB", "door");
     const facade = solveStructure(R, tk).find((p) => p.role === "facade")!;
     const pl = solveLayout(R, tk).find((p) => p.id === facade.id)!;
     expect(pl.w_mm10).toBe(tk.facade); // thin in X
@@ -64,7 +64,7 @@ describe("Phase 4 polish — right-hand leg-B facades hang on the +X face", () =
   });
 
   it("a right-hand leg-B DRAWER is mirror-exact (solve==layout) with its front on the +X face", () => {
-    const R = addInstance(lModel("right"), "sec_legB", "drawer");
+    const R = addInstance(lModel("right"), "blk_main__sec_legB", "drawer");
     const parts = solveStructure(R, tk), places = solveLayout(R, tk);
     const base = parts.find((p) => p.id.endsWith("__front"))!.id.slice(0, -"__front".length);
     for (const suf of ["__front", "__side_l", "__side_r", "__back", "__bottom"]) {
