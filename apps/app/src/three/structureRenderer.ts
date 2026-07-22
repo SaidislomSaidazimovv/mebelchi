@@ -5,6 +5,7 @@
 
 import * as THREE from "three";
 import type { Scene, Board } from "./structureScene";
+import type { MaterialFinish, TextureKind } from "./materials";
 
 const WOOD = 0xe7ddc9; // carcass face (matches the kitchen runStyle default)
 const EDGE = 0xc9bd9e; // panel edge outline
@@ -85,17 +86,98 @@ function boardGeometry(b: Board): THREE.BufferGeometry {
   return geom;
 }
 
-/** Build the assembled cabinet as a THREE.Group of box meshes — one per render board. `colorOf`
- *  (Phase F1) maps a part id → its decor colour (int); absent / undefined falls back to WOOD. */
-export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined): THREE.Group {
+// ── M3.3 — procedural canvas textures (generated once per kind, cloned per board so each gets its own
+//    real-world repeat). A grayscale height map is tinted by the decor colour (one wood generator serves
+//    light oak + dark wenge); a matching normal map gives the grain / pores relief under the M3.1 light. ──
+type TexPair = { map: THREE.Texture; normal: THREE.Texture };
+const texCache = new Map<TextureKind, TexPair>();
+
+const texHash = (x: number, y: number): number => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
+function valueNoise(x: number, y: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = texHash(xi, yi), b = texHash(xi + 1, yi), c = texHash(xi, yi + 1), d = texHash(xi + 1, yi + 1);
+  return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
+}
+function fbm(x: number, y: number): number { let s = 0, a = 0.5, f = 1; for (let i = 0; i < 4; i++) { s += a * valueNoise(x * f, y * f); f *= 2; a *= 0.5; } return s; }
+
+/** Grayscale height 0..1 for a texture kind at (x,y) in an N-tile (coords pre-wrapped for tileability). */
+function texHeight(kind: TextureKind, x: number, y: number, N: number): number {
+  const u = (x / N) * 8, v = (y / N) * 8;
+  if (kind === "wood") return 0.82 + 0.09 * Math.sin((u * 1.3 + fbm(u * 0.5, v * 0.12) * 3.2) * 3.0) + (fbm(u * 7, v * 1.6) - 0.5) * 0.12;
+  if (kind === "marble") return 0.93 - Math.pow(1 - Math.abs(Math.sin((u + fbm(u, v) * 4.2) * 1.1)), 3) * 0.5;
+  if (kind === "leather") return 0.78 + (fbm(u * 3.2, v * 3.2) - 0.5) * 0.28 + (fbm(u * 15, v * 15) - 0.5) * 0.14;
+  const weave = (Math.sin(u * 12) * Math.sin(v * 12)) * 0.5 + 0.5; // fabric
+  return 0.8 + (weave - 0.5) * 0.22 + (fbm(u * 9, v * 9) - 0.5) * 0.08;
+}
+
+function makeTexPair(kind: TextureKind): TexPair {
+  const N = 256;
+  const cC = document.createElement("canvas"); cC.width = cC.height = N;
+  const cN = document.createElement("canvas"); cN.width = cN.height = N;
+  const gC = cC.getContext("2d")!, gN = cN.getContext("2d")!;
+  const iC = gC.createImageData(N, N), iN = gN.createImageData(N, N);
+  const H = (x: number, y: number): number => texHeight(kind, ((x % N) + N) % N, ((y % N) + N) % N, N);
+  const bump = kind === "wood" || kind === "leather" ? 2.6 : kind === "fabric" ? 1.6 : 0.8;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const i = (y * N + x) * 4;
+    const g = Math.round(Math.max(0, Math.min(1, H(x, y))) * 255);
+    iC.data[i] = g; iC.data[i + 1] = g; iC.data[i + 2] = g; iC.data[i + 3] = 255; // grayscale → tinted by material.color
+    const nx = -(H(x + 1, y) - H(x - 1, y)) * bump, ny = -(H(x, y + 1) - H(x, y - 1)) * bump;
+    const l = Math.hypot(nx, ny, 1) || 1;
+    iN.data[i] = Math.round((nx / l * 0.5 + 0.5) * 255);
+    iN.data[i + 1] = Math.round((ny / l * 0.5 + 0.5) * 255);
+    iN.data[i + 2] = Math.round((1 / l * 0.5 + 0.5) * 255);
+    iN.data[i + 3] = 255;
+  }
+  gC.putImageData(iC, 0, 0); gN.putImageData(iN, 0, 0);
+  const map = new THREE.CanvasTexture(cC); map.colorSpace = THREE.SRGBColorSpace; map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  const normal = new THREE.CanvasTexture(cN); normal.colorSpace = THREE.NoColorSpace; normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
+  return { map, normal };
+}
+function texPair(kind: TextureKind): TexPair { const c = texCache.get(kind); if (c) return c; const t = makeTexPair(kind); texCache.set(kind, t); return t; }
+
+/** M3.2/M3.3 — the three.js material for a decor colour + finish + optional procedural texture. Absent
+ *  finish/texture → the matte laminate look (byte-identical to pre-M3.2). Gloss/glass/frosted are
+ *  MeshPhysicalMaterial; metal/mirror are metallic. A texture adds a cloned, per-board-scaled map +
+ *  normalMap. Returned as MeshStandardMaterial so highlightBoard / recolorBoards keep working. */
+export function materialForFinish(color: number, finish?: MaterialFinish, texture?: TextureKind, size?: readonly [number, number, number]): THREE.MeshStandardMaterial {
+  const mat: THREE.MeshStandardMaterial = ((): THREE.MeshStandardMaterial => {
+    switch (finish) {
+      case "satin": return new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0, envMapIntensity: 0.5 });
+      case "gloss": return new THREE.MeshPhysicalMaterial({ color, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 0.9 });
+      case "metal": return new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.9, envMapIntensity: 1 });
+      case "mirror": return new THREE.MeshStandardMaterial({ color, roughness: 0.03, metalness: 1, envMapIntensity: 1 });
+      case "glass": return new THREE.MeshPhysicalMaterial({ color, roughness: 0.05, metalness: 0, transmission: 0.92, ior: 1.5, thickness: 6, transparent: true, depthWrite: false, envMapIntensity: 1, side: THREE.DoubleSide });
+      case "frosted": return new THREE.MeshPhysicalMaterial({ color, roughness: 0.5, metalness: 0, transmission: 0.85, ior: 1.5, thickness: 6, transparent: true, depthWrite: false, envMapIntensity: 0.8, side: THREE.DoubleSide });
+      default: return new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0, envMapIntensity: 0.25 });
+    }
+  })();
+  if (texture) {
+    const { map, normal } = texPair(texture);
+    const m = map.clone(); m.needsUpdate = true;
+    const n = normal.clone(); n.needsUpdate = true;
+    const tile = 0.35; // metres per repeat → a consistent real-world grain scale whatever the board size
+    const rx = Math.max(1, Math.round(((size?.[0] ?? tile) / tile) * 10) / 10);
+    const ry = Math.max(1, Math.round(((size?.[1] ?? tile) / tile) * 10) / 10);
+    m.repeat.set(rx, ry); n.repeat.set(rx, ry);
+    mat.map = m; mat.normalMap = n; mat.normalScale = new THREE.Vector2(0.55, 0.55);
+    if (mat.roughness > 0.6) mat.roughness = 0.6; // a textured surface reads better a touch less flat
+    mat.needsUpdate = true;
+  }
+  return mat;
+}
+
+/** Build the assembled cabinet as a THREE.Group of box meshes — one per render board. `colorOf` (Phase F1)
+ *  maps a part id → its decor colour (int); absent → WOOD. `finishOf` (M3.2) maps id → surface finish;
+ *  absent → matte. */
+export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined, finishOf?: (id: string) => MaterialFinish | undefined, textureOf?: (id: string) => TextureKind | undefined): THREE.Group {
   const group = new THREE.Group();
   for (const b of scene.boards) {
     const geom = boardGeometry(b);
-    const mesh = new THREE.Mesh(
-      geom,
-      new THREE.MeshStandardMaterial({ color: colorOf?.(b.id) ?? WOOD, roughness: 0.82, metalness: 0 }),
-    );
+    const mesh = new THREE.Mesh(geom, materialForFinish(colorOf?.(b.id) ?? WOOD, finishOf?.(b.id), textureOf?.(b.id), b.size));
     mesh.userData.baseColor = colorOf?.(b.id) ?? WOOD; // remembered so realistic/shaded can restore it
+    mesh.castShadow = true; mesh.receiveShadow = true; // M3.1 — boards cast onto the floor + onto each other
     mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
     // Inclined shelf (imos AS_O_Angle): tilt the board so the FRONT stays LOW at its mount and the
     // BACK rises toward the back panel — exactly as imos does. We pivot about the shelf's FRONT-TOP
@@ -824,11 +906,19 @@ export function createDimLine(color = 0xf5a623): DimLine {
 
 /** Free the GPU resources of a structure group (call on unmount / before rebuild). */
 export function disposeStructureGroup(group: THREE.Group): void {
+  // M3.3 — a textured board's material carries a CLONED map + normalMap; three won't free those on
+  // material.dispose(), so free them here to keep scene rebuilds leak-free. The module-cached BASE
+  // textures are never assigned to a material (only clones are), so they stay safe.
+  const disposeMat = (mat: THREE.Material): void => {
+    const s = mat as THREE.MeshStandardMaterial;
+    s.map?.dispose(); s.normalMap?.dispose();
+    mat.dispose();
+  };
   group.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (mesh.geometry) mesh.geometry.dispose();
     const m = mesh.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(m)) m.forEach((x) => x.dispose());
-    else if (m) m.dispose();
+    if (Array.isArray(m)) m.forEach(disposeMat);
+    else if (m) disposeMat(m);
   });
 }
