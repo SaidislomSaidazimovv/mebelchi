@@ -1341,7 +1341,7 @@ function layRunAlongWall(
   const n = wallInteriorNormal(seg.dir, turn);
   const rotY = rotYForNormal(n);
   const placed = new Map<BlockId, Block>();
-  let s = 0; // cumulative along-wall offset
+  let s = run.cornerInset_mm10 ?? 0; // Phase 5.r3 — start after any corner block occupying the wall origin
   members.forEach(({ block }, i) => {
     const w = widthOf(block, i);
     const reflowed = reflowMemberWidth(block, w);
@@ -1417,6 +1417,42 @@ export function snapRunToWall(model: StructuralModel, runId: RunId, wallId: Wall
   const blocks = model.blocks.map((b) => (memberIds.has(b.id) && b.rotY_deg ? (({ rotY_deg: _r, ...rest }) => rest)(b) : b));
   const m: StructuralModel = { ...model, runs, blocks };
   return layRun(m, runs.find((r) => r.id === runId)!, (b) => extentOf(b.box, run.axis));
+}
+
+/**
+ * Phase 5.r3 — position an existing L-corner block (footprint set, hand = room.turn) at the L room's inside
+ * corner: both leg-backs flush on the two walls, openings into the room, via `box` + `rotY_deg` (the scene
+ * turns it — cut list square-on). Then inset the run on the wall whose ORIGIN is the corner (wall 1) so it
+ * tiles after the corner unit. No-op (same ref) without a ≥2-wall room or an L-block. MVP: turn "left" (the
+ * default L room); turn "right" mirrors it.
+ */
+export function fitCorner(model: StructuralModel, blockId: BlockId): StructuralModel {
+  const room = model.room;
+  if (!room || room.walls.length < 2) return model;
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block || !block.footprint) return model; // must be an L-corner block
+  const segs = roomWallSegments(room);
+  const w0 = segs[0]!, w1 = segs[1]!;
+  const turn = room.turn ?? "left";
+  const W0 = w0.length_mm10; // wall 1's origin X = the corner X
+  const boxW = block.box.w; // unrotated X extent (= legA.length)
+  const boxD = block.box.d; // unrotated Z extent (= legA.depth + legB.length)
+  // The rotated AABB tucks into the corner: its max-X face on wall 1 (x = W0); its wall-0 face on z = 0. The
+  // opening (−X/−Z local) turns to face the room. turn "left" → rotY 90 (AABB boxD×boxW, min-Z on wall 0);
+  // turn "right" → rotY 0 (AABB boxW×boxD, max-Z on wall 0, block extends −Z into the room).
+  const rotY = turn === "left" ? 90 : 0;
+  const rotXext = turn === "left" ? boxD : boxW; // rotated X extent
+  const rotZext = turn === "left" ? boxW : boxD; // rotated Z extent
+  const cx = W0 - rotXext / 2; // centre so max-X = W0 (wall 1)
+  const cz = turn === "left" ? rotZext / 2 : -rotZext / 2; // min-Z = 0 (left) / max-Z = 0 (right)
+  const newBox = { ...block.box, x: Math.round(cx - boxW / 2), z: Math.round(cz - boxD / 2) };
+  const blocks = model.blocks.map((b) => (b.id === blockId ? { ...b, box: newBox, rotY_deg: rotY } : b));
+  // inset the wall-1 run (its origin is the corner) by the corner block's reach along wall 1 (its rotated Z extent)
+  const runs = (model.runs ?? []).map((r) => (r.wallId === w1.wallId ? { ...r, cornerInset_mm10: rotZext } : r));
+  let m: StructuralModel = { ...model, blocks, runs };
+  const w1Run = runs.find((r) => r.wallId === w1.wallId);
+  if (w1Run) m = layRun(m, w1Run, (b) => extentOf(b.box, w1Run.axis));
+  return m;
 }
 
 /**

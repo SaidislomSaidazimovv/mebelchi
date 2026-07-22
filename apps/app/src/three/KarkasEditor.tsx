@@ -349,6 +349,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setLCornerHand = useKarkas((s) => s.setLCornerHand);
   const setRoom = useKarkas((s) => s.setRoom);
   const clearRoom = useKarkas((s) => s.clearRoom);
+  const fitCorner = useKarkas((s) => s.fitCorner);
   // 5.r1 — PRIMITIVE room selectors (React 18 rule): the preset (none/I/L/U) + wall lengths as a comma string.
   const roomPreset = useKarkas((s) => { const n = s.model.room?.walls.length ?? 0; return n === 0 ? "none" : n === 1 ? "I" : n === 2 ? "L" : "U"; });
   const roomLens = useKarkas((s) => (s.model.room?.walls ?? []).map((w) => Math.round(w.length_mm10 / 10)).join(","));
@@ -2246,6 +2247,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               <DimField key={i} label="mm" value={Number(L)} min={500} units={units}
                 onCommit={(v) => { const lens = roomLens.split(",").map(Number); lens[i] = v; setRoom(roomPreset as "I" | "L" | "U", lens); }} />
             ))}
+            {/* 5.r3 — drop an auto-fitted L-corner cabinet into the room's inside corner (L / П rooms) */}
+            {roomWallCount >= 2 && (
+              <button style={act} onClick={() => fitCorner()} type="button" title="Burchakka L-shkaf avtomatik joylash">⌐ Burchak shkaf</button>
+            )}
           </div>
         );
       })()}

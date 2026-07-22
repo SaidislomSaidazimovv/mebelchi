@@ -666,6 +666,11 @@ export interface Run {
    * backs to the wall, fronts (`rotY_deg`) facing into the room. Placement-only — the cut list is unchanged.
    */
   readonly wallId?: WallId;
+  /**
+   * Phase 5.r3 — how far along the wall (mm10) the run starts, to clear a corner block occupying the corner.
+   * Optional/additive: absent = 0 (starts at the wall origin, byte-identical). Only meaningful with `wallId`.
+   */
+  readonly cornerInset_mm10?: mm10;
 }
 
 // ---------------------------------------------------------------------------

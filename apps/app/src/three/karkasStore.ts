@@ -14,7 +14,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -254,6 +254,8 @@ interface KarkasState extends Derived {
   setRunMemberRule: (runId: string, blockId: string, rule: DivisionRule) => void;
   /** 5.r2 — snap a run to a room wall (or free it with null): tiles + orients its blocks along that wall. */
   snapRunToWall: (runId: string, wallId: string | null) => void;
+  /** 5.r3 — add an L-corner block auto-fitted to the L room's corner (depth matched to the runs). */
+  fitCorner: () => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
   /** Add a free primitive at the floor, centred: a flat board, a side panel, a leg, or a plain solid. */
   addFreeBoard: (kind?: PrimitiveKind) => void;
@@ -801,6 +803,27 @@ export const useKarkas = create<KarkasState>((set, get) => {
     snapRunToWall: (runId, wallId) => {
       const s = get();
       apply(snapRunToWall(s.model, runId, wallId));
+    },
+    // 5.r3 — drop an L-corner block into the L room's corner: legs sized to the run depth (flush), hand =
+    // room.turn, auto-positioned + oriented; the wall-1 run insets to clear it.
+    fitCorner: () => {
+      const s = get();
+      const room = s.model.room;
+      if (!room || room.walls.length < 2) return;
+      const ref = s.model.blocks[0];
+      const height_mm = ref ? Math.round(ref.box.h / 10) : 720;
+      const depth_mm = ref ? Math.round(ref.box.d / 10) : 560; // corner leg depth = the run cabinets' depth (flush)
+      const legLen_mm = depth_mm + 340; // leg reach along the wall = depth + a standard corner overhang
+      const fresh = buildCarcassModel(legLen_mm, height_mm, depth_mm).blocks[0];
+      if (!fresh) return;
+      const uid = Date.now().toString(36);
+      const zone = fresh.zones[0];
+      if (!zone) return;
+      const block: Block = { ...fresh, id: `blk_${uid}`, name: "Burchak shkaf", zones: [{ ...zone, id: `z_${uid}`, root: { ...zone.root, id: `sec_${uid}` } }] };
+      const withBlock: StructuralModel = { ...s.model, blocks: [...s.model.blocks, block] };
+      const leg = { length_mm10: legLen_mm * 10, depth_mm10: depth_mm * 10 };
+      const asL = setBlockFootprint(withBlock, block.id, { legA: leg, legB: leg, hand: room.turn ?? "left" });
+      apply(fitCorner(asL, block.id));
     },
     moveFreePart: (fpId, delta, first) => {
       const s = get();
