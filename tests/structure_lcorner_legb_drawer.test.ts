@@ -24,7 +24,7 @@ const sort3 = (a: number, b: number, c: number) => [a, b, c].sort((x, y) => x - 
 function legBDrawerModel(): StructuralModel {
   const m = buildCarcassModel(600, 720, 560);
   const L = setBlockFootprint(m, m.blocks[0]!.id, { legA: LEGA, legB: LEGB });
-  return addInstance(L, "sec_legB", "drawer");
+  return addInstance(L, "blk_main__sec_legB", "drawer");
 }
 const drawerBase = (m: StructuralModel) => solveStructure(m, tk).find((p) => p.id.endsWith("__front"))!.id.slice(0, -"__front".length);
 

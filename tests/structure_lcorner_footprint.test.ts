@@ -33,7 +33,7 @@ describe("Phase 4.a — setBlockFootprint (convert to L)", () => {
     const L = toL(m);
     expect(L.blocks[0]!.zones.length).toBe(m.blocks[0]!.zones.length + 1); // + the leg-B zone
     expect(L.blocks[0]!.zones[0]).toEqual(m.blocks[0]!.zones[0]); // leg-A zone byte-identical (no surgery)
-    const legB = L.blocks[0]!.zones.find((z) => z.id === "z_legB")!;
+    const legB = L.blocks[0]!.zones.find((z) => z.id.endsWith("z_legB"))!;
     // leg-B leaf sized 1:1 to the return leg: z=legA.depth, w=legB.depth, d=legB.length, shared height
     expect(legB.root.box).toEqual({ x: 0, y: 0, z: 5600, w: 4000, h: 7200, d: 4000 });
     expect(legB.root.instanceIds).toEqual([]); // a bare compartment

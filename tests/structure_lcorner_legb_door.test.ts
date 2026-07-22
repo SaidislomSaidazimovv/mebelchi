@@ -23,7 +23,7 @@ const H = 7200; // box height (mm10) of a 600×720×560 carcass
 function legBDoorModel(): StructuralModel {
   const m = buildCarcassModel(600, 720, 560);
   const L = setBlockFootprint(m, m.blocks[0]!.id, { legA: LEGA, legB: LEGB });
-  return addInstance(L, "sec_legB", "door");
+  return addInstance(L, "blk_main__sec_legB", "door");
 }
 const facadePart = (m: StructuralModel) => solveStructure(m, tk).find((p) => p.role === "facade")!;
 const facadePlace = (m: StructuralModel, id: string) => solveLayout(m, tk).find((p) => p.id === id)!;

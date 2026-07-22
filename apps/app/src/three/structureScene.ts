@@ -10,6 +10,7 @@ import type { PanelPlacement } from "../../../../engine/structure/layout.js";
 import type { PanelFeatures, StructuralModel, Room } from "../../../../engine/contracts/structure.js";
 import { leafSections } from "../../../../engine/contracts/structure.js";
 import { roomWallSegments, WALL_HEIGHT_MM10, WALL_THICKNESS_MM10 } from "../../../../engine/structure/room.js";
+import { wallInteriorNormal } from "../../../../engine/structure/operations.js";
 
 /** A render-ready box: centre + full size, in metres (three.js units). */
 export interface Board {
@@ -182,10 +183,11 @@ export function layoutBounds(panels: readonly PanelPlacement[]): { cx: number; c
 export function roomWallBoxes(room: Room | undefined): RawBox[] {
   if (!room || room.walls.length === 0) return [];
   const T = WALL_THICKNESS_MM10, H = WALL_HEIGHT_MM10;
-  const right = room.turn === "right";
+  const turn = room.turn ?? "left";
   return roomWallSegments(room).map((seg, i) => {
     const [ox, oz] = seg.origin, [dx, dz] = seg.dir, L = seg.length_mm10;
-    const n: [number, number] = right ? [dz, -dx] : [-dz, dx]; // room-interior normal; wall extends the OTHER way (−n)
+    const n = wallInteriorNormal(seg.dir, turn); // Audit E3 — the room-handedness normal, single source in operations.ts
+    void dz;
     const xRun = Math.abs(dx) > 0; // an X-running wall (dz = 0) vs a Z-running one
     return {
       id: `__wall_${seg.wallId}`,
