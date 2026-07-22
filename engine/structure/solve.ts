@@ -288,11 +288,24 @@ export const CORNER_FILLER_W: mm10 = 500; // 50 mm — blind-corner overlap
 function lCornerParts(block: Block, t: ResolvedT): Part[] {
   const fp = block.footprint!;
   const h = block.box.h;
-  return [
+  const c = t.carcass;
+  const parts: Part[] = [
     ...boxCarcass(`${block.id}__legA`, "Плечо A · ", fp.legA.length_mm10, h, fp.legA.depth_mm10, t),
     ...boxCarcass(`${block.id}__legB`, "Плечо B · ", fp.legB.length_mm10, h, fp.legB.depth_mm10, t, true),
     panel(`${block.id}__corner_filler`, "Угловая планка", h, CORNER_FILLER_W, frontBand(), t.carcass, "carcass_side"),
   ];
+  // Phase 4.c — an L worktop is TWO abutting slabs (one per leg): A covers leg-A's top + a front overhang, B
+  // covers leg-B's top, meeting at the corner. Same role/thickness/finish as the rectangular worktop.
+  if (block.worktop) {
+    parts.push(panel(`${block.id}__worktop_a`, "Столешница A", fp.legA.length_mm10, fp.legA.depth_mm10 + WORKTOP_OVERHANG_MM10, [0, 0, 0, 0], t.worktop, "carcass_worktop"));
+    parts.push(panel(`${block.id}__worktop_b`, "Столешница B", fp.legB.depth_mm10, fp.legB.length_mm10, [0, 0, 0, 0], t.worktop, "carcass_worktop"));
+  }
+  // Phase 4.c — an L plinth is TWO toe-kicks: A along leg-A's front (−Z), B along leg-B's front (−X).
+  if (block.plinth_mm10 && block.plinth_mm10 > 0) {
+    parts.push(panel(`${block.id}__plinth_a`, "Цоколь A", fp.legA.length_mm10 - 2 * c, block.plinth_mm10, [0, 0, 0, 0], c, "carcass_plinth"));
+    parts.push(panel(`${block.id}__plinth_b`, "Цоколь B", fp.legB.length_mm10 - 2 * c, block.plinth_mm10, [0, 0, 0, 0], c, "carcass_plinth"));
+  }
+  return parts;
 }
 
 /** The section a divider `Line` splits — the one whose `dividers` list holds its id (walks ALL

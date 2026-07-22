@@ -149,7 +149,7 @@ function lCornerLayout(block: Block, t: ResolvedT): PanelPlacement[] {
   const aDepth = fp.legA.depth_mm10;
   const aBox: Box6 = { x, y, z, w: fp.legA.length_mm10, h, d: aDepth };
   const bBox: Box6 = { x, y, z: z + aDepth, w: fp.legB.depth_mm10, h, d: fp.legB.length_mm10 };
-  return [
+  const out: PanelPlacement[] = [
     ...carcassPlace(`${block.id}__legA`, "Плечо A · ", aBox, t),
     // leg-B sits fully BEHIND leg-A (z + legA.depth): its back is perpendicular to leg-A's and
     // adjacent to it, not overlapping — the blind-corner Pattern A (see lCornerParts / -r4:1241-1250).
@@ -157,6 +157,19 @@ function lCornerLayout(block: Block, t: ResolvedT): PanelPlacement[] {
     // The 50mm blind-corner door-clearance filler at the inner corner (blocker #6; -r3:327, GEO-3).
     place(`${block.id}__corner_filler`, "Угловая планка", x + fp.legB.depth_mm10, y, z + aDepth - CORNER_FILLER_W, t.carcass, h, CORNER_FILLER_W),
   ];
+  const c = t.carcass;
+  // Phase 4.c — worktop: A on leg-A (front overhang −Z) + B on leg-B, abutting A exactly at z + legA.depth.
+  if (block.worktop) {
+    out.push(place(`${block.id}__worktop_a`, "Столешница A", x, y + h, z - WORKTOP_OVERHANG_MM10, fp.legA.length_mm10, t.worktop, aDepth + WORKTOP_OVERHANG_MM10));
+    out.push(place(`${block.id}__worktop_b`, "Столешница B", x, y + h, z + aDepth, fp.legB.depth_mm10, t.worktop, fp.legB.length_mm10));
+  }
+  // Phase 4.c — plinth: A along leg-A's front (−Z, thickness in Z); B along leg-B's front (−X, thickness in X).
+  const p = block.plinth_mm10;
+  if (p && p > 0) {
+    out.push(place(`${block.id}__plinth_a`, "Цоколь A", x + c, y - p, z + PLINTH_RECESS_MM10, fp.legA.length_mm10 - 2 * c, p, c));
+    out.push(place(`${block.id}__plinth_b`, "Цоколь B", x + PLINTH_RECESS_MM10, y - p, z + aDepth + c, c, p, fp.legB.length_mm10 - 2 * c));
+  }
+  return out;
 }
 
 /** A divider positioned inside the SECTION it divides (leg-aware for L-blocks): its depth + origin
