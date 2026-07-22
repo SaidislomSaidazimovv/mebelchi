@@ -93,9 +93,10 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
     const geom = boardGeometry(b);
     const mesh = new THREE.Mesh(
       geom,
-      new THREE.MeshStandardMaterial({ color: colorOf?.(b.id) ?? WOOD, roughness: 0.82, metalness: 0 }),
+      new THREE.MeshStandardMaterial({ color: colorOf?.(b.id) ?? WOOD, roughness: 0.82, metalness: 0, envMapIntensity: 0.25 }),
     );
     mesh.userData.baseColor = colorOf?.(b.id) ?? WOOD; // remembered so realistic/shaded can restore it
+    mesh.castShadow = true; mesh.receiveShadow = true; // M3.1 — boards cast onto the floor + onto each other
     mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
     // Inclined shelf (imos AS_O_Angle): tilt the board so the FRONT stays LOW at its mount and the
     // BACK rises toward the back panel — exactly as imos does. We pivot about the shelf's FRONT-TOP

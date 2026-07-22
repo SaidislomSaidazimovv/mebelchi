@@ -6,6 +6,7 @@
 import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
@@ -614,17 +615,37 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     if (!mount) return;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // M3.1 — a photographic pipeline. NeutralToneMapping (Khronos PBR Neutral) is built for product/furniture
+    // viewers: it tames highlights (metal/gloss no longer blow out) WITHOUT the colour wash-out ACES gives, so
+    // the wood decors keep their warmth. Boards stay matte via a low envMapIntensity (structureRenderer).
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 0.8;
+    // M3.1 — soft contact shadows ground the furniture. One 1024 shadow map from the key light only (the
+    // scene is a handful of boxes, so this stays cheap on mobile); PCFSoft for feathered edges.
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.setSize(mount.clientWidth || 320, mount.clientHeight || 480);
     renderer.domElement.style.display = "block";
     renderer.domElement.style.touchAction = "none";
     mount.appendChild(renderer.domElement);
 
     const scene3 = new THREE.Scene();
+    // M3.1 — a PMREM room environment: generated once at mount, it gives every PBR surface soft, believable
+    // indoor reflections (the foundation the M3.2 finishes — gloss / metal / glass / mirror — reflect into).
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene3.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
     const camera = new THREE.PerspectiveCamera(42, (mount.clientWidth || 320) / (mount.clientHeight || 480), 0.02, 40);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.12; controls.minDistance = 0.4; controls.maxDistance = 12;
-    scene3.add(new THREE.HemisphereLight(0xffffff, 0xc8c8c8, 1.0));
-    const key = new THREE.DirectionalLight(0xffffff, 1.15); key.position.set(2, 4, 3); scene3.add(key);
+    scene3.add(new THREE.HemisphereLight(0xffffff, 0xc8c8c8, 0.55)); // M3.1 — lowered from 1.0: the envMap now carries part of the ambient fill
+    const key = new THREE.DirectionalLight(0xffffff, 1.15); key.position.set(2, 4, 3);
+    key.castShadow = true; // M3.1 — only the key light casts, so the cost is a single shadow pass
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.camera.near = 0.1; key.shadow.camera.far = 24;
+    key.shadow.camera.left = -3; key.shadow.camera.right = 3; key.shadow.camera.top = 3.5; key.shadow.camera.bottom = -1;
+    key.shadow.bias = -0.0005; key.shadow.normalBias = 0.02; // kill shadow acne on the thin boards
+    scene3.add(key);
     const fill = new THREE.DirectionalLight(0xffffff, 0.25); fill.position.set(-3, 2, -2); scene3.add(fill);
     // C5 — three HTML dimension labels overlaid on the canvas (width / height / depth)
     const mkLabel = (): HTMLDivElement => {
@@ -639,6 +660,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
     const grid = makeGrid("light"); scene3.add(grid); // U2.1b — Moblo floor grid (theme-swapped by the effect below)
+    // M3.1 — an invisible shadow-catcher at the floor (model base sits at world y=0, see WY = v − minY). A
+    // ShadowMaterial shows ONLY the shadow, so the furniture reads as standing on the ground, not floating.
+    const shadowGround = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.16 }));
+    shadowGround.rotation.x = -Math.PI / 2; shadowGround.position.y = -0.002; shadowGround.receiveShadow = true;
+    scene3.add(shadowGround);
     rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, roomGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
     // dev-only: expose the three runtime so local tooling (puppeteer) can assert on the SCENE GRAPH — a
     // 3D overlay like the dimension line has no DOM to query. Stripped from prod builds, like __karkas.
@@ -1041,6 +1067,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.roomGroup) disposeStructureGroup(rt.current.roomGroup);
       if (rt.current?.ghostGroup) disposeStructureGroup(rt.current.ghostGroup);
       labels.w.remove(); labels.h.remove(); labels.d.remove();
+      scene3.environment?.dispose(); // M3.1 — free the PMREM env texture (three won't auto-dispose it on unmount)
+      shadowGround.geometry.dispose(); (shadowGround.material as THREE.Material).dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
       rt.current = null;
