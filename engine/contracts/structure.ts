@@ -577,6 +577,18 @@ export interface FreePart {
   readonly edgeBands?: readonly [mm10, mm10, mm10, mm10];
 }
 
+/** Which carcass shell panels a block keeps (M2). Each field absent or `true` = present; an explicit
+ *  `false` DROPS that panel → open shelving / a back-less or open-top unit. Absent `shell` = the full
+ *  carcass (byte-identical to pre-M2). At an L-corner, a leg's structural corner side stays dropped
+ *  regardless of the mask. */
+export interface PanelShell {
+  readonly sideL?: boolean;
+  readonly sideR?: boolean;
+  readonly top?: boolean;
+  readonly bottom?: boolean;
+  readonly back?: boolean;
+}
+
 export interface Block {
   readonly id: BlockId;
   readonly name: string;
@@ -608,6 +620,8 @@ export interface Block {
    * placement); dividers/instances/free parts inside it still solve.
    */
   readonly bare?: boolean;
+  /** Which carcass shell panels this block keeps (M2). Absent = the full 5-panel carcass. See PanelShell. */
+  readonly shell?: PanelShell;
   /**
    * Sokol / plinth height (mm10) — a recessed toe-kick UNDER the carcass. Absent = no plinth (every
    * existing model is unchanged). `box.h` stays the CARCASS height; the plinth is an EXTRA part below,
