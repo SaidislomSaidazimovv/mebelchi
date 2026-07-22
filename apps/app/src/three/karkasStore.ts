@@ -14,7 +14,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -252,6 +252,8 @@ interface KarkasState extends Derived {
   setRunLength: (runId: string, mm: number) => void;
   /** U4.5 — set one member's rule (Fixed mm / Ratio weight / Flex); the run re-solves at its length. */
   setRunMemberRule: (runId: string, blockId: string, rule: DivisionRule) => void;
+  /** 5.r2 — snap a run to a room wall (or free it with null): tiles + orients its blocks along that wall. */
+  snapRunToWall: (runId: string, wallId: string | null) => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
   /** Add a free primitive at the floor, centred: a flat board, a side panel, a leg, or a plain solid. */
   addFreeBoard: (kind?: PrimitiveKind) => void;
@@ -794,6 +796,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const members = run.members.map((mm) => (mm.blockId === blockId ? { ...mm, rule } : mm));
       const withRule: StructuralModel = { ...s.model, runs: s.model.runs!.map((r) => (r.id === runId ? { ...r, members } : r)) };
       try { apply(resolveRun(withRule, runId, run.length_mm10)); } catch { apply(withRule); }
+    },
+    // 5.r2 — snap the run to a room wall (its blocks tile + orient along it), or free it (null).
+    snapRunToWall: (runId, wallId) => {
+      const s = get();
+      apply(snapRunToWall(s.model, runId, wallId));
     },
     moveFreePart: (fpId, delta, first) => {
       const s = get();

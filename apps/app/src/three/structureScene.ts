@@ -175,20 +175,24 @@ export function layoutBounds(panels: readonly PanelPlacement[]): { cx: number; c
   return { cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2, minY, ctrX: (minX + maxX) / 2, ctrY: (minY + maxY) / 2, ctrZ: (minZ + maxZ) / 2 };
 }
 
-/** Phase 5 — the render boxes (mm10, min-corner) for a room's walls: each wall straddles its segment line
- *  (±T/2 across it), standing on the floor at full room height, running its length. Render-only. */
+/** Phase 5 — the render boxes (mm10, min-corner) for a room's walls. Each wall's INNER face lies on its
+ *  segment line and it extends OUTWARD (opposite the room interior) by its thickness, so cabinets snapped to
+ *  the wall (backs on the line, 5.r2) sit flush against it with no clip. Floor-standing, full room height.
+ *  Interior normal = dir rotated 90° toward the inside (`[-dz,dx]` for "left" / `[dz,-dx]` for "right"). */
 export function roomWallBoxes(room: Room | undefined): RawBox[] {
   if (!room || room.walls.length === 0) return [];
   const T = WALL_THICKNESS_MM10, H = WALL_HEIGHT_MM10;
+  const right = room.turn === "right";
   return roomWallSegments(room).map((seg, i) => {
     const [ox, oz] = seg.origin, [dx, dz] = seg.dir, L = seg.length_mm10;
+    const n: [number, number] = right ? [dz, -dx] : [-dz, dx]; // room-interior normal; wall extends the OTHER way (−n)
     const xRun = Math.abs(dx) > 0; // an X-running wall (dz = 0) vs a Z-running one
     return {
       id: `__wall_${seg.wallId}`,
       name: `Devor ${i + 1}`,
-      x: xRun ? Math.min(ox, ox + dx * L) : ox - T / 2,
+      x: xRun ? Math.min(ox, ox + dx * L) : Math.min(ox, ox - n[0] * T),
       y: 0,
-      z: xRun ? oz - T / 2 : Math.min(oz, oz + dz * L),
+      z: xRun ? Math.min(oz, oz - n[1] * T) : Math.min(oz, oz + dz * L),
       w: xRun ? L : T,
       h: H,
       d: xRun ? T : L,

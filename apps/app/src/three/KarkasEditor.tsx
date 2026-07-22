@@ -145,6 +145,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const ungroupSelectedBlocks = useKarkas((s) => s.ungroupSelectedBlocks);
   const setRunLength = useKarkas((s) => s.setRunLength);
   const setRunMemberRule = useKarkas((s) => s.setRunMemberRule);
+  const snapRunToWall = useKarkas((s) => s.snapRunToWall);
+  // 5.r2 — how many walls the room has (primitive number, React 18 rule) — drives the «Devorga» wall picker.
+  const roomWallCount = useKarkas((s) => s.model.room?.walls.length ?? 0);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const rotateBlockTo = useKarkas((s) => s.rotateBlockTo);
@@ -1697,6 +1700,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   onBlur={(e) => { const v = parseInt(e.currentTarget.value.replace(/[^\d]/g, ""), 10); if (v && v !== Math.round(run.length_mm10 / 10)) setRunLength(run.id, v); }} />
                 <span>mm</span>
               </label>
+            )}
+            {run && roomWallCount > 0 && (
+              <div className="mob-groupbar-rule" title="Ryadni devorga yopishtirish (orqasi devorga, oldi xonaga)">
+                <span style={{ fontSize: 11, color: "#8a8a8a" }}>Devorga</span>
+                <button type="button" className="mob-gbtn" style={!run.wallId ? { borderColor: "#00a961", color: "#006b3f" } : undefined} onClick={() => snapRunToWall(run.id, null)}>Yo'q</button>
+                {Array.from({ length: roomWallCount }, (_, i) => (
+                  <button key={i} type="button" className="mob-gbtn" style={run.wallId === `wall_${i}` ? { borderColor: "#00a961", color: "#006b3f" } : undefined} onClick={() => snapRunToWall(run.id, `wall_${i}`)}>{i + 1}</button>
+                ))}
+              </div>
             )}
             {rule && oneId && run && (
               <div className="mob-groupbar-rule" title="Shu shkaf qoidasi — bosib almashtiring: erkin / qat'iy / nisbat">

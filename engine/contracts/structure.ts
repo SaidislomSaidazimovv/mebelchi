@@ -660,6 +660,12 @@ export interface Run {
   readonly members: readonly RunMember[];
   /** The total run length (wall length) the members tile, mm10. */
   readonly length_mm10: mm10;
+  /**
+   * Phase 5.r2 — the room wall this run hugs. Optional/additive: absent = a free run laid along X at its
+   * current Z (byte-identical to pre-5.r2). When set, the run's members tile along that wall's segment,
+   * backs to the wall, fronts (`rotY_deg`) facing into the room. Placement-only — the cut list is unchanged.
+   */
+  readonly wallId?: WallId;
 }
 
 // ---------------------------------------------------------------------------
