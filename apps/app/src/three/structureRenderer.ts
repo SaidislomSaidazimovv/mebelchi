@@ -5,6 +5,7 @@
 
 import * as THREE from "three";
 import type { Scene, Board } from "./structureScene";
+import type { MaterialFinish } from "./materials";
 
 const WOOD = 0xe7ddc9; // carcass face (matches the kitchen runStyle default)
 const EDGE = 0xc9bd9e; // panel edge outline
@@ -85,16 +86,37 @@ function boardGeometry(b: Board): THREE.BufferGeometry {
   return geom;
 }
 
-/** Build the assembled cabinet as a THREE.Group of box meshes — one per render board. `colorOf`
- *  (Phase F1) maps a part id → its decor colour (int); absent / undefined falls back to WOOD. */
-export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined): THREE.Group {
+/** M3.2 — the three.js material for a decor colour + surface finish. Absent finish → the matte laminate
+ *  look (byte-identical to pre-M3.2). Gloss/glass/frosted use MeshPhysicalMaterial (clearcoat /
+ *  transmission); metal + mirror are metallic. All reflect the M3.1 scene environment. Returned as the
+ *  MeshStandardMaterial base so highlightBoard / recolorBoards keep working (Physical is a subclass). */
+export function materialForFinish(color: number, finish?: MaterialFinish): THREE.MeshStandardMaterial {
+  switch (finish) {
+    case "satin":
+      return new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0, envMapIntensity: 0.5 });
+    case "gloss":
+      return new THREE.MeshPhysicalMaterial({ color, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 0.9 });
+    case "metal":
+      return new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.9, envMapIntensity: 1 });
+    case "mirror":
+      return new THREE.MeshStandardMaterial({ color, roughness: 0.03, metalness: 1, envMapIntensity: 1 });
+    case "glass":
+      return new THREE.MeshPhysicalMaterial({ color, roughness: 0.05, metalness: 0, transmission: 0.92, ior: 1.5, thickness: 6, transparent: true, depthWrite: false, envMapIntensity: 1, side: THREE.DoubleSide });
+    case "frosted":
+      return new THREE.MeshPhysicalMaterial({ color, roughness: 0.5, metalness: 0, transmission: 0.85, ior: 1.5, thickness: 6, transparent: true, depthWrite: false, envMapIntensity: 0.8, side: THREE.DoubleSide });
+    default: // matte (and satin's sibling default)
+      return new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0, envMapIntensity: 0.25 });
+  }
+}
+
+/** Build the assembled cabinet as a THREE.Group of box meshes — one per render board. `colorOf` (Phase F1)
+ *  maps a part id → its decor colour (int); absent → WOOD. `finishOf` (M3.2) maps id → surface finish;
+ *  absent → matte. */
+export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined, finishOf?: (id: string) => MaterialFinish | undefined): THREE.Group {
   const group = new THREE.Group();
   for (const b of scene.boards) {
     const geom = boardGeometry(b);
-    const mesh = new THREE.Mesh(
-      geom,
-      new THREE.MeshStandardMaterial({ color: colorOf?.(b.id) ?? WOOD, roughness: 0.82, metalness: 0, envMapIntensity: 0.25 }),
-    );
+    const mesh = new THREE.Mesh(geom, materialForFinish(colorOf?.(b.id) ?? WOOD, finishOf?.(b.id)));
     mesh.userData.baseColor = colorOf?.(b.id) ?? WOOD; // remembered so realistic/shaded can restore it
     mesh.castShadow = true; mesh.receiveShadow = true; // M3.1 — boards cast onto the floor + onto each other
     mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);

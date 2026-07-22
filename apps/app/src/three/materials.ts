@@ -9,12 +9,18 @@
 import type { ApplianceKind } from "../../../../engine/contracts/structure";
 
 /** A sheet-good decor: priced per square metre, drawn with a swatch colour, cut at a thickness (mm). */
+/** How a board's surface reads in 3D (M3.2). Absent = matte (the legacy laminate look). These are the
+ *  pure-PBR finishes; texture-based ones (marble / wood grain / leather / fabric) arrive with M3.3. */
+export type MaterialFinish = "matte" | "satin" | "gloss" | "metal" | "glass" | "frosted" | "mirror";
+
 export interface BoardMaterial {
   id: string;
   name: string;
   hex: string;
   pricePerM2: number;
   thickness_mm: number;
+  /** M3.2 — the surface finish the renderer builds. Absent = matte (byte-identical to pre-M3.2). */
+  finish?: MaterialFinish;
 }
 
 /** An edge-banding material (kromka / jiyak K-variable): priced per running metre, with a view colour
@@ -40,6 +46,16 @@ export const BOARDS: readonly BoardMaterial[] = [
   // (founder decision (a) — exact at ~600mm depth, an approximation for unusual depths; exact per-metre
   // is a later refinement). thickness_mm = 38 is the real product; the kitchen's 40 was visual only.
   { id: "worktop_postform_38", name: "Столешница постформинг 38мм", hex: "#b9ac93", pricePerM2: 308333, thickness_mm: 38 },
+  // M3.2 — finished decors: the renderer reads `finish` to build gloss / glass / metal / mirror materials
+  // that reflect the M3.1 environment. Prices are indicative (a later pricing pass can refine them).
+  { id: "mdf_white_gloss", name: "МДФ Белый глянец", hex: "#f6f5f1", pricePerM2: 420000, thickness_mm: 18, finish: "gloss" },
+  { id: "glass_clear", name: "Стекло прозрачное", hex: "#cfe8f2", pricePerM2: 250000, thickness_mm: 4, finish: "glass" },
+  { id: "glass_frost", name: "Стекло матовое", hex: "#dbe6ea", pricePerM2: 270000, thickness_mm: 4, finish: "frosted" },
+  { id: "glass_tint", name: "Стекло тонированное", hex: "#4f5a61", pricePerM2: 280000, thickness_mm: 4, finish: "glass" },
+  { id: "mirror", name: "Зеркало", hex: "#e9edf0", pricePerM2: 300000, thickness_mm: 4, finish: "mirror" },
+  { id: "metal_brushed", name: "Металл шлифованный", hex: "#c8ccd2", pricePerM2: 450000, thickness_mm: 16, finish: "metal" },
+  { id: "metal_gold", name: "Золото", hex: "#d4af37", pricePerM2: 600000, thickness_mm: 16, finish: "metal" },
+  { id: "metal_bronze", name: "Бронза", hex: "#cd7f32", pricePerM2: 550000, thickness_mm: 16, finish: "metal" },
 ];
 
 export const EDGES: readonly EdgeMaterial[] = [
@@ -216,6 +232,26 @@ export function partColorLookup(
     m.set(p.id, c); // exact match (single boards, glass panes, muntins)
     const base = layoutBaseId(p.id);
     if (base !== p.id && !m.has(base)) m.set(base, c); // doubled/partial → colour the single render board
+  }
+  return (id) => m.get(id);
+}
+
+/**
+ * The `id → finish` lookup (M3.2), parallel to partColorLookup. A part's finish is its resolved board's
+ * `finish` (absent → matte). A glass PANE (role "glass") always reads as `glass`, so the existing glazed
+ * doors upgrade to real transmission glass for free. Same base-id registration as the colour lookup.
+ */
+export function partFinishLookup(
+  parts: readonly { id: string; role?: string; materialId?: string }[],
+  plan: MaterialPlan,
+): (id: string) => MaterialFinish | undefined {
+  const m = new Map<string, MaterialFinish>();
+  for (const p of parts) {
+    const f: MaterialFinish | undefined = p.role === "glass" ? "glass" : partBoard(plan, p.role, p.materialId)?.finish;
+    if (!f) continue;
+    m.set(p.id, f);
+    const base = layoutBaseId(p.id);
+    if (base !== p.id && !m.has(base)) m.set(base, f);
   }
   return (id) => m.get(id);
 }

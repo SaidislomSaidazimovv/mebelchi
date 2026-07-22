@@ -29,7 +29,7 @@ import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSessi
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
-import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, partFinishLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
 
 /**
@@ -206,6 +206,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const colorFn = useMemo(() => partColorLookup(parts, plan), [parts, plan]);
   const colorRef = useRef(colorFn);
   colorRef.current = colorFn;
+  // M3.2 — part id → surface finish (gloss/glass/metal/mirror), parallel to colorFn. Same lifecycle.
+  const finishFn = useMemo(() => partFinishLookup(parts, plan), [parts, plan]);
+  const finishRef = useRef(finishFn);
+  finishRef.current = finishFn;
   const selComp = useKarkas((s) => s.selectedComponent());
   // NB: selectedParts() returns a FRESH array each call, so subscribing to it directly (`useKarkas(s =>
   // s.selectedParts())`) makes zustand's snapshot change every render → an infinite re-render loop (blank
@@ -1161,7 +1165,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const r = rt.current;
     if (!r) return;
     if (r.group) { r.scene.remove(r.group); disposeStructureGroup(r.group); }
-    const group = buildStructureGroup(scene, colorRef.current);
+    const group = buildStructureGroup(scene, colorRef.current, finishRef.current);
     tagFacades(group, parts); // «Ichini ko'rish» — mark fronts, then apply the current mode + fade
     applyVisuals(group);
     r.scene.add(group);
@@ -1368,7 +1372,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // ── AR — detect once on mount; build the model on demand (never at import time) ──
   useEffect(() => { let live = true; void detectArSupport().then((s) => { if (live) setArSupport(s); }); return () => { live = false; }; }, []);
   /** A freshly built structure group for AR / export — independent of the editor's live group. */
-  const arGroup = () => buildStructureGroup(scene, colorRef.current);
+  const arGroup = () => buildStructureGroup(scene, colorRef.current, finishRef.current);
   /** Turn a refused session into advice the master can act on — the raw WebXR text alone helps nobody. */
   const arAdvice = (err: unknown): string => {
     const msg = err instanceof Error ? err.message : String(err);
