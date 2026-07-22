@@ -32,6 +32,8 @@ import { roomFromPreset } from "../../../../engine/structure/room.js";
 import { withApplianceCutouts } from "./appliances";
 import { snapCandidates, snapSpan, type SnapCandidate } from "../../../../engine/structure/snap.js";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, withPlanDefaults, type MaterialPlan } from "./materials";
+import { loadWorkshopProfile, saveWorkshopProfile, type WorkshopProfile } from "./workshopProfile";
+import type { ThicknessSpec } from "../../../../engine/structure/solve.js";
 
 /** Everything the 3D viewport + readouts need, recomputed whenever the model changes. */
 interface Derived {
@@ -41,7 +43,7 @@ interface Derived {
   warnings: string[]; // non-blocking engineering ⚠ (stability + motion + hinge fit), Russian text
   sections: { id: string; label: string }[]; // leaf sections you can add into (the add-target picker)
 }
-function derive(model: StructuralModel, plan: MaterialPlan): Derived {
+function derive(model: StructuralModel, plan: MaterialPlan, thickness: Partial<ThicknessSpec> = {}): Derived {
   const warnings = [
     ...checkStability(model),
     ...checkMotionClearance(model),
@@ -50,8 +52,9 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   ].map((f) => f.message_ru);
   const sections: { id: string; label: string }[] = [];
   for (const b of model.blocks) for (const z of b.zones) for (const s of leafSections(z.root)) sections.push({ id: s.id, label: `${sections.length + 1}` });
-  // 7b — each role's board thickness comes from its plan decor (ЛДСП 16 / МДФ 18 / ХДФ 3)
-  const tk = planThickness(plan); // one per-role thickness spec for BOTH cut list + render (parity)
+  // 7b — each role's board thickness comes from its plan decor (ЛДСП 16 / МДФ 18 / ХДФ 3). Phase 6 — a
+  // workshop-profile per-role thickness override wins over the decor default (absent → decor, byte-identical).
+  const tk = { ...planThickness(plan), ...thickness }; // one per-role thickness spec for BOTH cut list + render (parity)
   // The 3D scene shows cabinets as PLACED (a turned block is rotated here); the cut list + drawing keep
   // reading solveLayout unrotated, because a cabinet is manufactured square-on however it is turned.
   // Recentre on the UNROTATED bounds: turning a cabinet is placement-only, so it must not move anything
@@ -275,6 +278,16 @@ interface KarkasState extends Derived {
   future: StructuralModel[];
   /** Which decor each panel role is cut from (drives the spec price). Persists across model edits. */
   plan: MaterialPlan;
+  /** Phase 6 — per-role board-thickness overrides (mm10) from the workshop profile; win over the decor default. */
+  thickness: Partial<ThicknessSpec>;
+  /** Phase 6 — set one role's board-thickness override (mm; 0/absent → back to the decor default). */
+  setRoleThickness: (role: keyof ThicknessSpec, mm: number) => void;
+  /** Phase 6 — save the CURRENT plan + joints + thickness as the global factory default (localStorage). */
+  saveWorkshopDefault: () => void;
+  /** Phase 6 — reset this project's plan + joints + thickness to the saved factory default. */
+  applyWorkshopDefault: () => void;
+  /** Phase 6 — a read-only snapshot of the saved workshop profile, for the «Fabrika profili» summary. */
+  workshopSummary: () => WorkshopProfile;
   setPlanMaterial: (slot: keyof MaterialPlan, id: string) => void;
   /** Step 5.2 — the project's material pool (distinct board decors it uses = its material variables). */
   materialPool: string[];
@@ -501,10 +514,13 @@ export function blockOfPart(model: StructuralModel, partId: string | null | unde
 }
 
 export const useKarkas = create<KarkasState>((set, get) => {
+  // Phase 6 — seed the session from the persisted GLOBAL workshop profile (materials + joints + per-role
+  // thickness). Absent / corrupt storage falls back to the built-in default (loadWorkshopProfile never throws).
+  const wp = loadWorkshopProfile();
   // push the current model onto the undo stack, then swap in + re-derive the next one. Structural
   // edits clear the selection (the tapped part id may be gone); property edits keep it (keepSel).
   const apply = (next: StructuralModel, keepSel = false): void =>
-    set((s) => ({ ...derive(next, s.plan), past: [...s.past.slice(-49), s.model], future: [], selectedId: keepSel ? s.selectedId : null }));
+    set((s) => ({ ...derive(next, s.plan, s.thickness), past: [...s.past.slice(-49), s.model], future: [], selectedId: keepSel ? s.selectedId : null }));
   // the section an edit targets: the section of the selected panel's instance, else the first leaf.
   const targetSection = (): string | undefined => {
     const s = get();
@@ -523,7 +539,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     return r2 ? { model, compId: r2.inst.componentId } : null;
   };
   return {
-    ...derive(buildDemoModel(), DEFAULT_PLAN),
+    ...derive({ ...buildDemoModel(), jointProfile: wp.jointProfile }, wp.plan, wp.thickness ?? {}),
     open: false,
     selectedId: null,
     selectedBlockIds: [],
@@ -606,7 +622,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
         })),
       };
       if (pushHistory) apply(model, true); // keepSel — the same panel stays selected through the drag
-      else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
+      else set((st) => ({ ...derive(model, st.plan, st.thickness), selectedId: st.selectedId }));
     },
     moveBlockTo: (blockId, axis, idealPos, first) => {
       const s = get();
@@ -641,7 +657,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
         })),
       };
       if (first) apply(model, true);
-      else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
+      else set((st) => ({ ...derive(model, st.plan, st.thickness), selectedId: st.selectedId }));
     },
     // gizmos «rotate» — turn a whole CABINET about the vertical axis (an L-run's return, an angled unit).
     // Placement-only (Block.rotY_deg): the cut list and the drawing sheet stay square-on.
@@ -654,7 +670,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
         blocks: s.model.blocks.map((b) => (b.id !== blockId ? b : { ...b, rotY_deg: d })),
       };
       if (first) apply(model, true);
-      else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
+      else set((st) => ({ ...derive(model, st.plan, st.thickness), selectedId: st.selectedId }));
     },
     // Phase 1.1b — sokol / plinth height for a whole cabinet (mm10). `≤ 0` clears the field (no plinth).
     // Mirrors rotateBlockTo: a block-level patch, keepSel, one undo step. box.h is untouched; the plinth
@@ -837,8 +853,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
         })),
       };
       // `first` opens ONE undo step; later drag frames just replace it, so a drag isn't 100 undo entries.
-      if (first) set((st) => ({ ...derive(model, st.plan), past: [...st.past.slice(-49), st.model], future: [] }));
-      else set((st) => ({ ...derive(model, st.plan) }));
+      if (first) set((st) => ({ ...derive(model, st.plan, st.thickness), past: [...st.past.slice(-49), st.model], future: [] }));
+      else set((st) => ({ ...derive(model, st.plan, st.thickness) }));
     },
     moveFreePartTo: (fpId, axis, idealPos, first) => {
       const s = get();
@@ -876,7 +892,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
           freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: { ...f.box, x: snapped.x, y: snapped.y, z: snapped.z } })),
         })),
       };
-      set((st) => ({ ...derive(model, st.plan) }));
+      set((st) => ({ ...derive(model, st.plan, st.thickness) }));
     },
     resizeFreeBoard: (fpId, dim, mm, pushHistory = true) => {
       const s = get();
@@ -892,7 +908,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       };
       // keep the board selected while resizing; a live drag frame replaces state instead of stacking undo
       if (pushHistory) apply(model, true);
-      else set((st) => ({ ...derive(model, st.plan), selectedId: st.selectedId }));
+      else set((st) => ({ ...derive(model, st.plan, st.thickness), selectedId: st.selectedId }));
     },
     // U3.3b — rotate 90°: cycle the thin axis y→x→z→y and swap the two dims so the 16 mm thickness moves
     // with it (horizontal shelf → vertical side → front/back panel → …). One undo step, keeps selection.
@@ -937,18 +953,19 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     past: [],
     future: [],
-    plan: DEFAULT_PLAN,
-    materialPool: planDecors(DEFAULT_PLAN),
+    plan: wp.plan, // Phase 6 — seeded from the workshop profile
+    thickness: wp.thickness ?? {}, // Phase 6 — per-role board-thickness overrides (from the profile)
+    materialPool: planDecors(wp.plan),
     pendingBinding: null,
     editingBlockId: null,
     fromCabinet: false,
     // 7b — a plan decor change also changes that role's thickness → re-derive the parts. A manual decor
     // pick is an explicit choice, so it joins the material pool (only LIBRARY imports are gated, §3.2).
-    setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, materialPool: [...new Set([...s.materialPool, id])], ...derive(s.model, plan) }; }),
+    setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, materialPool: [...new Set([...s.materialPool, id])], ...derive(s.model, plan, s.thickness) }; }),
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
     // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
-    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
-    setModel: (model) => set((s) => ({ ...derive(model, s.plan), selectedId: null, selectedBlockIds: [], past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
+    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p, s.thickness), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
+    setModel: (model) => set((s) => ({ ...derive(model, s.plan, s.thickness), selectedId: null, selectedBlockIds: [], past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
     close: () => set({ open: false }),
     tapPart: (id) => {
       // tapping a placed part also targets its section, so the next add lands where you're looking
@@ -1129,7 +1146,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       if (next !== s.model) {
         // live drag frames must not each stack an undo entry — only the first one does
         if (pushHistory) apply(next, true);
-        else set((st) => ({ ...derive(next, st.plan) }));
+        else set((st) => ({ ...derive(next, st.plan, st.thickness) }));
       }
       const blk = next.blocks.find((b) => b.instances.some((i) => i.id === instanceId));
       return blk?.instances.find((i) => i.id === instanceId)?.anchor[axis] ?? pos;
@@ -1226,7 +1243,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       try { next = moveLineOp(s.model, lineId, delta, scope); } catch { return; } // dragging past a collapse/edge limit — ignore, don't crash
       if (next === s.model) return; // no-op (0 delta)
       if (pushHistory) apply(next, true); // first drag frame → one undo step, keep the selection
-      else set((st) => ({ ...derive(next, st.plan), selectedId: st.selectedId })); // live frame → no history
+      else set((st) => ({ ...derive(next, st.plan, st.thickness), selectedId: st.selectedId })); // live frame → no history
     },
     resizeDrag: (dim, extentMm10, pushHistory) => {
       const s = get();
@@ -1239,7 +1256,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       } catch { return; }
       if (next === s.model) return;
       if (pushHistory) apply(next, true);
-      else set((st) => ({ ...derive(next, st.plan), selectedId: st.selectedId }));
+      else set((st) => ({ ...derive(next, st.plan, st.thickness), selectedId: st.selectedId }));
     },
     zoneRow: () => {
       const s = get();
@@ -1322,6 +1339,24 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     jointProfile: () => get().model.jointProfile ?? defaultJointProfile(),
     setJointProfile: (profile) => apply({ ...get().model, jointProfile: profile }, true),
+    // Phase 6 — per-role board-thickness override (mm → mm10). 0 clears the override (back to the decor default).
+    setRoleThickness: (role, mm) => set((s) => {
+      const thickness = { ...s.thickness };
+      const v = Math.round(mm) * 10;
+      if (v > 0) thickness[role] = v; else delete thickness[role];
+      return { thickness, ...derive(s.model, s.plan, thickness) };
+    }),
+    // Phase 6 — snapshot the CURRENT plan + joints + thickness as the GLOBAL factory default (localStorage).
+    // Does NOT touch the current model — only the persisted profile.
+    saveWorkshopDefault: () => { const s = get(); saveWorkshopProfile({ plan: s.plan, jointProfile: s.jointProfile(), thickness: s.thickness }); },
+    // Phase 6 — reset THIS project's plan + joints + thickness to the saved factory default.
+    applyWorkshopDefault: () => set((s) => {
+      const wp = loadWorkshopProfile();
+      const thickness = wp.thickness ?? {};
+      const model: StructuralModel = { ...s.model, jointProfile: wp.jointProfile };
+      return { plan: wp.plan, thickness, materialPool: [...new Set([...s.materialPool, ...planDecors(wp.plan)])], ...derive(model, wp.plan, thickness), past: [...s.past.slice(-49), s.model], future: [], selectedId: null };
+    }),
+    workshopSummary: () => loadWorkshopProfile(),
     jointFindings: () => {
       const s = get();
       return checkJointConstraints(solveModelToParts(s.model, planThickness(s.plan)), s.jointProfile().minEdgeMargin_mm10);
@@ -1360,14 +1395,14 @@ export const useKarkas = create<KarkasState>((set, get) => {
       set((s) => {
         const prev = s.past[s.past.length - 1];
         if (!prev) return {};
-        return { ...derive(prev, s.plan), past: s.past.slice(0, -1), future: [...s.future, s.model], selectedId: null };
+        return { ...derive(prev, s.plan, s.thickness), past: s.past.slice(0, -1), future: [...s.future, s.model], selectedId: null };
       }),
     canUndo: () => get().past.length > 0,
     redo: () =>
       set((s) => {
         const next = s.future[s.future.length - 1];
         if (!next) return {};
-        return { ...derive(next, s.plan), past: [...s.past, s.model], future: s.future.slice(0, -1), selectedId: null };
+        return { ...derive(next, s.plan, s.thickness), past: [...s.past, s.model], future: s.future.slice(0, -1), selectedId: null };
       }),
     canRedo: () => get().future.length > 0,
     exportProject: () => {
@@ -1386,13 +1421,13 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const foreign = foreignDecors(get().materialPool, data.model, plan);
       // reset the FULL edit context on load (Step 12 audit fix): future[] (else redo restores the previous
       // project), and the manufacturing exportOverride / selectedHole (else block A's override leaks to B).
-      set({ ...derive(data.model, plan), plan, selectedId: null, past: [], future: [], exportOverride: false, selectedHole: null, open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null, lockedQuote: data.lockedQuote ?? null });
+      set({ ...derive(data.model, plan, get().thickness), plan, selectedId: null, past: [], future: [], exportOverride: false, selectedHole: null, open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null, lockedQuote: data.lockedQuote ?? null });
     },
     resolveBinding: (mapping) => {
       const s = get();
       const bound = bindBlockMaterials(s.model, s.plan, mapping);
       const kept = Object.entries(mapping).filter(([, t]) => t === null).map(([f]) => f); // "create new var"
-      set({ ...derive(bound.model, bound.plan), plan: bound.plan, materialPool: [...new Set([...s.materialPool, ...kept])], pendingBinding: null });
+      set({ ...derive(bound.model, bound.plan, s.thickness), plan: bound.plan, materialPool: [...new Set([...s.materialPool, ...kept])], pendingBinding: null });
     },
     cancelBinding: () => set((s) => ({ materialPool: [...new Set([...s.materialPool, ...(s.pendingBinding?.foreign ?? [])])], pendingBinding: null })),
   };
