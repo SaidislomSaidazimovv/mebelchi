@@ -7,8 +7,9 @@
 // entirely parallel to the kitchen Cell 3D (kitchen3d.ts) — nothing here touches that path.
 
 import type { PanelPlacement } from "../../../../engine/structure/layout.js";
-import type { PanelFeatures, StructuralModel } from "../../../../engine/contracts/structure.js";
+import type { PanelFeatures, StructuralModel, Room } from "../../../../engine/contracts/structure.js";
 import { leafSections } from "../../../../engine/contracts/structure.js";
+import { roomWallSegments, WALL_HEIGHT_MM10, WALL_THICKNESS_MM10 } from "../../../../engine/structure/room.js";
 
 /** A render-ready box: centre + full size, in metres (three.js units). */
 export interface Board {
@@ -32,6 +33,9 @@ export interface Board {
 
 export interface Scene {
   boards: Board[];
+  /** Phase 5 — the room's wall backdrop (metres), recentred with the boards. Absent = no room. Rendered
+   *  matte + non-interactive (never machined, never raycast). */
+  walls?: Board[];
   /** centre of the whole cabinet (metres) — camera target */
   center: [number, number, number];
   /** largest extent (metres) — camera distance basis */
@@ -169,6 +173,58 @@ export function layoutBounds(panels: readonly PanelPlacement[]): { cx: number; c
     minZ = Math.min(minZ, p.z_mm10); maxZ = Math.max(maxZ, p.z_mm10 + p.d_mm10);
   }
   return { cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2, minY, ctrX: (minX + maxX) / 2, ctrY: (minY + maxY) / 2, ctrZ: (minZ + maxZ) / 2 };
+}
+
+/** Phase 5 — the render boxes (mm10, min-corner) for a room's walls. Each wall's INNER face lies on its
+ *  segment line and it extends OUTWARD (opposite the room interior) by its thickness, so cabinets snapped to
+ *  the wall (backs on the line, 5.r2) sit flush against it with no clip. Floor-standing, full room height.
+ *  Interior normal = dir rotated 90° toward the inside (`[-dz,dx]` for "left" / `[dz,-dx]` for "right"). */
+export function roomWallBoxes(room: Room | undefined): RawBox[] {
+  if (!room || room.walls.length === 0) return [];
+  const T = WALL_THICKNESS_MM10, H = WALL_HEIGHT_MM10;
+  const right = room.turn === "right";
+  return roomWallSegments(room).map((seg, i) => {
+    const [ox, oz] = seg.origin, [dx, dz] = seg.dir, L = seg.length_mm10;
+    const n: [number, number] = right ? [dz, -dx] : [-dz, dx]; // room-interior normal; wall extends the OTHER way (−n)
+    const xRun = Math.abs(dx) > 0; // an X-running wall (dz = 0) vs a Z-running one
+    return {
+      id: `__wall_${seg.wallId}`,
+      name: `Devor ${i + 1}`,
+      x: xRun ? Math.min(ox, ox + dx * L) : Math.min(ox, ox - n[0] * T),
+      y: 0,
+      z: xRun ? Math.min(oz, oz - n[1] * T) : Math.min(oz, oz + dz * L),
+      w: xRun ? L : T,
+      h: H,
+      d: xRun ? T : L,
+    };
+  });
+}
+
+/** Phase 5 — the full scene: cabinets (placed / rotated) + the room's wall backdrop, both recentred on the
+ *  cabinet bounds so they align; the camera radius grows to frame the whole room. No room → byte-identical to
+ *  `layoutToScene` (walls absent). */
+export function sceneWithRoom(
+  rotatedPanels: readonly PanelPlacement[],
+  unrotatedFlat: readonly PanelPlacement[],
+  room: Room | undefined,
+  features?: Readonly<Record<string, PanelFeatures>>,
+): Scene {
+  const origin = layoutBounds(unrotatedFlat);
+  const cab = layoutToScene(rotatedPanels, features, origin);
+  const wallBoxes = roomWallBoxes(room);
+  if (wallBoxes.length === 0) return cab;
+  const walls = boxesToScene(wallBoxes, undefined, origin).boards;
+  // frame both: radius from the combined UNROTATED bounds (cabinets + walls)
+  let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  const acc = (x: number, y: number, z: number, w: number, h: number, d: number): void => {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x + w);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y + h);
+    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z + d);
+  };
+  for (const p of unrotatedFlat) acc(p.x_mm10, p.y_mm10, p.z_mm10, p.w_mm10, p.h_mm10, p.d_mm10);
+  for (const b of wallBoxes) acc(b.x, b.y, b.z, b.w, b.h, b.d);
+  const radius = M(Math.max(maxX - minX, maxY - minY, maxZ - minZ));
+  return { boards: cab.boards, walls, center: cab.center, radius };
 }
 
 /** U3.1 — the world-space box (metres, scene coords) of every leaf section (compartment), recentred

@@ -37,6 +37,8 @@ export type LineGroupId = string;
 export type SectionId = string;
 export type RowId = string;
 export type RunId = string;
+export type RoomId = string;
+export type WallId = string;
 export type ComponentId = string;
 export type InstanceId = string;
 
@@ -658,6 +660,46 @@ export interface Run {
   readonly members: readonly RunMember[];
   /** The total run length (wall length) the members tile, mm10. */
   readonly length_mm10: mm10;
+  /**
+   * Phase 5.r2 — the room wall this run hugs. Optional/additive: absent = a free run laid along X at its
+   * current Z (byte-identical to pre-5.r2). When set, the run's members tile along that wall's segment,
+   * backs to the wall, fronts (`rotY_deg`) facing into the room. Placement-only — the cut list is unchanged.
+   */
+  readonly wallId?: WallId;
+  /**
+   * Phase 5.r3 — how far along the wall (mm10) the run starts, to clear a corner block occupying the corner.
+   * Optional/additive: absent = 0 (starts at the wall origin, byte-identical). Only meaningful with `wallId`.
+   */
+  readonly cornerInset_mm10?: mm10;
+}
+
+// ---------------------------------------------------------------------------
+// Room (Phase 5) — the walls the cabinets stand against (render-only backdrop)
+// ---------------------------------------------------------------------------
+
+/**
+ * One wall of a room (Phase 5). A kitchen's walls are axis-aligned 90° segments; a wall carries only its
+ * run length (+ optional height). Its world segment (origin + direction) is DERIVED from the ordered wall
+ * list + the room's `turn` by `roomWallSegments` — walls never store world coords, so a length edit reflows
+ * the whole polyline. Render-only: a wall is never machined, never in the cut list, never raycast.
+ */
+export interface Wall {
+  readonly id: WallId;
+  readonly length_mm10: mm10;
+  /** Optional wall height (mm10); absent = a standard room height. */
+  readonly height_mm10?: mm10;
+}
+
+/**
+ * A room (Phase 5): an ordered polyline of 90° walls — I (1), L (2) or П/U (3). `turn` is which way the
+ * polyline bends at each corner (the room handedness, which the L-corner block hand follows in 5.r3).
+ * Optional on the model (`StructuralModel.room?`) → absent = no room, every existing model byte-identical.
+ */
+export interface Room {
+  readonly id: RoomId;
+  readonly walls: readonly Wall[];
+  /** Corner bend direction; absent = "left" (each wall turns 90° counter-clockwise from the previous). */
+  readonly turn?: "left" | "right";
 }
 
 // ---------------------------------------------------------------------------
@@ -704,6 +746,12 @@ export interface StructuralModel {
    * the solver never recomputes it. Optional\additive; absent = every hole stays where the profile put it.
    */
   readonly holeOverrides?: Readonly<Record<string, { readonly x_mm10: mm10; readonly y_mm10: mm10 }>>;
+  /**
+   * Phase 5 — the room the cabinets stand in: an axis-aligned 90° wall polyline (render-only backdrop).
+   * Optional/additive: absent = no room, every existing model + the whole cut-list / run / L-corner path is
+   * byte-identical. Walls are never machined, never raycast — they only frame the 3D scene.
+   */
+  readonly room?: Room;
 }
 
 /** A rectangular aperture cut into a panel — sink / hob / boiler (Step 4b, v4 §12). Part-local mm10.

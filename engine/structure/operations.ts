@@ -51,6 +51,7 @@ import type {
   Run,
   RunId,
   RunMember,
+  WallId,
   Scope,
   Section,
   SectionId,
@@ -62,6 +63,7 @@ import type { mm10, PartId } from "../contracts/types.js";
 import type { DivisionRule } from "../contracts/variables.js";
 import { resolveChain, type ChainZone } from "./constraintSolver.js";
 import { shelfSpanY } from "./solve.js";
+import { roomWallSegments } from "./room.js";
 
 // ---------------------------------------------------------------------------
 // Geometry helpers (axis-addressed Box3D math, all mm10)
@@ -1305,8 +1307,61 @@ function placeMemberBlock(block: Block, axis: Axis, w: mm10, cursor: mm10): Bloc
   return { ...reflowed, box: withAxis(reflowed.box, axis, cursor, w) };
 }
 
-/** Lay a run's members end-to-end from its current left edge, each at the width `widthOf` gives it. */
+/** Phase 5.r2 — reflow a block to width `w` (block-LOCAL x, origin 0) WITHOUT positioning it; the caller then
+ *  writes the world box + rotY. L-corner blocks scale proportionally; plain blocks solve rule-aware. */
+function reflowMemberWidth(block: Block, w: mm10): Block {
+  const old = block.box.w;
+  const local = { ...block, box: { ...block.box, x: 0, w: old } };
+  const reflowed = block.footprint ? scaleBlockAxis(local, "x", w / old) : resolveBlockAxis(local, "x", w);
+  return { ...reflowed, box: { ...reflowed.box, w } };
+}
+
+/** Phase 5.r2 — the room-interior normal for a wall running `dir` (`[-dz,dx]` for a "left"/CCW room, `[dz,-dx]`
+ *  for "right"/CW) + the `rotY_deg` that turns a cabinet's default front (−Z) to point along it. */
+export function wallInteriorNormal(dir: readonly [number, number], turn: "left" | "right"): [number, number] {
+  return turn === "right" ? [dir[1], -dir[0]] : [-dir[1], dir[0]];
+}
+function rotYForNormal(n: readonly [number, number]): number {
+  return n[0] === 0 ? (n[1] < 0 ? 0 : 180) : n[0] < 0 ? 90 : 270; // −Z→0, +Z→180, −X→90, +X→270
+}
+
+/** Phase 5.r2 — lay a run's members along a WALL segment: tiled along the wall dir from its origin, each
+ *  block's BACK on the wall line and its front (`rotY_deg`) facing the room interior. Mirrors `layRun`, but
+ *  the world box centre = origin + dir·(alongCentre) + n·(depth/2), so the cut list stays square-on. */
+function layRunAlongWall(
+  model: StructuralModel,
+  run: Run,
+  seg: { origin: readonly [mm10, mm10]; dir: readonly [number, number] },
+  turn: "left" | "right",
+  widthOf: (block: Block, i: number) => mm10,
+): StructuralModel {
+  const members = runMembers(model, run);
+  if (members.length === 0) return model;
+  const [ox, oz] = seg.origin, [dx, dz] = seg.dir;
+  const n = wallInteriorNormal(seg.dir, turn);
+  const rotY = rotYForNormal(n);
+  const placed = new Map<BlockId, Block>();
+  let s = run.cornerInset_mm10 ?? 0; // Phase 5.r3 — start after any corner block occupying the wall origin
+  members.forEach(({ block }, i) => {
+    const w = widthOf(block, i);
+    const reflowed = reflowMemberWidth(block, w);
+    const d = reflowed.box.d; // cabinet depth (unrotated Z extent) → into-room extent after rotY
+    const along = s + w / 2;
+    const cx = ox + dx * along + n[0] * (d / 2); // world footprint centre
+    const cz = oz + dz * along + n[1] * (d / 2);
+    placed.set(block.id, { ...reflowed, box: { ...reflowed.box, x: Math.round(cx - w / 2), z: Math.round(cz - d / 2) }, rotY_deg: rotY });
+    s += w;
+  });
+  return { ...model, blocks: model.blocks.map((b) => placed.get(b.id) ?? b) };
+}
+
+/** Lay a run's members end-to-end. A wall-assigned run (Phase 5.r2) tiles along that wall's segment (positioned
+ *  + oriented into the room); a free run lays along `run.axis` from its current left edge (unchanged). */
 function layRun(model: StructuralModel, run: Run, widthOf: (block: Block, i: number) => mm10): StructuralModel {
+  if (run.wallId && model.room) {
+    const seg = roomWallSegments(model.room).find((s) => s.wallId === run.wallId);
+    if (seg) return layRunAlongWall(model, run, seg, model.room.turn ?? "left", widthOf);
+  }
   const members = runMembers(model, run);
   if (members.length === 0) return model;
   let cursor = originOf(members[0]!.block.box, run.axis); // keep the run's left edge where it was
@@ -1337,6 +1392,67 @@ export function resolveRun(model: StructuralModel, runId: RunId, newLength_mm10:
   const laid = layRun(model, run, (_b, i) => sizes[i]!);
   const runs = model.runs!.map((r) => (r.id === runId ? { ...r, length_mm10: newLength_mm10 } : r));
   return { ...laid, runs };
+}
+
+/**
+ * Phase 5.r2 — assign a run to a room wall (or clear with `null`), then re-lay it at its CURRENT member widths:
+ * a wall-assigned run tiles along that wall's segment, backs to the wall, fronts (`rotY_deg`) into the room;
+ * clearing drops `wallId` + the members' `rotY_deg` and lays them back along X. No-op (same ref) for an unknown
+ * run, a wallId with no matching wall, or no room. Placement-only — the cut list is unchanged.
+ */
+export function snapRunToWall(model: StructuralModel, runId: RunId, wallId: WallId | null): StructuralModel {
+  const run = model.runs?.find((r) => r.id === runId);
+  if (!run) return model; // unknown run → no-op
+  if (wallId) {
+    const seg = model.room ? roomWallSegments(model.room).find((s) => s.wallId === wallId) : undefined;
+    if (!seg) return model; // no such wall → no-op
+    if (run.wallId === wallId) return model; // already there → no-op (same ref)
+    const runs = model.runs!.map((r) => (r.id === runId ? { ...r, wallId } : r));
+    const m: StructuralModel = { ...model, runs };
+    return layRun(m, runs.find((r) => r.id === runId)!, (b) => extentOf(b.box, run.axis));
+  }
+  if (!run.wallId) return model; // already free → no-op
+  const memberIds = new Set(run.members.map((x) => x.blockId));
+  const runs = model.runs!.map((r) => (r.id === runId ? (({ wallId: _w, ...rest }) => rest)(r) : r));
+  const blocks = model.blocks.map((b) => (memberIds.has(b.id) && b.rotY_deg ? (({ rotY_deg: _r, ...rest }) => rest)(b) : b));
+  const m: StructuralModel = { ...model, runs, blocks };
+  return layRun(m, runs.find((r) => r.id === runId)!, (b) => extentOf(b.box, run.axis));
+}
+
+/**
+ * Phase 5.r3 — position an existing L-corner block (footprint set, hand = room.turn) at the L room's inside
+ * corner: both leg-backs flush on the two walls, openings into the room, via `box` + `rotY_deg` (the scene
+ * turns it — cut list square-on). Then inset the run on the wall whose ORIGIN is the corner (wall 1) so it
+ * tiles after the corner unit. No-op (same ref) without a ≥2-wall room or an L-block. MVP: turn "left" (the
+ * default L room); turn "right" mirrors it.
+ */
+export function fitCorner(model: StructuralModel, blockId: BlockId): StructuralModel {
+  const room = model.room;
+  if (!room || room.walls.length < 2) return model;
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block || !block.footprint) return model; // must be an L-corner block
+  const segs = roomWallSegments(room);
+  const w0 = segs[0]!, w1 = segs[1]!;
+  const turn = room.turn ?? "left";
+  const W0 = w0.length_mm10; // wall 1's origin X = the corner X
+  const boxW = block.box.w; // unrotated X extent (= legA.length)
+  const boxD = block.box.d; // unrotated Z extent (= legA.depth + legB.length)
+  // The rotated AABB tucks into the corner: its max-X face on wall 1 (x = W0); its wall-0 face on z = 0. The
+  // opening (−X/−Z local) turns to face the room. turn "left" → rotY 90 (AABB boxD×boxW, min-Z on wall 0);
+  // turn "right" → rotY 0 (AABB boxW×boxD, max-Z on wall 0, block extends −Z into the room).
+  const rotY = turn === "left" ? 90 : 0;
+  const rotXext = turn === "left" ? boxD : boxW; // rotated X extent
+  const rotZext = turn === "left" ? boxW : boxD; // rotated Z extent
+  const cx = W0 - rotXext / 2; // centre so max-X = W0 (wall 1)
+  const cz = turn === "left" ? rotZext / 2 : -rotZext / 2; // min-Z = 0 (left) / max-Z = 0 (right)
+  const newBox = { ...block.box, x: Math.round(cx - boxW / 2), z: Math.round(cz - boxD / 2) };
+  const blocks = model.blocks.map((b) => (b.id === blockId ? { ...b, box: newBox, rotY_deg: rotY } : b));
+  // inset the wall-1 run (its origin is the corner) by the corner block's reach along wall 1 (its rotated Z extent)
+  const runs = (model.runs ?? []).map((r) => (r.wallId === w1.wallId ? { ...r, cornerInset_mm10: rotZext } : r));
+  let m: StructuralModel = { ...model, blocks, runs };
+  const w1Run = runs.find((r) => r.wallId === w1.wallId);
+  if (w1Run) m = layRun(m, w1Run, (b) => extentOf(b.box, w1Run.axis));
+  return m;
 }
 
 /**

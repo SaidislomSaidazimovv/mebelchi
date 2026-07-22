@@ -135,6 +135,22 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
   return group;
 }
 
+/** Phase 5.r1 — the room's wall backdrop: matte, floor-standing panels in their OWN group (so highlight /
+ *  recolor / render-mode never touch them). Non-interactive: no `userData.partId`, raycast disabled, so a tap
+ *  never selects a wall and the walls never appear in the cut list. Returns an empty group when there's no room. */
+export function buildRoomGroup(scene: Scene): THREE.Group {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0xe4e2dc, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+  for (const b of scene.walls ?? []) {
+    const geom = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
+    mesh.raycast = () => {}; // never pickable — a wall is a backdrop, not furniture
+    group.add(mesh);
+  }
+  return group;
+}
+
 /** Tint the board whose id matches (selection). Pass null to clear every tint. */
 export function highlightBoard(group: THREE.Group, id: string | null): void {
   for (const child of group.children) {

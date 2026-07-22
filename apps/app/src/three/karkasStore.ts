@@ -14,7 +14,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -27,7 +27,8 @@ import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
-import { layoutBounds, layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
+import { layoutBounds, layoutToScene, rotateBlockPlacements, sceneWithRoom, type Scene } from "./structureScene";
+import { roomFromPreset } from "../../../../engine/structure/room.js";
 import { withApplianceCutouts } from "./appliances";
 import { snapCandidates, snapSpan, type SnapCandidate } from "../../../../engine/structure/snap.js";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, withPlanDefaults, type MaterialPlan } from "./materials";
@@ -59,7 +60,8 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   // Phase 3.c — a hob/sink derives a worktop cutout; feed the augmented features to the render (both the
   // scene and the CNC read model.features, so this one overlay punches the hole). Same ref when none apply.
   const feats = withApplianceCutouts(model).features;
-  const scene = layoutToScene(rotateBlockPlacements(flat, model.blocks), feats, layoutBounds(flat));
+  // Phase 5 — the scene shows the cabinets PLUS the room's wall backdrop (no room → byte-identical, walls absent).
+  const scene = sceneWithRoom(rotateBlockPlacements(flat, model.blocks), flat, model.room, feats);
   return { model, parts: solveStructure(model, tk), scene, warnings, sections };
 }
 
@@ -250,6 +252,10 @@ interface KarkasState extends Derived {
   setRunLength: (runId: string, mm: number) => void;
   /** U4.5 — set one member's rule (Fixed mm / Ratio weight / Flex); the run re-solves at its length. */
   setRunMemberRule: (runId: string, blockId: string, rule: DivisionRule) => void;
+  /** 5.r2 — snap a run to a room wall (or free it with null): tiles + orients its blocks along that wall. */
+  snapRunToWall: (runId: string, wallId: string | null) => void;
+  /** 5.r3 — add an L-corner block auto-fitted to the L room's corner (depth matched to the runs). */
+  fitCorner: () => void;
   /** U3.2 — free assembly (Moblo free-primitive): drop a free board, drag it anywhere, or remove it. */
   /** Add a free primitive at the floor, centred: a flat board, a side panel, a leg, or a plain solid. */
   addFreeBoard: (kind?: PrimitiveKind) => void;
@@ -344,6 +350,10 @@ interface KarkasState extends Derived {
   setLegB: (length_mm: number, depth_mm: number) => void;
   /** 4 polish — set which way the L turns (left/right). No-op if the block isn't an L. */
   setLCornerHand: (hand: "left" | "right") => void;
+  /** 5.r1 — set the room walls: preset I/L/U + per-wall lengths (mm) + turn. Render-only backdrop. */
+  setRoom: (preset: "I" | "L" | "U", lengths_mm: number[], turn?: "left" | "right") => void;
+  /** 5.r1 — drop the room (walls disappear; the model is byte-identical to no-room). */
+  clearRoom: () => void;
   /** 2.2b — combine the selected door with its siblings: move it onto its parent section (spans them all). */
   combineSelectedDoor: () => void;
   /** 2.2b — split a combined door back to one compartment: move it to its section's first leaf child. */
@@ -789,6 +799,32 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const withRule: StructuralModel = { ...s.model, runs: s.model.runs!.map((r) => (r.id === runId ? { ...r, members } : r)) };
       try { apply(resolveRun(withRule, runId, run.length_mm10)); } catch { apply(withRule); }
     },
+    // 5.r2 — snap the run to a room wall (its blocks tile + orient along it), or free it (null).
+    snapRunToWall: (runId, wallId) => {
+      const s = get();
+      apply(snapRunToWall(s.model, runId, wallId));
+    },
+    // 5.r3 — drop an L-corner block into the L room's corner: legs sized to the run depth (flush), hand =
+    // room.turn, auto-positioned + oriented; the wall-1 run insets to clear it.
+    fitCorner: () => {
+      const s = get();
+      const room = s.model.room;
+      if (!room || room.walls.length < 2) return;
+      const ref = s.model.blocks[0];
+      const height_mm = ref ? Math.round(ref.box.h / 10) : 720;
+      const depth_mm = ref ? Math.round(ref.box.d / 10) : 560; // corner leg depth = the run cabinets' depth (flush)
+      const legLen_mm = depth_mm + 340; // leg reach along the wall = depth + a standard corner overhang
+      const fresh = buildCarcassModel(legLen_mm, height_mm, depth_mm).blocks[0];
+      if (!fresh) return;
+      const uid = Date.now().toString(36);
+      const zone = fresh.zones[0];
+      if (!zone) return;
+      const block: Block = { ...fresh, id: `blk_${uid}`, name: "Burchak shkaf", zones: [{ ...zone, id: `z_${uid}`, root: { ...zone.root, id: `sec_${uid}` } }] };
+      const withBlock: StructuralModel = { ...s.model, blocks: [...s.model.blocks, block] };
+      const leg = { length_mm10: legLen_mm * 10, depth_mm10: depth_mm * 10 };
+      const asL = setBlockFootprint(withBlock, block.id, { legA: leg, legB: leg, hand: room.turn ?? "left" });
+      apply(fitCorner(asL, block.id));
+    },
     moveFreePart: (fpId, delta, first) => {
       const s = get();
       const block = s.model.blocks[0];
@@ -1029,6 +1065,18 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const b = blockOfPart(s.model, s.selectedId);
       if (!b?.footprint || (b.footprint.hand ?? "left") === hand) return;
       apply(setBlockFootprint(s.model, b.id, { legA: b.footprint.legA, legB: b.footprint.legB, hand }), true);
+    },
+    // 5.r1 — set the room: an I/L/U wall preset + per-wall lengths (mm → mm10). Render-only backdrop.
+    setRoom: (preset, lengths_mm, turn) => {
+      const s = get();
+      const room = roomFromPreset(preset, lengths_mm.map((mm) => Math.max(1000, Math.round(mm) * 10)), turn ?? s.model.room?.turn ?? "left");
+      apply({ ...s.model, room }, true);
+    },
+    clearRoom: () => {
+      const s = get();
+      if (!s.model.room) return; // already no room — no-op
+      const { room: _drop, ...rest } = s.model;
+      apply(rest, true);
     },
     // 2.2b — combine the selected door with its siblings: move the instance onto its PARENT section (no fork —
     // sectionId is per-instance). keepSel so the same door stays selected as it widens.
