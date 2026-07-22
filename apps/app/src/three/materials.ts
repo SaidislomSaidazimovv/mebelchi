@@ -13,6 +13,10 @@ import type { ApplianceKind } from "../../../../engine/contracts/structure";
  *  pure-PBR finishes; texture-based ones (marble / wood grain / leather / fabric) arrive with M3.3. */
 export type MaterialFinish = "matte" | "satin" | "gloss" | "metal" | "glass" | "frosted" | "mirror";
 
+/** A procedural surface texture (M3.3), generated on a canvas (no assets). Absent = a flat colour. The
+ *  grayscale grain is tinted by the decor `hex`, so one wood generator serves light oak and dark wenge. */
+export type TextureKind = "wood" | "marble" | "leather" | "fabric";
+
 export interface BoardMaterial {
   id: string;
   name: string;
@@ -21,6 +25,8 @@ export interface BoardMaterial {
   thickness_mm: number;
   /** M3.2 — the surface finish the renderer builds. Absent = matte (byte-identical to pre-M3.2). */
   finish?: MaterialFinish;
+  /** M3.3 — a procedural texture (wood grain / marble / leather / fabric). Absent = a flat finish. */
+  texture?: TextureKind;
 }
 
 /** An edge-banding material (kromka / jiyak K-variable): priced per running metre, with a view colour
@@ -34,8 +40,8 @@ export interface EdgeMaterial {
 
 export const BOARDS: readonly BoardMaterial[] = [
   { id: "ldsp_white", name: "ЛДСП Белый", hex: "#f4f2ec", pricePerM2: 150000, thickness_mm: 16 },
-  { id: "ldsp_sonoma", name: "ЛДСП Дуб Сонома", hex: "#c9a877", pricePerM2: 175000, thickness_mm: 16 },
-  { id: "ldsp_wenge", name: "ЛДСП Венге", hex: "#4b3a2f", pricePerM2: 178000, thickness_mm: 16 },
+  { id: "ldsp_sonoma", name: "ЛДСП Дуб Сонома", hex: "#c9a877", pricePerM2: 175000, thickness_mm: 16, texture: "wood" },
+  { id: "ldsp_wenge", name: "ЛДСП Венге", hex: "#4b3a2f", pricePerM2: 178000, thickness_mm: 16, texture: "wood" },
   { id: "ldsp_graphite", name: "ЛДСП Графит", hex: "#4a4d52", pricePerM2: 185000, thickness_mm: 16 },
   { id: "ldsp_anthracite", name: "ЛДСП Антрацит", hex: "#2f3237", pricePerM2: 195000, thickness_mm: 16 },
   { id: "mdf_white_matt", name: "МДФ Белый мат", hex: "#eceae4", pricePerM2: 380000, thickness_mm: 18 },
@@ -56,6 +62,12 @@ export const BOARDS: readonly BoardMaterial[] = [
   { id: "metal_brushed", name: "Металл шлифованный", hex: "#c8ccd2", pricePerM2: 450000, thickness_mm: 16, finish: "metal" },
   { id: "metal_gold", name: "Золото", hex: "#d4af37", pricePerM2: 600000, thickness_mm: 16, finish: "metal" },
   { id: "metal_bronze", name: "Бронза", hex: "#cd7f32", pricePerM2: 550000, thickness_mm: 16, finish: "metal" },
+  // M3.3 — procedural-textured decors (canvas-generated wood grain / marble / leather / fabric).
+  { id: "wood_oak", name: "Дуб натуральный", hex: "#b98d5a", pricePerM2: 210000, thickness_mm: 16, texture: "wood" },
+  { id: "wood_walnut", name: "Орех тёмный", hex: "#6b4a32", pricePerM2: 225000, thickness_mm: 16, texture: "wood" },
+  { id: "marble_white", name: "Мрамор белый", hex: "#eceef0", pricePerM2: 520000, thickness_mm: 20, finish: "gloss", texture: "marble" },
+  { id: "leather_brown", name: "Кожа коричневая", hex: "#7a5236", pricePerM2: 480000, thickness_mm: 20, texture: "leather" },
+  { id: "fabric_grey", name: "Ткань серая", hex: "#8b8d90", pricePerM2: 260000, thickness_mm: 20, texture: "fabric" },
 ];
 
 export const EDGES: readonly EdgeMaterial[] = [
@@ -252,6 +264,25 @@ export function partFinishLookup(
     m.set(p.id, f);
     const base = layoutBaseId(p.id);
     if (base !== p.id && !m.has(base)) m.set(base, f);
+  }
+  return (id) => m.get(id);
+}
+
+/**
+ * The `id → texture` lookup (M3.3), parallel to partColorLookup / partFinishLookup. A part's texture is its
+ * resolved board's `texture` (absent → none). Same doubled-part base-id registration as the others.
+ */
+export function partTextureLookup(
+  parts: readonly { id: string; role?: string; materialId?: string }[],
+  plan: MaterialPlan,
+): (id: string) => TextureKind | undefined {
+  const m = new Map<string, TextureKind>();
+  for (const p of parts) {
+    const t = partBoard(plan, p.role, p.materialId)?.texture;
+    if (!t) continue;
+    m.set(p.id, t);
+    const base = layoutBaseId(p.id);
+    if (base !== p.id && !m.has(base)) m.set(base, t);
   }
   return (id) => m.get(id);
 }
