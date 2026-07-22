@@ -27,7 +27,8 @@ import { checkStability } from "../../../../engine/structure/stability.js";
 import { checkMotionClearance } from "../../../../engine/structure/motion.js";
 import { checkHingeFit } from "../../../../engine/structure/hingeFit.js";
 import { checkConstraints } from "../../../../engine/structure/constraints.js";
-import { layoutBounds, layoutToScene, rotateBlockPlacements, type Scene } from "./structureScene";
+import { layoutBounds, layoutToScene, rotateBlockPlacements, sceneWithRoom, type Scene } from "./structureScene";
+import { roomFromPreset } from "../../../../engine/structure/room.js";
 import { withApplianceCutouts } from "./appliances";
 import { snapCandidates, snapSpan, type SnapCandidate } from "../../../../engine/structure/snap.js";
 import { DEFAULT_PLAN, planThickness, boardThicknessMm10, withPlanDefaults, type MaterialPlan } from "./materials";
@@ -59,7 +60,8 @@ function derive(model: StructuralModel, plan: MaterialPlan): Derived {
   // Phase 3.c — a hob/sink derives a worktop cutout; feed the augmented features to the render (both the
   // scene and the CNC read model.features, so this one overlay punches the hole). Same ref when none apply.
   const feats = withApplianceCutouts(model).features;
-  const scene = layoutToScene(rotateBlockPlacements(flat, model.blocks), feats, layoutBounds(flat));
+  // Phase 5 — the scene shows the cabinets PLUS the room's wall backdrop (no room → byte-identical, walls absent).
+  const scene = sceneWithRoom(rotateBlockPlacements(flat, model.blocks), flat, model.room, feats);
   return { model, parts: solveStructure(model, tk), scene, warnings, sections };
 }
 
@@ -344,6 +346,10 @@ interface KarkasState extends Derived {
   setLegB: (length_mm: number, depth_mm: number) => void;
   /** 4 polish — set which way the L turns (left/right). No-op if the block isn't an L. */
   setLCornerHand: (hand: "left" | "right") => void;
+  /** 5.r1 — set the room walls: preset I/L/U + per-wall lengths (mm) + turn. Render-only backdrop. */
+  setRoom: (preset: "I" | "L" | "U", lengths_mm: number[], turn?: "left" | "right") => void;
+  /** 5.r1 — drop the room (walls disappear; the model is byte-identical to no-room). */
+  clearRoom: () => void;
   /** 2.2b — combine the selected door with its siblings: move it onto its parent section (spans them all). */
   combineSelectedDoor: () => void;
   /** 2.2b — split a combined door back to one compartment: move it to its section's first leaf child. */
@@ -1029,6 +1035,18 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const b = blockOfPart(s.model, s.selectedId);
       if (!b?.footprint || (b.footprint.hand ?? "left") === hand) return;
       apply(setBlockFootprint(s.model, b.id, { legA: b.footprint.legA, legB: b.footprint.legB, hand }), true);
+    },
+    // 5.r1 — set the room: an I/L/U wall preset + per-wall lengths (mm → mm10). Render-only backdrop.
+    setRoom: (preset, lengths_mm, turn) => {
+      const s = get();
+      const room = roomFromPreset(preset, lengths_mm.map((mm) => Math.max(1000, Math.round(mm) * 10)), turn ?? s.model.room?.turn ?? "left");
+      apply({ ...s.model, room }, true);
+    },
+    clearRoom: () => {
+      const s = get();
+      if (!s.model.room) return; // already no room — no-op
+      const { room: _drop, ...rest } = s.model;
+      apply(rest, true);
     },
     // 2.2b — combine the selected door with its siblings: move the instance onto its PARENT section (no fork —
     // sectionId is per-instance). keepSel so the same door stays selected as it widens.

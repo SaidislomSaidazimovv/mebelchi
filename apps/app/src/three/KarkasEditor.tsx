@@ -21,7 +21,7 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
 import { applianceFittings, withApplianceCutouts } from "./appliances";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
@@ -67,6 +67,7 @@ interface RT {
   kromkaGroup: THREE.Group | null; // Step 8.2 — coloured banded-edge lines, shown in Frame view
   handleGroup: THREE.Group | null; // Phase 1.3d — 3D handle meshes (bow bar / knob) on handled doors
   applianceGroup: THREE.Group | null; // Phase 3.b — 3D appliance meshes (oven / hob / sink / …)
+  roomGroup: THREE.Group | null; // Phase 5.r1 — the room's wall backdrop (matte, non-interactive)
   ghostGroup: THREE.Group | null; // Step 9 — Application-view ghost props (boiler / clothes / …)
   // Live 3D dimension lines, built on drag-start and torn down on pointer-up. A list because a divider
   // drag needs TWO at once — the bay either side of it.
@@ -343,6 +344,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const toggleLCorner = useKarkas((s) => s.toggleLCorner);
   const setLegB = useKarkas((s) => s.setLegB);
   const setLCornerHand = useKarkas((s) => s.setLCornerHand);
+  const setRoom = useKarkas((s) => s.setRoom);
+  const clearRoom = useKarkas((s) => s.clearRoom);
+  // 5.r1 — PRIMITIVE room selectors (React 18 rule): the preset (none/I/L/U) + wall lengths as a comma string.
+  const roomPreset = useKarkas((s) => { const n = s.model.room?.walls.length ?? 0; return n === 0 ? "none" : n === 1 ? "I" : n === 2 ? "L" : "U"; });
+  const roomLens = useKarkas((s) => (s.model.room?.walls ?? []).map((w) => Math.round(w.length_mm10 / 10)).join(","));
   // 4.a — PRIMITIVE selectors (never a fresh object — the React 18 useSyncExternalStore rule): is the
   // selected block an L-corner, and its return-leg dims (mm).
   const isLCorner = useKarkas((s) => !!blockOfPart(s.model, s.selectedId)?.footprint);
@@ -582,7 +588,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const labels = { w: mkLabel(), h: mkLabel(), d: mkLabel() };
     const grid = makeGrid("light"); scene3.add(grid); // U2.1b — Moblo floor grid (theme-swapped by the effect below)
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, roomGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
     // dev-only: expose the three runtime so local tooling (puppeteer) can assert on the SCENE GRAPH — a
     // 3D overlay like the dimension line has no DOM to query. Stripped from prod builds, like __karkas.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
@@ -981,6 +987,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
       if (rt.current?.handleGroup) disposeStructureGroup(rt.current.handleGroup);
       if (rt.current?.applianceGroup) disposeStructureGroup(rt.current.applianceGroup);
+      if (rt.current?.roomGroup) disposeStructureGroup(rt.current.roomGroup);
       if (rt.current?.ghostGroup) disposeStructureGroup(rt.current.ghostGroup);
       labels.w.remove(); labels.h.remove(); labels.d.remove();
       renderer.dispose();
@@ -1098,6 +1105,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const ag = buildApplianceGroup(applianceFittings(model, hplaces));
     r.scene.add(ag);
     r.applianceGroup = ag;
+    // Phase 5.r1 — rebuild the room's wall backdrop (matte, non-interactive). Empty group when there's no room.
+    if (r.roomGroup) { r.scene.remove(r.roomGroup); disposeStructureGroup(r.roomGroup); }
+    const rg = buildRoomGroup(scene);
+    r.scene.add(rg);
+    r.roomGroup = rg;
     highlightBoard(group, selectedId);
     // C5 — refresh the dimension overlay: bounding box + W/H/D text (mm)
     r.aabb = new THREE.Box3().setFromObject(group);
@@ -2209,6 +2221,19 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <button style={act} onClick={() => setLCornerHand(lHand === "left" ? "right" : "left")} type="button" title="L burchakni chapga / o'ngga aylantirish">⇄ {lHand === "left" ? "Chap" : "O'ng"}</button>
               </>
             )}
+            {/* 5.r1 — Room: pick a wall preset (none / I / L / П) + size each wall. A render-only backdrop. */}
+            <span style={{ ...mono, fontSize: 10, color: "#8a8a8a", marginLeft: 6 }}>Xona:</span>
+            {(["none", "I", "L", "U"] as const).map((p) => (
+              <button key={p} type="button" title="Xona devorlari (fon)"
+                style={{ ...act, ...(roomPreset === p ? { borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" } : {}) }}
+                onClick={() => (p === "none" ? clearRoom() : setRoom(p, roomLens ? roomLens.split(",").map(Number) : []))}>
+                {p === "none" ? "Yo'q" : p === "U" ? "П" : p}
+              </button>
+            ))}
+            {roomPreset !== "none" && roomLens.split(",").map((L, i) => (
+              <DimField key={i} label="mm" value={Number(L)} min={500} units={units}
+                onCommit={(v) => { const lens = roomLens.split(",").map(Number); lens[i] = v; setRoom(roomPreset as "I" | "L" | "U", lens); }} />
+            ))}
           </div>
         );
       })()}
