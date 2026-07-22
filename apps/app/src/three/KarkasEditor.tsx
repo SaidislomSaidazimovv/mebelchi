@@ -342,11 +342,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setAppliance = useKarkas((s) => s.setAppliance);
   const toggleLCorner = useKarkas((s) => s.toggleLCorner);
   const setLegB = useKarkas((s) => s.setLegB);
+  const setLCornerHand = useKarkas((s) => s.setLCornerHand);
   // 4.a — PRIMITIVE selectors (never a fresh object — the React 18 useSyncExternalStore rule): is the
   // selected block an L-corner, and its return-leg dims (mm).
   const isLCorner = useKarkas((s) => !!blockOfPart(s.model, s.selectedId)?.footprint);
   const legBLen = useKarkas((s) => { const f = blockOfPart(s.model, s.selectedId)?.footprint; return f ? Math.round(f.legB.length_mm10 / 10) : 0; });
   const legBDepth = useKarkas((s) => { const f = blockOfPart(s.model, s.selectedId)?.footprint; return f ? Math.round(f.legB.depth_mm10 / 10) : 0; });
+  // 4 polish — which way the L turns (primitive string, React 18 rule). Absent footprint → "left".
+  const lHand = useKarkas((s) => blockOfPart(s.model, s.selectedId)?.footprint?.hand ?? "left");
   const combineSelectedDoor = useKarkas((s) => s.combineSelectedDoor);
   const splitSelectedDoor = useKarkas((s) => s.splitSelectedDoor);
   // Select PRIMITIVES (booleans), not a fresh object — a new-object selector trips React 18's
@@ -1938,6 +1941,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <label className="mob-props-f"><span>Qaytish ch.</span>
                   <DimField label="mm" value={legBDepth} onCommit={(v) => setLegB(legBLen, v)} min={100} units={units} />
                 </label>
+                <button type="button" className="mob-props-toggle" onClick={() => setLCornerHand(lHand === "left" ? "right" : "left")} title="L burchakni chapga / o'ngga aylantirish">⇄ {lHand === "left" ? "Chap" : "O'ng"} burchak</button>
               </>
             )}
           </div>
@@ -2202,6 +2206,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <DimField label="mm" value={legBLen} onCommit={(v) => setLegB(v, legBDepth)} min={100} units={units} />
                 <span style={mono}>ch.:</span>
                 <DimField label="mm" value={legBDepth} onCommit={(v) => setLegB(legBLen, v)} min={100} units={units} />
+                <button style={act} onClick={() => setLCornerHand(lHand === "left" ? "right" : "left")} type="button" title="L burchakni chapga / o'ngga aylantirish">⇄ {lHand === "left" ? "Chap" : "O'ng"}</button>
               </>
             )}
           </div>

@@ -446,8 +446,9 @@ function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: Resolve
   // Phase 4.d-2 — a leg-B (−X-facing) drawer opens sideways: its visible front width runs along Z (box.d, the
   // leg length) and its depth runs along X (box.w, the leg depth). Only these two extents swap; the panel
   // SIZES are otherwise identical, so the layout mirror places the same-sized boards in the −X orientation.
-  const frontW = facing === "-x" ? box.d : box.w; // the drawer-front width (Z for leg-B, X for the normal front)
-  const depthExtent = facing === "-x" ? box.w : box.d; // front-to-back depth (X for leg-B, Z normally)
+  const sideways = facing !== "-z"; // a leg-B drawer (−x or +x) opens sideways — same axes either hand
+  const frontW = sideways ? box.d : box.w; // the drawer-front width (Z for leg-B, X for the normal front)
+  const depthExtent = sideways ? box.w : box.d; // front-to-back depth (X for leg-B, Z normally)
   const outerW = openingW - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width inside the runner clearance
   const innerW = outerW - 2 * c; // between the two box sides
   const sideH = box.h - 2 * c; // box side height within the opening
@@ -477,7 +478,7 @@ function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: Resolve
 function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
   const facing = zoneFacingOfSection(block, section.id);
   // −X (leg-B) drawer: the opening runs along Z, so the clear span is a Z-span; a normal drawer uses the X-span.
-  const openingW = facing === "-x" ? shelfSpanZ(block, section, t.carcass).depth : shelfSpanX(block, section, t.carcass).width;
+  const openingW = facing !== "-z" ? shelfSpanZ(block, section, t.carcass).depth : shelfSpanX(block, section, t.carcass).width;
   const comp = block.components.find((c) => c.id === inst.componentId);
   return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box, inst.drawerHeight_mm10), openingW, t, comp?.organizer, facing);
 }
@@ -606,7 +607,7 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
     // Phase 4.d-2 — an L return-leg (leg-B) door faces −X, so its width spans the leg LENGTH (box.d, along Z),
     // not box.w (the leg depth). Drilling is part-local (hinge cups run along `length`, handle along `width`),
     // so cutting the right width is all that's needed for the holes to land correctly on the −X face.
-    const width = zoneFacingOfSection(block, section.id) === "-x" ? section.box.d : section.box.w; // door width (Y)
+    const width = zoneFacingOfSection(block, section.id) !== "-z" ? section.box.d : section.box.w; // door width (Y) — a sideways (leg-B ±x) door spans the leg length
     if (component.glazedGrid) {
       return stampMat(glazedGridParts(`${block.id}__inst_${inst.id}`, component.name, length, width, component.glazedGrid.lights));
     }

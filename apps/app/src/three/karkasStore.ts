@@ -342,6 +342,8 @@ interface KarkasState extends Derived {
   toggleLCorner: () => void;
   /** 4.a — edit the L-corner return leg (legB) length + depth (mm). No-op if the block isn't an L. */
   setLegB: (length_mm: number, depth_mm: number) => void;
+  /** 4 polish — set which way the L turns (left/right). No-op if the block isn't an L. */
+  setLCornerHand: (hand: "left" | "right") => void;
   /** 2.2b — combine the selected door with its siblings: move it onto its parent section (spans them all). */
   combineSelectedDoor: () => void;
   /** 2.2b — split a combined door back to one compartment: move it to its section's first leaf child. */
@@ -1019,7 +1021,14 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const b = blockOfPart(s.model, s.selectedId);
       if (!b?.footprint) return;
       const legB = { length_mm10: Math.max(1000, Math.round(length_mm) * 10), depth_mm10: Math.max(1000, Math.round(depth_mm) * 10) };
-      apply(setBlockFootprint(s.model, b.id, { legA: b.footprint.legA, legB }), true);
+      apply(setBlockFootprint(s.model, b.id, { legA: b.footprint.legA, legB, hand: b.footprint.hand }), true); // keep the hand
+    },
+    // 4 polish — flip the L between left- and right-hand (mirrors leg-B; leg-A stays). Keeps legA/legB dims.
+    setLCornerHand: (hand) => {
+      const s = get();
+      const b = blockOfPart(s.model, s.selectedId);
+      if (!b?.footprint || (b.footprint.hand ?? "left") === hand) return;
+      apply(setBlockFootprint(s.model, b.id, { legA: b.footprint.legA, legB: b.footprint.legB, hand }), true);
     },
     // 2.2b — combine the selected door with its siblings: move the instance onto its PARENT section (no fork —
     // sectionId is per-instance). keepSel so the same door stays selected as it widens.

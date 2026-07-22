@@ -203,9 +203,10 @@ export type ZoneRule = "manual" | "ratio" | "equal" | "fixed_mm";
  * `block → zone → type → single` lands on this level as the coarse step.
  */
 /** Which way a zone's facades OPEN — the front face its doors/drawers lay on. Absent = "-z" (the normal
- *  front, every existing zone). "-x" = an L-corner return leg (leg-B), rotated 90°: its section box is a
- *  Z-run (w = leg depth along X, d = leg length along Z) and its facades sit on the −X face. */
-export type FaceDir = "-z" | "-x";
+ *  front, every existing zone). "-x" / "+x" = an L-corner return leg (leg-B), rotated 90°: its section box is a
+ *  Z-run (w = leg depth along X, d = leg length along Z) and its facades sit on the −X (left-hand L) or +X
+ *  (right-hand L) face. The two sideways dirs share the axis logic; only the X face + slide sign mirror. */
+export type FaceDir = "-z" | "-x" | "+x";
 
 export interface Zone {
   readonly id: ZoneId;
@@ -495,6 +496,13 @@ export interface LegSpec {
 export interface LCornerFootprint {
   readonly legA: LegSpec;
   readonly legB: LegSpec;
+  /**
+   * Which way the L turns (Phase 4 polish). Optional/additive — absent = "left" (leg-B returns at leg-A's
+   * min-X end, opening −X), so every existing L is byte-identical. "right" mirrors leg-B to leg-A's max-X end
+   * (opening +X). Handedness is a LAYOUT + section concern only — the cut list (`lCornerParts`) + drilling are
+   * identical for both hands.
+   */
+  readonly hand?: "left" | "right";
 }
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,7 @@ import type {
   DrawerInterior,
   ApplianceKind,
   DrawerOrganizer,
+  FaceDir,
   HandleType,
   LCornerFootprint,
   LiftType,
@@ -1245,11 +1246,17 @@ export function setBlockFootprint(model: StructuralModel, blockId: BlockId, foot
       return { ...rest, box: { ...b.box, d: b.footprint.legA.depth_mm10 }, zones: b.zones.filter((z) => z.id !== LEGB_ZONE_ID) };
     }
     changed = true;
-    const legBBox = { x: 0, y: 0, z: footprint.legA.depth_mm10, w: footprint.legB.depth_mm10, h: b.box.h, d: footprint.legB.length_mm10 };
+    // Phase 4 polish — handedness: a right-hand L puts leg-B at leg-A's max-X end, opening +X; the default
+    // (left) keeps it at min-X, opening −X. The section origin + facing follow, so shelves/facades land in the
+    // mirrored leg (the carcass mirror lives in lCornerLayout). Re-setting updates facing too (the hand may flip).
+    const right = footprint.hand === "right";
+    const legBX = right ? footprint.legA.length_mm10 - footprint.legB.depth_mm10 : 0;
+    const facing: FaceDir = right ? "+x" : "-x";
+    const legBBox = { x: legBX, y: 0, z: footprint.legA.depth_mm10, w: footprint.legB.depth_mm10, h: b.box.h, d: footprint.legB.length_mm10 };
     const existing = b.zones.find((z) => z.id === LEGB_ZONE_ID);
     const legBZone: Zone = existing
-      ? { ...existing, root: { ...existing.root, box: legBBox } } // re-set (leg-B resized) — keep its content + facing
-      : { id: LEGB_ZONE_ID, name: "Плечо B", rule: "manual", facing: "-x", root: { id: LEGB_SECTION_ID, box: legBBox, dividers: [], children: [], instanceIds: [], purpose: null } }; // −X: leg-B facades open sideways (Phase 4.d-2)
+      ? { ...existing, facing, root: { ...existing.root, box: legBBox } } // re-set (leg-B resized / hand flipped) — keep content
+      : { id: LEGB_ZONE_ID, name: "Плечо B", rule: "manual", facing, root: { id: LEGB_SECTION_ID, box: legBBox, dividers: [], children: [], instanceIds: [], purpose: null } };
     const zones = existing ? b.zones.map((z) => (z.id === LEGB_ZONE_ID ? legBZone : z)) : [...b.zones, legBZone];
     return { ...b, footprint, box: { ...b.box, w: footprint.legA.length_mm10, d: footprint.legA.depth_mm10 + footprint.legB.length_mm10 }, zones };
   });
