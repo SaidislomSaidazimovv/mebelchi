@@ -179,6 +179,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // 5.r2 — how many walls the room has (primitive number, React 18 rule) — drives the «Devorga» wall picker.
   const roomWallCount = useKarkas((s) => s.model.room?.walls.length ?? 0);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
+  const renameFreePart = useKarkas((s) => s.renameFreePart);
+  const resizeFreeBoardTo = useKarkas((s) => s.resizeFreeBoardTo);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const rotateBlockTo = useKarkas((s) => s.rotateBlockTo);
   const setPlinth = useKarkas((s) => s.setPlinth);
@@ -873,13 +875,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         // read these out BEFORE the store calls: `drag` is a mutable capture, so TS drops the narrowing
         // the moment any function that could reassign it runs.
         const { fpId, axis } = drag;
-        useKarkas.getState().resizeFreeBoard(fpId, dim, Math.round(next / 10), drag.first);
+        // M1.3b — snap the growing face to a nearby part; `res.size` is the applied (possibly snapped) mm.
+        const res = resizeFreeBoardTo(fpId, dim, Math.round(next / 10), drag.first);
         drag.first = false;
-        const mm = Math.round(next / 10);
-        measureRef.current({ dim, mm }); // a SIZE readout (no `move` flag)
+        measureRef.current({ dim, mm: res.size, snapped: res.snapped }); // SIZE readout + snap flag
         // the board has just been re-solved, so read its NEW box rather than extrapolating the drag
         const bd = useKarkas.getState().scene.boards.find((x) => x.id.endsWith(`__free_${fpId}`));
-        if (bd) showDim(0, bd.pos, bd.size, axis, `${mm} mm`);
+        if (bd) showDim(0, bd.pos, bd.size, axis, `${res.size} mm`);
         return;
       }
       // gizmos — slide a SHELF up or down inside its bay (the engine clamps it to the section, so it can
@@ -2037,7 +2039,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* ── U3.3 — free-board editor: appears when a free board is selected (resize W/H/D · delete) ── */}
       {tab === "build" && !(compact && toolsOpen) && selFreeBoard && rpanel === "none" && (
         <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 62, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
-          <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>🪵 Erkin taxta</span>
+          <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>🪵</span>
+          <input key={selFreeBoard.id} defaultValue={selFreeBoard.name} title="Nom" aria-label="Nom"
+            onBlur={(e) => renameFreePart(selFreeBoard.id, e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+            style={{ ...mono, fontWeight: 700, color: "#1f5570", width: 100, border: "1px solid #cdd5df", borderRadius: 6, padding: "3px 7px", background: "#fff" }} />
           <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "w", mm)} units={units} />
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
