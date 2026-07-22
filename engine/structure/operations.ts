@@ -1212,12 +1212,26 @@ export function resizeBlockDepth(
   return resizeBlockAxis(model, blockId, "z", newDepth_mm10);
 }
 
+/** Phase 4.d-1 — the L's return leg (leg-B) is carried as its own zone/section, so content (shelves /
+ *  dividers) can live in BOTH legs. These ids are engine-controlled; `buildLCornerModel` uses the same
+ *  literals (kept in sync by hand to avoid a demoModel→operations import cycle). */
+export const LEGB_ZONE_ID = "z_legB";
+export const LEGB_SECTION_ID = "sec_legB";
+
 /**
  * Phase 4.a — attach or drop an L-corner footprint on a block. When set: `box.w = legA.length`,
  * `box.d = legA.depth + legB.length` (the L's bounding envelope), `box.h` unchanged. Converting a
  * rectangular block with `legA = { length: box.w, depth: box.d }` keeps leg-A === the original box, so the
  * root section + all its content stay valid (no reflow). When cleared (null): drop the footprint + restore
  * `box.d = legA.depth` (the usable rectangle) → a byte-identical round-trip. Same ref if nothing changes.
+ *
+ * Phase 4.d-1 — setting the footprint ALSO appends a leg-B zone (`z_legB`) with one bare leaf section
+ * (`sec_legB`) sized 1:1 to leg-B's carcass (bBox in lCornerLayout): origin `z = legA.depth`,
+ * width = `legB.depth` (X-extent), depth = `legB.length` (Z-extent), height shared. solve/layout + the app
+ * «N-bo'lim» picker already loop every zone, so leg-B becomes an addable compartment with no other change.
+ * Re-setting the footprint (leg-B resized) updates the existing zone's box, keeping any content it holds;
+ * clearing the footprint drops the leg-B zone so the round-trip stays byte-identical. (leg-B doors/drawers
+ * still face −Z until the rotated −X frame lands in 4.d-2 — shelves/dividers are orientation-agnostic.)
  */
 export function setBlockFootprint(model: StructuralModel, blockId: BlockId, footprint: LCornerFootprint | null): StructuralModel {
   let changed = false;
@@ -1227,10 +1241,17 @@ export function setBlockFootprint(model: StructuralModel, blockId: BlockId, foot
       if (!b.footprint) return b; // already rectangular — no-op
       changed = true;
       const { footprint: _drop, ...rest } = b;
-      return { ...rest, box: { ...b.box, d: b.footprint.legA.depth_mm10 } };
+      // drop the auto-added leg-B zone so the round-trip is byte-identical
+      return { ...rest, box: { ...b.box, d: b.footprint.legA.depth_mm10 }, zones: b.zones.filter((z) => z.id !== LEGB_ZONE_ID) };
     }
     changed = true;
-    return { ...b, footprint, box: { ...b.box, w: footprint.legA.length_mm10, d: footprint.legA.depth_mm10 + footprint.legB.length_mm10 } };
+    const legBBox = { x: 0, y: 0, z: footprint.legA.depth_mm10, w: footprint.legB.depth_mm10, h: b.box.h, d: footprint.legB.length_mm10 };
+    const existing = b.zones.find((z) => z.id === LEGB_ZONE_ID);
+    const legBZone: Zone = existing
+      ? { ...existing, root: { ...existing.root, box: legBBox } } // re-set (leg-B resized) — keep its content
+      : { id: LEGB_ZONE_ID, name: "Плечо B", rule: "manual", root: { id: LEGB_SECTION_ID, box: legBBox, dividers: [], children: [], instanceIds: [], purpose: null } };
+    const zones = existing ? b.zones.map((z) => (z.id === LEGB_ZONE_ID ? legBZone : z)) : [...b.zones, legBZone];
+    return { ...b, footprint, box: { ...b.box, w: footprint.legA.length_mm10, d: footprint.legA.depth_mm10 + footprint.legB.length_mm10 }, zones };
   });
   return changed ? { ...model, blocks } : model;
 }
