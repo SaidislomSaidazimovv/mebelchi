@@ -18,6 +18,7 @@ import type {
   Instance,
   Junction3D,
   Line,
+  PanelShell,
   Section,
   StructuralModel,
 } from "../contracts/structure.js";
@@ -93,25 +94,26 @@ interface Box6 {
 
 /** Carcass positioned for a run along X: 2 sides + top + bottom (inner width) + back. `omitSideR`
  *  drops the right side (the L corner-join). */
-function carcassPlace(idBase: string, label: string, box: Box6, t: ResolvedT, omitSideR = false): PanelPlacement[] {
+function carcassPlace(idBase: string, label: string, box: Box6, t: ResolvedT, omitSideR = false, shell?: PanelShell): PanelPlacement[] {
   const { x, y, z, w, h, d } = box;
   const c = t.carcass; // sides / top / bottom stock
   const bk = t.back; // back panel (thin ХДФ) — its own thickness + flush-to-rear offset
-  const ps = [
-    place(`${idBase}__side_l`, `${label}Бок левый`, x, y, z, c, h, d),
-    place(`${idBase}__side_r`, `${label}Бок правый`, x + w - c, y, z, c, h, d),
-    place(`${idBase}__top`, `${label}Верх`, x + c, y + h - c, z, w - 2 * c, c, d),
-    place(`${idBase}__bottom`, `${label}Низ`, x + c, y, z, w - 2 * c, c, d),
-    place(`${idBase}__back`, `${label}Задняя стенка`, x, y, z + d - bk, w, h, bk),
+  const sh = shell ?? {};
+  // M2 — mirror boxCarcass exactly: the same shell mask drops the same placements (solve == layout).
+  return [
+    ...(sh.sideL !== false ? [place(`${idBase}__side_l`, `${label}Бок левый`, x, y, z, c, h, d)] : []),
+    ...(sh.sideR !== false && !omitSideR ? [place(`${idBase}__side_r`, `${label}Бок правый`, x + w - c, y, z, c, h, d)] : []),
+    ...(sh.top !== false ? [place(`${idBase}__top`, `${label}Верх`, x + c, y + h - c, z, w - 2 * c, c, d)] : []),
+    ...(sh.bottom !== false ? [place(`${idBase}__bottom`, `${label}Низ`, x + c, y, z, w - 2 * c, c, d)] : []),
+    ...(sh.back !== false ? [place(`${idBase}__back`, `${label}Задняя стенка`, x, y, z + d - bk, w, h, bk)] : []),
   ];
-  return omitSideR ? ps.filter((p) => !p.id.endsWith("__side_r")) : ps;
 }
 
 /** Toe-kick recess: how far the plinth sits BACK from the carcass front, so it reads as recessed. */
 const PLINTH_RECESS_MM10 = 500; // 50 mm, the usual kitchen toe-kick setback
 
 function carcass(block: Block, t: ResolvedT): PanelPlacement[] {
-  const ps = carcassPlace(block.id, "", block.box, t);
+  const ps = carcassPlace(block.id, "", block.box, t, false, block.shell);
   // Sokol / plinth (Phase 1.1): a recessed board spanning the inner width, standing at the FRONT and
   // BELOW the carcass (y from box.y − plinth up to box.y). box.y is untouched, so every carcass panel
   // keeps its exact position; the scene recentres on the new minY (layoutBounds) and stands the
@@ -135,15 +137,18 @@ function carcass(block: Block, t: ResolvedT): PanelPlacement[] {
 /** Carcass positioned for a return run along Z (the L's second leg, rotated 90°). The corner-end
  *  side is omitted (it opens into leg-A); the far-end side is kept as `side_l`. Matches the 4 parts
  *  solveStructure emits for leg-B (side_r omitted). */
-function carcassPlaceZ(idBase: string, label: string, box: Box6, t: ResolvedT): PanelPlacement[] {
+function carcassPlaceZ(idBase: string, label: string, box: Box6, t: ResolvedT, shell?: PanelShell): PanelPlacement[] {
   const { x, y, z, w, h, d } = box;
   const c = t.carcass; // this leg's side/top/bottom are carcass stock…
   const bk = t.back; // …its back is the thin panel (thin in X here, at the far-wall side)
+  const sh = shell ?? {};
+  // M2 — leg-B keeps side_l (far end), top, bottom, back (side_r is structural, never emitted here). The
+  // shell mask gates the same four as leg-B's boxCarcass in solve (omitSideR=true), so the two stay in sync.
   return [
-    place(`${idBase}__side_l`, `${label}Бок левый`, x, y, z + d - c, w, h, c), // far end of the run
-    place(`${idBase}__top`, `${label}Верх`, x, y + h - c, z + c, w, c, d - 2 * c),
-    place(`${idBase}__bottom`, `${label}Низ`, x, y, z + c, w, c, d - 2 * c),
-    place(`${idBase}__back`, `${label}Задняя стенка`, x + w - bk, y, z, bk, h, d), // wall side (far X)
+    ...(sh.sideL !== false ? [place(`${idBase}__side_l`, `${label}Бок левый`, x, y, z + d - c, w, h, c)] : []), // far end
+    ...(sh.top !== false ? [place(`${idBase}__top`, `${label}Верх`, x, y + h - c, z + c, w, c, d - 2 * c)] : []),
+    ...(sh.bottom !== false ? [place(`${idBase}__bottom`, `${label}Низ`, x, y, z + c, w, c, d - 2 * c)] : []),
+    ...(sh.back !== false ? [place(`${idBase}__back`, `${label}Задняя стенка`, x + w - bk, y, z, bk, h, d)] : []), // wall side
   ];
 }
 
@@ -155,10 +160,10 @@ function lCornerLayout(block: Block, t: ResolvedT): PanelPlacement[] {
   const aBox: Box6 = { x, y, z, w: fp.legA.length_mm10, h, d: aDepth };
   const bBox: Box6 = { x, y, z: z + aDepth, w: fp.legB.depth_mm10, h, d: fp.legB.length_mm10 };
   const out: PanelPlacement[] = [
-    ...carcassPlace(`${block.id}__legA`, "Плечо A · ", aBox, t),
+    ...carcassPlace(`${block.id}__legA`, "Плечо A · ", aBox, t, false, block.shell),
     // leg-B sits fully BEHIND leg-A (z + legA.depth): its back is perpendicular to leg-A's and
     // adjacent to it, not overlapping — the blind-corner Pattern A (see lCornerParts / -r4:1241-1250).
-    ...carcassPlaceZ(`${block.id}__legB`, "Плечо B · ", bBox, t),
+    ...carcassPlaceZ(`${block.id}__legB`, "Плечо B · ", bBox, t, block.shell),
     // The 50mm blind-corner door-clearance filler at the inner corner (blocker #6; -r3:327, GEO-3).
     place(`${block.id}__corner_filler`, "Угловая планка", x + fp.legB.depth_mm10, y, z + aDepth - CORNER_FILLER_W, t.carcass, h, CORNER_FILLER_W),
   ];

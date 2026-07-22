@@ -31,6 +31,7 @@ import {
   type FreePart,
   type Instance,
   type Line,
+  type PanelShell,
   type Section,
   type SectionId,
   type StructuralModel,
@@ -229,16 +230,18 @@ function glazedGridParts(idBase: string, name: string, length: mm10, width: mm10
 /** Carcass box: two sides (full height × depth) + top + bottom (inner width × depth). */
 /** Five carcass panels for a rectangular volume (idBase-prefixed). `omitSideR` drops the right
  *  side — used at an L-corner where one leg abuts the other (avoids a doubled wall). */
-function boxCarcass(idBase: string, label: string, w: mm10, h: mm10, d: mm10, t: ResolvedT, omitSideR = false): Part[] {
+function boxCarcass(idBase: string, label: string, w: mm10, h: mm10, d: mm10, t: ResolvedT, omitSideR = false, shell?: PanelShell): Part[] {
   const innerW = w - 2 * t.carcass;
-  const ps = [
-    panel(`${idBase}__side_l`, `${label}Бок левый`, h, d, frontBand(), t.carcass, "carcass_side"),
-    panel(`${idBase}__side_r`, `${label}Бок правый`, h, d, frontBand(), t.carcass, "carcass_side"),
-    panel(`${idBase}__top`, `${label}Верх`, innerW, d, frontBand(), t.carcass, "carcass_top"),
-    panel(`${idBase}__bottom`, `${label}Низ`, innerW, d, frontBand(), t.carcass, "carcass_bottom"),
-    panel(`${idBase}__back`, `${label}Задняя стенка`, w, h, [0, 0, 0, 0], t.back, "carcass_back"), // back is hidden — not banded
+  const sh = shell ?? {};
+  // M2 — the shell mask drops any panel set to `false`; side_r ALSO stays gone at an L-corner join
+  // (omitSideR), so a `sideR: true` can never resurrect the structural corner wall. back stays unbanded.
+  return [
+    ...(sh.sideL !== false ? [panel(`${idBase}__side_l`, `${label}Бок левый`, h, d, frontBand(), t.carcass, "carcass_side")] : []),
+    ...(sh.sideR !== false && !omitSideR ? [panel(`${idBase}__side_r`, `${label}Бок правый`, h, d, frontBand(), t.carcass, "carcass_side")] : []),
+    ...(sh.top !== false ? [panel(`${idBase}__top`, `${label}Верх`, innerW, d, frontBand(), t.carcass, "carcass_top")] : []),
+    ...(sh.bottom !== false ? [panel(`${idBase}__bottom`, `${label}Низ`, innerW, d, frontBand(), t.carcass, "carcass_bottom")] : []),
+    ...(sh.back !== false ? [panel(`${idBase}__back`, `${label}Задняя стенка`, w, h, [0, 0, 0, 0], t.back, "carcass_back")] : []),
   ];
-  return omitSideR ? ps.filter((p) => !p.id.endsWith("__side_r")) : ps;
 }
 
 /** Worktop front overhang (mm10): how far the stoleshnitsa sticks out past the carcass front. The
@@ -248,7 +251,7 @@ export const WORKTOP_OVERHANG_MM10: mm10 = 300; // 30 mm, the standard kitchen w
 
 function carcassParts(block: Block, t: ResolvedT): Part[] {
   const { w } = block.box;
-  const parts = boxCarcass(block.id, "", w, block.box.h, block.box.d, t);
+  const parts = boxCarcass(block.id, "", w, block.box.h, block.box.d, t, false, block.shell);
   // Sokol / plinth (Phase 1.1): a recessed toe-kick board spanning the inner width, standing at the
   // front UNDER the carcass. `box.h` stays the carcass height — this is an extra part below it. Its
   // edges are all concealed (bottom on the floor, top under the carcass, ends behind the sides), so it
@@ -292,8 +295,8 @@ function lCornerParts(block: Block, t: ResolvedT): Part[] {
   const h = block.box.h;
   const c = t.carcass;
   const parts: Part[] = [
-    ...boxCarcass(`${block.id}__legA`, "Плечо A · ", fp.legA.length_mm10, h, fp.legA.depth_mm10, t),
-    ...boxCarcass(`${block.id}__legB`, "Плечо B · ", fp.legB.length_mm10, h, fp.legB.depth_mm10, t, true),
+    ...boxCarcass(`${block.id}__legA`, "Плечо A · ", fp.legA.length_mm10, h, fp.legA.depth_mm10, t, false, block.shell),
+    ...boxCarcass(`${block.id}__legB`, "Плечо B · ", fp.legB.length_mm10, h, fp.legB.depth_mm10, t, true, block.shell),
     panel(`${block.id}__corner_filler`, "Угловая планка", h, CORNER_FILLER_W, frontBand(), t.carcass, "carcass_side"),
   ];
   // Phase 4.c — an L worktop is TWO abutting slabs (one per leg): A covers leg-A's top + a front overhang, B
