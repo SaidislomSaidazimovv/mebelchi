@@ -195,6 +195,16 @@ export function partBoard(plan: MaterialPlan, role: string | undefined, material
   return (materialId ? boardById(materialId) : undefined) ?? boardForRole(plan, role);
 }
 
+/** M3.4 — which swatch-picker group a board belongs to, derived from its finish/texture (not stored). */
+export function materialCategory(b: BoardMaterial): "Laminat" | "Yog'och" | "Shisha" | "Metall" | "Marmar" | "Mato" {
+  if (b.texture === "wood") return "Yog'och";
+  if (b.texture === "marble") return "Marmar";
+  if (b.texture === "leather" || b.texture === "fabric") return "Mato";
+  if (b.finish === "glass" || b.finish === "frosted") return "Shisha";
+  if (b.finish === "metal" || b.finish === "mirror") return "Metall";
+  return "Laminat";
+}
+
 /** The 3D colour (int) a part is drawn with — per-part override wins over role (F1 + F2). */
 export function partColor(plan: MaterialPlan, role: string | undefined, materialId?: string): number {
   if (role === "glass") return GLASS_HEX;

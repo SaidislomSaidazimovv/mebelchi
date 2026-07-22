@@ -29,7 +29,7 @@ import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSessi
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
-import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, partFinishLookup, partTextureLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, partFinishLookup, partTextureLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, materialCategory, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
 
 /**
@@ -143,6 +143,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // #3 — tap-a-dimension math keypad: an usta-friendly calculator (600+18, 1200/2…) that opens on tapping
   // a W/H/D chip on mobile, so no fiddly native keyboard. `mm` is always in mm; the pad handles cm display.
   const [keypad, setKeypad] = useState<{ label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void; min?: number; suffix?: string } | null>(null);
+  const [swatchTarget, setSwatchTarget] = useState<SwatchTarget | null>(null); // M3.4 — open material swatch picker
   // AR — what this device can actually do (WebXR is Android-only in practice), plus the last failure so
   // a refused session tells the usta WHY instead of doing nothing.
   const [arSupport, setArSupport] = useState<ArSupport>("checking");
@@ -1448,6 +1449,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const dims = activeBlock ? { w: Math.round(activeBlock.box.w / 10), h: Math.round(activeBlock.box.h / 10), d: Math.round(activeBlock.box.d / 10) } : sceneDimsMm(scene);
   return (
     <KeypadCtx.Provider value={compact ? (o) => setKeypad(o) : null}>
+    <SwatchCtx.Provider value={setSwatchTarget}>
     <div className="mob-root" data-theme={theme}>
       {/* ── U2.1 — Moblo top bar (home · document · tabs · theme · menu) ── */}
       <header className="mob-topbar">
@@ -1514,6 +1516,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           </div>
         </div>
       )}
+
+      {/* M3.4 — the one material swatch picker, opened from any MatSelect slot or the free-board bar. */}
+      {swatchTarget && <MaterialSwatchOverlay target={swatchTarget} theme={theme} onClose={() => setSwatchTarget(null)} />}
 
       {/* ── U2.1 — Moblo bottom contextual bar (overall dims · selection · +Loyihaga) ── */}
       {tab === "build" && selMode !== "block" && (
@@ -2104,10 +2109,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
           <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 34, padding: "6px 11px" }}>↻</button>
           <button type="button" title="Nusxalash" onClick={duplicateSelected} style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", minHeight: 34, padding: "6px 11px" }}>⧉</button>
-          <select value={selFreeBoard.material ?? ""} onChange={(e) => setFreeBoardMaterial(selFreeBoard.id, e.target.value)} title="Material" style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34 }}>
-            <option value="">Standart</option>
-            {BOARDS.map((bd) => <option key={bd.id} value={bd.id}>{bd.name}</option>)}
-          </select>
+          <button type="button" aria-haspopup="dialog" title="Material" onClick={() => setSwatchTarget({ kind: "free", id: selFreeBoard.id })} style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ ...swatch, background: BOARDS.find((bd) => bd.id === selFreeBoard.material)?.hex ?? "#e6e6e6" }} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{BOARDS.find((bd) => bd.id === selFreeBoard.material)?.name ?? "Standart"}</span>
+          </button>
           <button type="button" title="O'chirish" onClick={() => removeFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#d1495b", background: "#fbe4e8", color: "#a01a2e", minHeight: 34, padding: "6px 11px" }}>🗑</button>
         </div>
       )}
@@ -2561,6 +2566,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         {showSpec && <SpecPanel onClose={() => setActivePanel(null)} />}
       </div>
     </div>
+    </SwatchCtx.Provider>
     </KeypadCtx.Provider>
   );
 }
@@ -2759,18 +2765,65 @@ function TreePanel({ onClose }: { onClose: () => void }) {
 }
 
 /** Board-decor <select> for one plan slot, with a colour swatch of the current pick. */
+// M3.4 — one material target the swatch picker acts on: a plan slot, or a specific free board.
+type SwatchTarget = { kind: "plan"; slot: keyof Omit<MaterialPlan, "edge"> } | { kind: "free"; id: string };
+/** M3.4 — a MatSelect (used in the mobile panel AND the deep SpecPanel) opens the ONE swatch overlay via
+ *  this context, so neither has to prop-drill the setter (Antigravity's single-overlay pattern). */
+const SwatchCtx = createContext<null | ((t: SwatchTarget) => void)>(null);
+const SWATCH_ORDER = ["Laminat", "Yog'och", "Shisha", "Metall", "Marmar", "Mato"] as const;
+const SWATCH_BADGE: Record<string, string> = { "Laminat": "▤", "Yog'och": "🪵", "Shisha": "🧊", "Metall": "✨", "Marmar": "◈", "Mato": "🧵" };
+
+/** M3.4 — ONE centralised material swatch picker (Antigravity's single-overlay pattern). Opened from any
+ *  MatSelect slot or the free-board bar; picks a board (or «Standart» for a free board) and closes. Boards
+ *  are grouped by materialCategory (Laminat / Yog'och / Shisha / Metall / Marmar / Mato), each a colour chip. */
+function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarget; theme: "light" | "dark"; onClose: () => void }) {
+  const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
+  const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
+  const current = useKarkas((s) => (target.kind === "plan" ? s.plan[target.slot] : s.model.blocks[0]?.freeParts?.find((f) => f.id === target.id)?.material ?? ""));
+  const pick = (id: string): void => { if (target.kind === "plan") setPlanMaterial(target.slot, id); else setFreeBoardMaterial(target.id, id); onClose(); };
+  const dark = theme === "dark";
+  const groups = SWATCH_ORDER.map((g) => ({ g, items: BOARDS.filter((b) => materialCategory(b) === g) })).filter((x) => x.items.length);
+  const chip = (key: string, bg: string, active: boolean, label: string, on: () => void) => (
+    <button key={key} type="button" title={label} aria-label={label} onClick={on}
+      style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 9px", borderRadius: 10, border: active ? "2px solid #1f5570" : `1px solid ${dark ? "#33405a" : "#e3e6eb"}`, background: dark ? "#232b3d" : "#f7f8fa", color: "inherit", cursor: "pointer", fontSize: 12.5, fontWeight: 600, textAlign: "left" }}>
+      <span style={{ width: 20, height: 20, borderRadius: 5, background: bg, border: "1px solid rgba(0,0,0,0.18)", flexShrink: 0 }} />
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+    </button>
+  );
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 211, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div role="dialog" aria-label="Material tanlash" onClick={(e) => e.stopPropagation()} style={{ background: dark ? "#1c2230" : "#fff", color: dark ? "#e7ebf2" : "#1a1a1a", borderRadius: 14, padding: 18, width: "min(560px, 94vw)", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 10px 44px rgba(0,0,0,0.4)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <strong style={{ fontSize: 16 }}>▦ Material</strong>
+          <button type="button" onClick={onClose} aria-label="Yopish" style={{ border: "none", background: "transparent", color: "inherit", fontSize: 24, lineHeight: 1, cursor: "pointer" }}>×</button>
+        </div>
+        {target.kind === "free" && <div style={{ marginBottom: 12 }}>{chip("std", "#e6e6e6", current === "", "Standart (rol bo'yicha)", () => pick(""))}</div>}
+        {groups.map(({ g, items }) => (
+          <div key={g} style={{ marginBottom: 14 }}>
+            <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginBottom: 7 }}>{SWATCH_BADGE[g]} {g}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8 }}>
+              {items.map((b) => chip(b.id, b.hex, current === b.id, b.name, () => pick(b.id)))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MatSelect({ label, slot }: { label: string; slot: keyof Omit<MaterialPlan, "edge"> }) {
   const value = useKarkas((s) => s.plan[slot]);
-  const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
   const money = useMoney();
-  const hex = BOARDS.find((b) => b.id === value)?.hex ?? "#ccc";
+  const openSwatch = useContext(SwatchCtx);
+  const b = BOARDS.find((x) => x.id === value);
   return (
     <label style={matRow}>
       <span style={{ ...mono, width: 62 }}>{label}</span>
-      <span style={{ ...swatch, background: hex }} />
-      <select style={matSel} value={value} onChange={(ev) => setPlanMaterial(slot, ev.target.value)}>
-        {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name} · {money(b.pricePerM2)}/м²</option>)}
-      </select>
+      <button type="button" aria-haspopup="dialog" onClick={() => openSwatch?.({ kind: "plan", slot })} style={{ ...matSel, display: "flex", alignItems: "center", gap: 8, textAlign: "left" }}>
+        <span style={{ ...swatch, background: b?.hex ?? "#ccc" }} />
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b?.name ?? value}</span>
+        <span style={{ opacity: 0.5, fontSize: 11 }}>{b ? `${money(b.pricePerM2)}/м²` : ""}</span>
+      </button>
     </label>
   );
 }
