@@ -1248,8 +1248,8 @@ export function setBlockFootprint(model: StructuralModel, blockId: BlockId, foot
     const legBBox = { x: 0, y: 0, z: footprint.legA.depth_mm10, w: footprint.legB.depth_mm10, h: b.box.h, d: footprint.legB.length_mm10 };
     const existing = b.zones.find((z) => z.id === LEGB_ZONE_ID);
     const legBZone: Zone = existing
-      ? { ...existing, root: { ...existing.root, box: legBBox } } // re-set (leg-B resized) — keep its content
-      : { id: LEGB_ZONE_ID, name: "Плечо B", rule: "manual", root: { id: LEGB_SECTION_ID, box: legBBox, dividers: [], children: [], instanceIds: [], purpose: null } };
+      ? { ...existing, root: { ...existing.root, box: legBBox } } // re-set (leg-B resized) — keep its content + facing
+      : { id: LEGB_ZONE_ID, name: "Плечо B", rule: "manual", facing: "-x", root: { id: LEGB_SECTION_ID, box: legBBox, dividers: [], children: [], instanceIds: [], purpose: null } }; // −X: leg-B facades open sideways (Phase 4.d-2)
     const zones = existing ? b.zones.map((z) => (z.id === LEGB_ZONE_ID ? legBZone : z)) : [...b.zones, legBZone];
     return { ...b, footprint, box: { ...b.box, w: footprint.legA.length_mm10, d: footprint.legA.depth_mm10 + footprint.legB.length_mm10 }, zones };
   });

@@ -182,7 +182,7 @@ export function buildLCornerModel(): StructuralModel {
     instanceIds: [],
     purpose: null,
   };
-  const legBZone: Zone = { id: "z_legB", name: "Плечо B", rule: "manual", root: legBRoot };
+  const legBZone: Zone = { id: "z_legB", name: "Плечо B", rule: "manual", facing: "-x", root: legBRoot }; // −X: leg-B facades open sideways (Phase 4.d-2)
   const shelf: Component = { id: "cmp_l_shelf", name: "Полка", partIds: [], role: "internal_shelf" };
   const shelfInst: Instance = {
     id: "inst_l_shelf",
