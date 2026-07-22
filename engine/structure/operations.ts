@@ -36,7 +36,9 @@ import type {
   DrawerInterior,
   ApplianceKind,
   DrawerOrganizer,
+  FaceDir,
   HandleType,
+  LCornerFootprint,
   LiftType,
   FreeEdge,
   FreePart,
@@ -1007,14 +1009,18 @@ function scaleBlockAxis(block: Block, axis: Axis, factor: number): Block {
   );
 
   const base: Block = { ...block, box: scaleBox(block.box), zones, instances, lines };
-  if (block.footprint && axis === "z") {
-    return {
-      ...base,
-      footprint: {
-        legA: { ...block.footprint.legA, depth_mm10: scale(block.footprint.legA.depth_mm10) },
-        legB: { ...block.footprint.legB, depth_mm10: scale(block.footprint.legB.depth_mm10) },
-      },
-    };
+  // Phase 4.b — scale the CORRECT leg params per axis so box + legs stay consistent (box.w = legA.length;
+  // box.d = legA.depth + legB.length). X carries legA.length + legB.depth (leg-B's X-width); Z carries
+  // legA.depth + legB.length (leg-B's Z-run). Y (height) is shared → no footprint change. Same `scale()` as
+  // the box/sections, so every shared coordinate rounds identically (no drift). Rectangular blocks skip this.
+  if (block.footprint) {
+    const f = block.footprint;
+    if (axis === "x") {
+      return { ...base, footprint: { legA: { ...f.legA, length_mm10: scale(f.legA.length_mm10) }, legB: { ...f.legB, depth_mm10: scale(f.legB.depth_mm10) } } };
+    }
+    if (axis === "z") {
+      return { ...base, footprint: { legA: { ...f.legA, depth_mm10: scale(f.legA.depth_mm10) }, legB: { ...f.legB, length_mm10: scale(f.legB.length_mm10) } } };
+    }
   }
   return base;
 }
@@ -1205,6 +1211,56 @@ export function resizeBlockDepth(
   newDepth_mm10: mm10,
 ): StructuralModel {
   return resizeBlockAxis(model, blockId, "z", newDepth_mm10);
+}
+
+/** Phase 4.d-1 — the L's return leg (leg-B) is carried as its own zone/section, so content (shelves /
+ *  dividers) can live in BOTH legs. These ids are engine-controlled; `buildLCornerModel` uses the same
+ *  literals (kept in sync by hand to avoid a demoModel→operations import cycle). */
+export const LEGB_ZONE_ID = "z_legB";
+export const LEGB_SECTION_ID = "sec_legB";
+
+/**
+ * Phase 4.a — attach or drop an L-corner footprint on a block. When set: `box.w = legA.length`,
+ * `box.d = legA.depth + legB.length` (the L's bounding envelope), `box.h` unchanged. Converting a
+ * rectangular block with `legA = { length: box.w, depth: box.d }` keeps leg-A === the original box, so the
+ * root section + all its content stay valid (no reflow). When cleared (null): drop the footprint + restore
+ * `box.d = legA.depth` (the usable rectangle) → a byte-identical round-trip. Same ref if nothing changes.
+ *
+ * Phase 4.d-1 — setting the footprint ALSO appends a leg-B zone (`z_legB`) with one bare leaf section
+ * (`sec_legB`) sized 1:1 to leg-B's carcass (bBox in lCornerLayout): origin `z = legA.depth`,
+ * width = `legB.depth` (X-extent), depth = `legB.length` (Z-extent), height shared. solve/layout + the app
+ * «N-bo'lim» picker already loop every zone, so leg-B becomes an addable compartment with no other change.
+ * Re-setting the footprint (leg-B resized) updates the existing zone's box, keeping any content it holds;
+ * clearing the footprint drops the leg-B zone so the round-trip stays byte-identical. (leg-B doors/drawers
+ * still face −Z until the rotated −X frame lands in 4.d-2 — shelves/dividers are orientation-agnostic.)
+ */
+export function setBlockFootprint(model: StructuralModel, blockId: BlockId, footprint: LCornerFootprint | null): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((b) => {
+    if (b.id !== blockId) return b;
+    if (footprint === null) {
+      if (!b.footprint) return b; // already rectangular — no-op
+      changed = true;
+      const { footprint: _drop, ...rest } = b;
+      // drop the auto-added leg-B zone so the round-trip is byte-identical
+      return { ...rest, box: { ...b.box, d: b.footprint.legA.depth_mm10 }, zones: b.zones.filter((z) => z.id !== LEGB_ZONE_ID) };
+    }
+    changed = true;
+    // Phase 4 polish — handedness: a right-hand L puts leg-B at leg-A's max-X end, opening +X; the default
+    // (left) keeps it at min-X, opening −X. The section origin + facing follow, so shelves/facades land in the
+    // mirrored leg (the carcass mirror lives in lCornerLayout). Re-setting updates facing too (the hand may flip).
+    const right = footprint.hand === "right";
+    const legBX = right ? footprint.legA.length_mm10 - footprint.legB.depth_mm10 : 0;
+    const facing: FaceDir = right ? "+x" : "-x";
+    const legBBox = { x: legBX, y: 0, z: footprint.legA.depth_mm10, w: footprint.legB.depth_mm10, h: b.box.h, d: footprint.legB.length_mm10 };
+    const existing = b.zones.find((z) => z.id === LEGB_ZONE_ID);
+    const legBZone: Zone = existing
+      ? { ...existing, facing, root: { ...existing.root, box: legBBox } } // re-set (leg-B resized / hand flipped) — keep content
+      : { id: LEGB_ZONE_ID, name: "Плечо B", rule: "manual", facing, root: { id: LEGB_SECTION_ID, box: legBBox, dividers: [], children: [], instanceIds: [], purpose: null } };
+    const zones = existing ? b.zones.map((z) => (z.id === LEGB_ZONE_ID ? legBZone : z)) : [...b.zones, legBZone];
+    return { ...b, footprint, box: { ...b.box, w: footprint.legA.length_mm10, d: footprint.legA.depth_mm10 + footprint.legB.length_mm10 }, zones };
+  });
+  return changed ? { ...model, blocks } : model;
 }
 
 /** Structure-level WIDTH edit (the ⤢ handle's second axis, L6): set a block's width; panels and

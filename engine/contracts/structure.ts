@@ -202,11 +202,25 @@ export type ZoneRule = "manual" | "ratio" | "equal" | "fixed_mm";
  * Component). It owns the root of a recursive `Section` tree; the tap-cycle
  * `block → zone → type → single` lands on this level as the coarse step.
  */
+/** Which way a zone's facades OPEN — the front face its doors/drawers lay on. Absent = "-z" (the normal
+ *  front, every existing zone). "-x" / "+x" = an L-corner return leg (leg-B), rotated 90°: its section box is a
+ *  Z-run (w = leg depth along X, d = leg length along Z) and its facades sit on the −X (left-hand L) or +X
+ *  (right-hand L) face. The two sideways dirs share the axis logic; only the X face + slide sign mirror. */
+export type FaceDir = "-z" | "-x" | "+x";
+
 export interface Zone {
   readonly id: ZoneId;
   readonly name: string;
   readonly rule: ZoneRule;
   readonly root: Section;
+  /**
+   * The direction this zone's facades open (Phase 4.d-2). Optional/additive — absent = "-z" (the normal
+   * front), so every pre-4.d-2 zone is byte-identical. "-x" tags an L-corner return leg (leg-B): the facade
+   * cut (solve) spans the leg length (box.d) and the placement (layout) lays the door/drawer thin-in-X on the
+   * −X face. Drilling / handles / render stay orientation-agnostic (they derive from the placement box), so
+   * only the facade cut + placement branch on this.
+   */
+  readonly facing?: FaceDir;
 }
 
 // ---------------------------------------------------------------------------
@@ -482,6 +496,13 @@ export interface LegSpec {
 export interface LCornerFootprint {
   readonly legA: LegSpec;
   readonly legB: LegSpec;
+  /**
+   * Which way the L turns (Phase 4 polish). Optional/additive — absent = "left" (leg-B returns at leg-A's
+   * min-X end, opening −X), so every existing L is byte-identical. "right" mirrors leg-B to leg-A's max-X end
+   * (opening +X). Handedness is a LAYOUT + section concern only — the cut list (`lCornerParts`) + drilling are
+   * identical for both hands.
+   */
+  readonly hand?: "left" | "right";
 }
 
 // ---------------------------------------------------------------------------

@@ -27,10 +27,12 @@ import {
   type Component,
   type DrawerInterior,
   type DrawerOrganizer,
+  type FaceDir,
   type FreePart,
   type Instance,
   type Line,
   type Section,
+  type SectionId,
   type StructuralModel,
 } from "../contracts/structure.js";
 import type { MaterialVar } from "../contracts/variables.js";
@@ -288,11 +290,24 @@ export const CORNER_FILLER_W: mm10 = 500; // 50 mm — blind-corner overlap
 function lCornerParts(block: Block, t: ResolvedT): Part[] {
   const fp = block.footprint!;
   const h = block.box.h;
-  return [
+  const c = t.carcass;
+  const parts: Part[] = [
     ...boxCarcass(`${block.id}__legA`, "Плечо A · ", fp.legA.length_mm10, h, fp.legA.depth_mm10, t),
     ...boxCarcass(`${block.id}__legB`, "Плечо B · ", fp.legB.length_mm10, h, fp.legB.depth_mm10, t, true),
     panel(`${block.id}__corner_filler`, "Угловая планка", h, CORNER_FILLER_W, frontBand(), t.carcass, "carcass_side"),
   ];
+  // Phase 4.c — an L worktop is TWO abutting slabs (one per leg): A covers leg-A's top + a front overhang, B
+  // covers leg-B's top, meeting at the corner. Same role/thickness/finish as the rectangular worktop.
+  if (block.worktop) {
+    parts.push(panel(`${block.id}__worktop_a`, "Столешница A", fp.legA.length_mm10, fp.legA.depth_mm10 + WORKTOP_OVERHANG_MM10, [0, 0, 0, 0], t.worktop, "carcass_worktop"));
+    parts.push(panel(`${block.id}__worktop_b`, "Столешница B", fp.legB.depth_mm10, fp.legB.length_mm10, [0, 0, 0, 0], t.worktop, "carcass_worktop"));
+  }
+  // Phase 4.c — an L plinth is TWO toe-kicks: A along leg-A's front (−Z), B along leg-B's front (−X).
+  if (block.plinth_mm10 && block.plinth_mm10 > 0) {
+    parts.push(panel(`${block.id}__plinth_a`, "Цоколь A", fp.legA.length_mm10 - 2 * c, block.plinth_mm10, [0, 0, 0, 0], c, "carcass_plinth"));
+    parts.push(panel(`${block.id}__plinth_b`, "Цоколь B", fp.legB.length_mm10 - 2 * c, block.plinth_mm10, [0, 0, 0, 0], c, "carcass_plinth"));
+  }
+  return parts;
 }
 
 /** The section a divider `Line` splits — the one whose `dividers` list holds its id (walks ALL
@@ -349,6 +364,15 @@ function sectionByIdAny(block: Block, sectionId: string): Section | null {
   return null;
 }
 
+/** Phase 4.d-2 — which way the zone owning `sectionId` faces. Default "-z" (the normal front); an L-corner
+ *  return leg (leg-B) faces "-x". Walks each zone's whole tree, so a NESTED leg-B section (after a divide)
+ *  still inherits its owning zone's facing. Shared by the facade cut (solve) + facade/drawer placement (layout). */
+export function zoneFacingOfSection(block: Block, sectionId: SectionId): FaceDir {
+  const inTree = (s: Section): boolean => s.id === sectionId || s.children.some(inTree);
+  for (const zone of block.zones) if (inTree(zone.root)) return zone.facing ?? "-z";
+  return "-z";
+}
+
 function componentById(block: Block, componentId: string): Component | null {
   return block.components.find((c) => c.id === componentId) ?? null;
 }
@@ -389,6 +413,17 @@ export function shelfSpanY(block: Block, section: Section, board: mm10): { y0: m
   return { y0: bi, height: section.box.h - bi - ti };
 }
 
+/** Phase 4.d-2 — the Z twin of shelfSpanX: the clear span (mm10) along a section's DEPTH (Z), between its
+ *  near and far bounding panels. Used for a leg-B (−X-facing) drawer, whose opening runs along Z. A block-EDGE
+ *  boundary is a full carcass board; an interior boundary is half a board (a divider centred on the cut). */
+export function shelfSpanZ(block: Block, section: Section, board: mm10): { z0: mm10; depth: mm10 } {
+  const atNearEdge = section.box.z === 0;
+  const atFarEdge = section.box.z + section.box.d === block.box.d;
+  const ni = atNearEdge ? board : Math.round(board / 2);
+  const fi = atFarEdge ? board : Math.round(board / 2);
+  return { z0: ni, depth: section.box.d - ni - fi };
+}
+
 /** Runner clearance per drawer side (mm10) — the gap the slide occupies between box and carcass. */
 const DRAWER_SLIDE_CLEAR_MM10 = 130;
 
@@ -406,14 +441,20 @@ const drawerBoxOf = (b: Box3D, height_mm10?: mm10): Box3D => ({ ...b, h: Math.mi
  *  opening of width `openingW`. Shared by a TOP-LEVEL drawer (opening = carcass clear span) and a NESTED
  *  one (opening = the parent interior's full width, no carcass). Part ids share `idBase` so the editor
  *  still selects the whole drawer. Height + depth inset the same way in both cases. */
-function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: ResolvedT, organizer?: DrawerOrganizer): Part[] {
+function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: ResolvedT, organizer?: DrawerOrganizer, facing: FaceDir = "-z"): Part[] {
   const c = t.carcass, fa = t.facade, bk = t.back;
+  // Phase 4.d-2 — a leg-B (−X-facing) drawer opens sideways: its visible front width runs along Z (box.d, the
+  // leg length) and its depth runs along X (box.w, the leg depth). Only these two extents swap; the panel
+  // SIZES are otherwise identical, so the layout mirror places the same-sized boards in the −X orientation.
+  const sideways = facing !== "-z"; // a leg-B drawer (−x or +x) opens sideways — same axes either hand
+  const frontW = sideways ? box.d : box.w; // the drawer-front width (Z for leg-B, X for the normal front)
+  const depthExtent = sideways ? box.w : box.d; // front-to-back depth (X for leg-B, Z normally)
   const outerW = openingW - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width inside the runner clearance
   const innerW = outerW - 2 * c; // between the two box sides
   const sideH = box.h - 2 * c; // box side height within the opening
-  const bodyD = box.d - fa - c; // depth behind the facade, small back clearance (matches drawerBoxPlacement)
+  const bodyD = depthExtent - fa - c; // depth behind the facade, small back clearance (matches drawerBoxPlacement)
   const parts: Part[] = [
-    panel(`${idBase}__front`, "Ящик · фасад", box.h, box.w, allBand(), fa, "facade"),
+    panel(`${idBase}__front`, "Ящик · фасад", box.h, frontW, allBand(), fa, "facade"),
     panel(`${idBase}__side_l`, "Ящик · бок Л", bodyD, sideH, frontBand(), c, "carcass_side"),
     panel(`${idBase}__side_r`, "Ящик · бок П", bodyD, sideH, frontBand(), c, "carcass_side"),
     panel(`${idBase}__back`, "Ящик · задняя", innerW, sideH, frontBand(), c, "carcass_side"),
@@ -435,9 +476,11 @@ function drawerBoxFromBox(idBase: string, box: Box3D, openingW: mm10, t: Resolve
 /** A TOP-LEVEL drawer in a carcass section: the opening is the clear span between the carcass sides /
  *  dividers (shelfSpanX subtracts a full board at a wall, half at a divider). */
 function drawerBoxParts(block: Block, inst: Instance, section: Section, t: ResolvedT): Part[] {
-  const openingW = shelfSpanX(block, section, t.carcass).width;
+  const facing = zoneFacingOfSection(block, section.id);
+  // −X (leg-B) drawer: the opening runs along Z, so the clear span is a Z-span; a normal drawer uses the X-span.
+  const openingW = facing !== "-z" ? shelfSpanZ(block, section, t.carcass).depth : shelfSpanX(block, section, t.carcass).width;
   const comp = block.components.find((c) => c.id === inst.componentId);
-  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box, inst.drawerHeight_mm10), openingW, t, comp?.organizer);
+  return drawerBoxFromBox(`${block.id}__inst_${inst.id}`, drawerBoxOf(section.box, inst.drawerHeight_mm10), openingW, t, comp?.organizer, facing);
 }
 
 /** Parts for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the parent's
@@ -561,7 +604,10 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   // on all four visible edges. Hinge drilling is added by the drilling pass (engine/structure).
   if (component.role === "facade") {
     const length = section.box.h; // door height (X) — hinge cups run along this axis
-    const width = section.box.w; // door width (Y)
+    // Phase 4.d-2 — an L return-leg (leg-B) door faces −X, so its width spans the leg LENGTH (box.d, along Z),
+    // not box.w (the leg depth). Drilling is part-local (hinge cups run along `length`, handle along `width`),
+    // so cutting the right width is all that's needed for the holes to land correctly on the −X face.
+    const width = zoneFacingOfSection(block, section.id) !== "-z" ? section.box.d : section.box.w; // door width (Y) — a sideways (leg-B ±x) door spans the leg length
     if (component.glazedGrid) {
       return stampMat(glazedGridParts(`${block.id}__inst_${inst.id}`, component.name, length, width, component.glazedGrid.lights));
     }

@@ -340,6 +340,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setLift = useKarkas((s) => s.setLift);
   const setDividers = useKarkas((s) => s.setDividers);
   const setAppliance = useKarkas((s) => s.setAppliance);
+  const toggleLCorner = useKarkas((s) => s.toggleLCorner);
+  const setLegB = useKarkas((s) => s.setLegB);
+  const setLCornerHand = useKarkas((s) => s.setLCornerHand);
+  // 4.a — PRIMITIVE selectors (never a fresh object — the React 18 useSyncExternalStore rule): is the
+  // selected block an L-corner, and its return-leg dims (mm).
+  const isLCorner = useKarkas((s) => !!blockOfPart(s.model, s.selectedId)?.footprint);
+  const legBLen = useKarkas((s) => { const f = blockOfPart(s.model, s.selectedId)?.footprint; return f ? Math.round(f.legB.length_mm10 / 10) : 0; });
+  const legBDepth = useKarkas((s) => { const f = blockOfPart(s.model, s.selectedId)?.footprint; return f ? Math.round(f.legB.depth_mm10 / 10) : 0; });
+  // 4 polish — which way the L turns (primitive string, React 18 rule). Absent footprint → "left".
+  const lHand = useKarkas((s) => blockOfPart(s.model, s.selectedId)?.footprint?.hand ?? "left");
   const combineSelectedDoor = useKarkas((s) => s.combineSelectedDoor);
   const splitSelectedDoor = useKarkas((s) => s.splitSelectedDoor);
   // Select PRIMITIVES (booleans), not a fresh object — a new-object selector trips React 18's
@@ -1919,6 +1929,21 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 onClick={() => setWorktop(blk.id, !blk.worktop)}
               >Stoleshnitsa{blk.worktop ? " ✓" : ""}</button>
             )}
+            {/* 4.a — L-corner: toggle the block to/from an L, then size the return leg */}
+            {blk && (
+              <button type="button" className={"mob-props-toggle" + (isLCorner ? " is-on" : "")} aria-pressed={isLCorner} onClick={toggleLCorner}>⌐ L-burchak{isLCorner ? " ✓" : ""}</button>
+            )}
+            {blk && isLCorner && (
+              <>
+                <label className="mob-props-f"><span>Qaytish uz.</span>
+                  <DimField label="mm" value={legBLen} onCommit={(v) => setLegB(v, legBDepth)} min={100} units={units} />
+                </label>
+                <label className="mob-props-f"><span>Qaytish ch.</span>
+                  <DimField label="mm" value={legBDepth} onCommit={(v) => setLegB(legBLen, v)} min={100} units={units} />
+                </label>
+                <button type="button" className="mob-props-toggle" onClick={() => setLCornerHand(lHand === "left" ? "right" : "left")} title="L burchakni chapga / o'ngga aylantirish">⇄ {lHand === "left" ? "Chap" : "O'ng"} burchak</button>
+              </>
+            )}
           </div>
         );
       })()}
@@ -2173,6 +2198,17 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             <span style={{ ...mono, fontSize: 10, color: "#8a8a8a", marginLeft: 6 }}>butun karkasga</span>
+            {/* 4.a — L-corner: make/unmake + size the return leg (block-level, desktop) */}
+            <button style={{ ...act, ...(isLCorner ? { borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" } : {}) }} onClick={toggleLCorner} type="button" title="Shkafni L-burchakka o'girish / qaytarish">⌐ {isLCorner ? "L-burchak ✓" : "L-burchak"}</button>
+            {isLCorner && (
+              <>
+                <span style={mono}>Qaytish uz.:</span>
+                <DimField label="mm" value={legBLen} onCommit={(v) => setLegB(v, legBDepth)} min={100} units={units} />
+                <span style={mono}>ch.:</span>
+                <DimField label="mm" value={legBDepth} onCommit={(v) => setLegB(legBLen, v)} min={100} units={units} />
+                <button style={act} onClick={() => setLCornerHand(lHand === "left" ? "right" : "left")} type="button" title="L burchakni chapga / o'ngga aylantirish">⇄ {lHand === "left" ? "Chap" : "O'ng"}</button>
+              </>
+            )}
           </div>
         );
       })()}

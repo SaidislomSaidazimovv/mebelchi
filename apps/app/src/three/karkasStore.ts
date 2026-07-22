@@ -14,7 +14,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -338,6 +338,12 @@ interface KarkasState extends Derived {
   setDividers: (n: number) => void;
   /** Set (or clear with null) the selected appliance's kind (3.d). Forks per-instance. Appliance only. */
   setAppliance: (kind: ApplianceKind | null) => void;
+  /** 4.a — toggle the selected block between a rectangle and an L-corner (legA = current box, +400mm legB). */
+  toggleLCorner: () => void;
+  /** 4.a — edit the L-corner return leg (legB) length + depth (mm). No-op if the block isn't an L. */
+  setLegB: (length_mm: number, depth_mm: number) => void;
+  /** 4 polish — set which way the L turns (left/right). No-op if the block isn't an L. */
+  setLCornerHand: (hand: "left" | "right") => void;
   /** 2.2b — combine the selected door with its siblings: move it onto its parent section (spans them all). */
   combineSelectedDoor: () => void;
   /** 2.2b — split a combined door back to one compartment: move it to its section's first leaf child. */
@@ -997,6 +1003,32 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setAppliance: (kind) => {
       const f = forkSelected();
       if (f) apply(setComponentAppliance(f.model, f.compId, kind), true);
+    },
+    // 4.a — make/unmake an L-corner on the selected block. legA = the current box (leg-A keeps its content),
+    // a default 400mm return leg-B; toggling off restores the rectangle. keepSel.
+    toggleLCorner: () => {
+      const s = get();
+      const b = blockOfPart(s.model, s.selectedId);
+      if (!b) return;
+      const fp = b.footprint
+        ? null
+        : { legA: { length_mm10: b.box.w, depth_mm10: b.box.d }, legB: { length_mm10: 4000, depth_mm10: Math.min(b.box.d, 4000) } };
+      apply(setBlockFootprint(s.model, b.id, fp), true);
+    },
+    // 4.a — resize the L-corner return leg only (legA stays = the box, so leg-A content never reflows).
+    setLegB: (length_mm, depth_mm) => {
+      const s = get();
+      const b = blockOfPart(s.model, s.selectedId);
+      if (!b?.footprint) return;
+      const legB = { length_mm10: Math.max(1000, Math.round(length_mm) * 10), depth_mm10: Math.max(1000, Math.round(depth_mm) * 10) };
+      apply(setBlockFootprint(s.model, b.id, { legA: b.footprint.legA, legB, hand: b.footprint.hand }), true); // keep the hand
+    },
+    // 4 polish — flip the L between left- and right-hand (mirrors leg-B; leg-A stays). Keeps legA/legB dims.
+    setLCornerHand: (hand) => {
+      const s = get();
+      const b = blockOfPart(s.model, s.selectedId);
+      if (!b?.footprint || (b.footprint.hand ?? "left") === hand) return;
+      apply(setBlockFootprint(s.model, b.id, { legA: b.footprint.legA, legB: b.footprint.legB, hand }), true);
     },
     // 2.2b — combine the selected door with its siblings: move the instance onto its PARENT section (no fork —
     // sectionId is per-instance). keepSel so the same door stays selected as it widens.

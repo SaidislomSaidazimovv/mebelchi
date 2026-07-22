@@ -13,6 +13,7 @@ import type {
   Component,
   DrawerInterior,
   DrawerOrganizer,
+  FaceDir,
   FreePart,
   Instance,
   Junction3D,
@@ -35,7 +36,9 @@ import {
   sectionOfLine,
   shelfSpanX,
   shelfSpanY,
+  shelfSpanZ,
   stackSlices,
+  zoneFacingOfSection,
 } from "./solve.js";
 import type { ResolvedT, ThicknessSpec } from "./solve.js";
 
@@ -149,7 +152,7 @@ function lCornerLayout(block: Block, t: ResolvedT): PanelPlacement[] {
   const aDepth = fp.legA.depth_mm10;
   const aBox: Box6 = { x, y, z, w: fp.legA.length_mm10, h, d: aDepth };
   const bBox: Box6 = { x, y, z: z + aDepth, w: fp.legB.depth_mm10, h, d: fp.legB.length_mm10 };
-  return [
+  const out: PanelPlacement[] = [
     ...carcassPlace(`${block.id}__legA`, "Плечо A · ", aBox, t),
     // leg-B sits fully BEHIND leg-A (z + legA.depth): its back is perpendicular to leg-A's and
     // adjacent to it, not overlapping — the blind-corner Pattern A (see lCornerParts / -r4:1241-1250).
@@ -157,6 +160,27 @@ function lCornerLayout(block: Block, t: ResolvedT): PanelPlacement[] {
     // The 50mm blind-corner door-clearance filler at the inner corner (blocker #6; -r3:327, GEO-3).
     place(`${block.id}__corner_filler`, "Угловая планка", x + fp.legB.depth_mm10, y, z + aDepth - CORNER_FILLER_W, t.carcass, h, CORNER_FILLER_W),
   ];
+  const c = t.carcass;
+  // Phase 4.c — worktop: A on leg-A (front overhang −Z) + B on leg-B, abutting A exactly at z + legA.depth.
+  if (block.worktop) {
+    out.push(place(`${block.id}__worktop_a`, "Столешница A", x, y + h, z - WORKTOP_OVERHANG_MM10, fp.legA.length_mm10, t.worktop, aDepth + WORKTOP_OVERHANG_MM10));
+    out.push(place(`${block.id}__worktop_b`, "Столешница B", x, y + h, z + aDepth, fp.legB.depth_mm10, t.worktop, fp.legB.length_mm10));
+  }
+  // Phase 4.c — plinth: A along leg-A's front (−Z, thickness in Z); B along leg-B's front (−X, thickness in X).
+  const p = block.plinth_mm10;
+  if (p && p > 0) {
+    out.push(place(`${block.id}__plinth_a`, "Цоколь A", x + c, y - p, z + PLINTH_RECESS_MM10, fp.legA.length_mm10 - 2 * c, p, c));
+    out.push(place(`${block.id}__plinth_b`, "Цоколь B", x + PLINTH_RECESS_MM10, y - p, z + aDepth + c, c, p, fp.legB.length_mm10 - 2 * c));
+  }
+  // Phase 4 polish — handedness: a right-hand L is the MIRROR of the return leg about leg-A's X-centre. leg-A +
+  // worktop_a + plinth_a are symmetric → untouched; only leg-B / filler / worktop_b / plinth_b flip to the max-X
+  // end (x' = 2x + legA.length − pl.x − pl.w, exact integer). Left (default) is byte-identical.
+  if (fp.hand === "right") {
+    const isLegB = (id: string): boolean =>
+      id.includes("__legB__") || id.endsWith("__corner_filler") || id.endsWith("__worktop_b") || id.endsWith("__plinth_b");
+    return out.map((pl) => (isLegB(pl.id) ? { ...pl, x_mm10: 2 * x + fp.legA.length_mm10 - pl.x_mm10 - pl.w_mm10 } : pl));
+  }
+  return out;
 }
 
 /** A divider positioned inside the SECTION it divides (leg-aware for L-blocks): its depth + origin
@@ -297,17 +321,19 @@ function facadePlacement(block: Block, inst: Instance, t: ResolvedT): PanelPlace
   const section = sectionById(block, inst.sectionId) ?? sectionByIdAny(block, inst.sectionId);
   if (!section) return null;
   const s = section.box;
-  const p = place(
-    `${block.id}__inst_${inst.id}`,
-    component.name,
-    block.box.x + s.x,
-    block.box.y + s.y,
-    block.box.z + s.z, // the front face (near side of the section)
-    s.w,
-    s.h,
-    boardThickness(component, t.facade), // 18mm МДФ / 32mm doubled door — matches the cut list
-  );
-  return component.lift ? { ...p, rotX_deg: LIFT_OPEN_DEG[component.lift] } : p; // 2.1d — render open (cut size unchanged)
+  const th = boardThickness(component, t.facade); // 18mm МДФ / 32mm doubled door — matches the cut list
+  // Phase 4.d-2 / 4 polish — an L return-leg (leg-B) door faces sideways: thin in X, spanning the leg length
+  // (s.d) in Z, on the −X face (left-hand L) or the +X face (right-hand L). The default (−Z) door is thin in Z,
+  // spanning s.w in X. Same id/anchor; only the axes swap + which X face.
+  const facing = zoneFacingOfSection(block, section.id);
+  const sideways = facing !== "-z";
+  const faceX = facing === "+x" ? block.box.x + s.x + s.w - th : block.box.x + s.x; // +x door hangs on the max-X face
+  const p = sideways
+    ? place(`${block.id}__inst_${inst.id}`, component.name, faceX, block.box.y + s.y, block.box.z + s.z, th, s.h, s.d)
+    : place(`${block.id}__inst_${inst.id}`, component.name, block.box.x + s.x, block.box.y + s.y, block.box.z + s.z, s.w, s.h, th);
+  // 2.1d — a lift door renders open (cut size unchanged). The open-tilt pivots about the −Z front (handles.ts),
+  // so a sideways (leg-B) lift would tilt about the wrong edge → render it CLOSED until leg-B lift lands (deferred).
+  return component.lift && !sideways ? { ...p, rotX_deg: LIFT_OPEN_DEG[component.lift] } : p;
 }
 
 /** Runner clearance per drawer side (mm10) — mirrors DRAWER_SLIDE_CLEAR_MM10 in solve.ts so the box
@@ -330,8 +356,44 @@ function drawerBoxPlaceInto(
   openingW: mm10,
   t: ResolvedT,
   organizer?: DrawerOrganizer,
+  facing: FaceDir = "-z",
 ): PanelPlacement[] {
   const c = t.carcass, bk = t.back, fa = t.facade; // box walls = carcass, bottom = thin back, facade = МДФ
+  // Phase 4.d-2 / 4 polish — a leg-B (sideways) drawer: front thin-in-X, the opening runs along Z
+  // (openingX0/openingW arrive as Z values), depth runs along X. Built at the −X face (left-hand L); a +X
+  // (right-hand L) drawer is the MIRROR of it within the box. Panel SIZES mirror drawerBoxFromBox exactly.
+  if (facing === "-x" || facing === "+x") {
+    const bodyZ = box.z + openingX0 + DRAWER_SLIDE_CLEAR_MM10; // Z: opening inner face + near runner clearance
+    const bodyW = openingW - 2 * DRAWER_SLIDE_CLEAR_MM10; // Z: body width between the runners
+    const innerW = bodyW - 2 * c; // between the two box sides (along Z)
+    const bodyY = box.y + c;
+    const sideH = box.h - 2 * c;
+    const boxX = box.x + fa; // behind the front facade (its own thickness, along X)
+    const boxD = box.w - fa - c; // body depth along X (box.w = legB.depth), small back clearance
+    const out = [
+      place(`${idBase}__front`, "Ящик · фасад", box.x, box.y, box.z, fa, box.h, box.d), // full −X opening (Y×Z)
+      place(`${idBase}__side_l`, "Ящик · бок Л", boxX, bodyY, bodyZ, boxD, sideH, c), // near-Z side, runs X-depth
+      place(`${idBase}__side_r`, "Ящик · бок П", boxX, bodyY, bodyZ + bodyW - c, boxD, sideH, c), // far-Z side
+      place(`${idBase}__back`, "Ящик · задняя", boxX + boxD - c, bodyY, bodyZ + c, c, sideH, innerW), // far-X back
+      place(`${idBase}__bottom`, "Ящик · дно", boxX, bodyY, bodyZ + c, boxD, bk, innerW), // floor (X-depth × Z-inner)
+    ];
+    if (organizer && organizer.dividers > 0) {
+      const n = organizer.dividers;
+      for (let k = 0; k < n; k += 1) {
+        if (organizer.axis === "z") {
+          // spans the width (Z) like the back → thin in X, at a depth line along X
+          const xc = boxX + Math.round((boxD * (k + 1)) / (n + 1)) - Math.round(c / 2);
+          out.push(place(`${idBase}__org_${k}`, "Ящик · разделитель", xc, bodyY, bodyZ + c, c, sideH, innerW));
+        } else {
+          // axis "x": spans the depth (X) like a side → thin in Z, at a width line along Z
+          const zc = bodyZ + c + Math.round((innerW * (k + 1)) / (n + 1)) - Math.round(c / 2);
+          out.push(place(`${idBase}__org_${k}`, "Ящик · разделитель", boxX, bodyY, zc, boxD, sideH, c));
+        }
+      }
+    }
+    // a right-hand (+X) drawer is the −x box mirrored about the box's own X-centre (front → the +X face).
+    return facing === "+x" ? out.map((pl) => ({ ...pl, x_mm10: 2 * box.x + box.w - pl.x_mm10 - pl.w_mm10 })) : out;
+  }
   const bodyX = box.x + openingX0 + DRAWER_SLIDE_CLEAR_MM10; // opening inner face + left runner clearance
   const bodyW = openingW - 2 * DRAWER_SLIDE_CLEAR_MM10; // body width between the runners
   const innerW = bodyW - 2 * c; // between the two box sides
@@ -369,16 +431,25 @@ function drawerBoxPlaceInto(
  *  `openingW`@`openingX0`, then SLIDE the whole subtree forward by `inst.open × travel` (v5 E2.5, layout
  *  only — the master pulls a drawer out to reach its contents; the cut parts never move). Shared by a
  *  top-level drawer and every nested one, so each drawer's open state composes with its parent's. */
-function placeDrawer(idBase: string, box: Box6, openingX0: mm10, openingW: mm10, inst: Instance, t: ResolvedT, organizer?: DrawerOrganizer): PanelPlacement[] {
+function placeDrawer(idBase: string, box: Box6, openingX0: mm10, openingW: mm10, inst: Instance, t: ResolvedT, organizer?: DrawerOrganizer, facing: FaceDir = "-z"): PanelPlacement[] {
   // honour this drawer's OWN height (nested drawers pass the full parent box; top-level arrives pre-clamped
   // in drawerBoxPlacement, so re-clamping here is idempotent). Unset = fills the box, as before.
   const dbox = inst.drawerHeight_mm10 != null ? { ...box, h: Math.min(box.h, inst.drawerHeight_mm10) } : box;
-  const out = drawerBoxPlaceInto(idBase, dbox, openingX0, openingW, t, organizer);
+  const out = drawerBoxPlaceInto(idBase, dbox, openingX0, openingW, t, organizer, facing);
   if (inst.interior) {
+    // Phase 4.d-2 — a nested drawer-in-drawer inside a leg-B (−x) drawer is deferred; the interior lays out in
+    // the default (−z) frame for now (only fires if the master explicitly nests a drawer in the leg-B one).
     out.push(...drawerInteriorPlacements(idBase, drawerInteriorFromBox(dbox, openingX0, openingW, t), inst.interior, t));
   }
-  const openZ = Math.round((inst.open ?? 0) * (dbox.d - t.facade - t.carcass)); // slide travel ≈ the body depth
-  return openZ ? out.map((p) => ({ ...p, z_mm10: p.z_mm10 + openZ })) : out;
+  // pull-out travel ≈ the body depth; a sideways (leg-B) drawer slides along X (−x pulls toward −X, +x toward
+  // +X), a normal one toward +Z (the front).
+  const sideways = facing === "-x" || facing === "+x";
+  const travel = (sideways ? dbox.w : dbox.d) - t.facade - t.carcass;
+  const openAmt = Math.round((inst.open ?? 0) * travel);
+  if (!openAmt) return out;
+  if (facing === "-x") return out.map((p) => ({ ...p, x_mm10: p.x_mm10 - openAmt }));
+  if (facing === "+x") return out.map((p) => ({ ...p, x_mm10: p.x_mm10 + openAmt }));
+  return out.map((p) => ({ ...p, z_mm10: p.z_mm10 + openAmt }));
 }
 
 /** Placements for a drawer's nested interior (drawer-in-drawer, v5): each interior drawer fills the
@@ -405,6 +476,13 @@ function drawerBoxPlacement(block: Block, inst: Instance, t: ResolvedT): PanelPl
   // B/D fix — the drawer is DRAWER_HEIGHT tall at the section floor, not the full section (a full-height
   // drawer renders as thin slats). Matches drawerBoxOf() in solve.ts so the 3D box == the cut list.
   const world = { x: block.box.x + s.x, y: block.box.y + s.y, z: block.box.z + s.z, w: s.w, h: Math.min(s.h, inst.drawerHeight_mm10 ?? DRAWER_HEIGHT_MM10), d: s.d };
+  // Phase 4.d-2 / 4 polish — a leg-B (sideways ±x) drawer's opening runs along Z (shelfSpanZ); the normal
+  // drawer opens along X. The facing (−x / +x) is threaded so placeDrawer mirrors + slides the correct way.
+  const facing = zoneFacingOfSection(block, section.id);
+  if (facing === "-x" || facing === "+x") {
+    const span = shelfSpanZ(block, section, t.carcass);
+    return placeDrawer(`${block.id}__inst_${inst.id}`, world, span.z0, span.depth, inst, t, component.organizer, facing);
+  }
   const span = shelfSpanX(block, section, t.carcass);
   return placeDrawer(`${block.id}__inst_${inst.id}`, world, span.x0, span.width, inst, t, component.organizer);
 }

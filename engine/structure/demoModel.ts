@@ -170,6 +170,19 @@ export function buildLCornerModel(): StructuralModel {
     purpose: "storage",
   };
   const zone: Zone = { id: "z_l", name: "Корпус", rule: "manual", root };
+  // Phase 4.d-1 — leg-B is its own (empty) compartment so the usta can add shelves to the RETURN leg too.
+  // Sized 1:1 to leg-B's carcass (bBox in lCornerLayout): z origin = legA.depth, width = legB.depth (X),
+  // depth = legB.length (Z), shared height. Empty → emits no part (the demo's cut list is unchanged); it
+  // simply appears as a second «bo'lim» you can add content to. Ids match operations.ts LEGB_*_ID.
+  const legBRoot: Section = {
+    id: "sec_legB",
+    box: { x: 0, y: 0, z: legA.depth_mm10, w: legB.depth_mm10, h: H, d: legB.length_mm10 },
+    dividers: [],
+    children: [],
+    instanceIds: [],
+    purpose: null,
+  };
+  const legBZone: Zone = { id: "z_legB", name: "Плечо B", rule: "manual", facing: "-x", root: legBRoot }; // −X: leg-B facades open sideways (Phase 4.d-2)
   const shelf: Component = { id: "cmp_l_shelf", name: "Полка", partIds: [], role: "internal_shelf" };
   const shelfInst: Instance = {
     id: "inst_l_shelf",
@@ -184,7 +197,7 @@ export function buildLCornerModel(): StructuralModel {
     name: "Г-образный шкаф",
     box: { x: 0, y: 0, z: 0, w: legA.length_mm10, h: H, d: legA.depth_mm10 + legB.length_mm10 },
     footprint: { legA, legB },
-    zones: [zone],
+    zones: [zone, legBZone],
     components: [shelf],
     instances: [shelfInst],
     lines: [],

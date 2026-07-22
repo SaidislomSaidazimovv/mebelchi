@@ -391,16 +391,17 @@ function carcassJoineryByPart(model: StructuralModel, parts: Part[], conn: Conne
   if (!conn) return out;
   const byId = new Map(parts.map((p) => [p.id, p]));
   const add = (id: string, ops: DrillOp[]): void => { if (!ops.length) return; const a = out.get(id) ?? []; a.push(...ops); out.set(id, a); };
-  for (const block of model.blocks) {
-    if (block.footprint) continue; // L-corner legs — a later increment
-    if (block.box.d < 2 * JOINT_INSET_MM10) continue; // too shallow → a column would fall out of bounds
-    const sideL = byId.get(`${block.id}__side_l`);
-    const sideR = byId.get(`${block.id}__side_r`);
-    const top = byId.get(`${block.id}__top`);
-    const bottom = byId.get(`${block.id}__bottom`);
-    if (!top || !bottom) continue;
-    const jointYs: mm10[] = [JOINT_INSET_MM10, block.box.d - JOINT_INSET_MM10];
-    for (const [side, kind] of [[sideL, "left"], [sideR, "right"]] as const) {
+  // One rigid carcass box → cam/dowel on each side↔top/bottom corner. `prefix` selects the part ids
+  // (`${prefix}__side_l/…`), `depth` drives the two dowel columns (part-local jointYs), `sides` is the
+  // present sides (an L return leg omits side_r). Shared by a rectangular block and each L leg.
+  const jointBox = (prefix: string, depth: mm10, sides: readonly ("left" | "right")[]): void => {
+    if (depth < 2 * JOINT_INSET_MM10) return; // too shallow → a column would fall out of bounds
+    const top = byId.get(`${prefix}__top`);
+    const bottom = byId.get(`${prefix}__bottom`);
+    if (!top || !bottom) return;
+    const jointYs: mm10[] = [JOINT_INSET_MM10, depth - JOINT_INSET_MM10];
+    for (const kind of sides) {
+      const side = byId.get(`${prefix}__side_${kind === "left" ? "l" : "r"}`);
       if (!side) continue;
       for (const [horiz, end] of [[bottom, "bottom"], [top, "top"]] as const) {
         const { camOps, dowelOps } = camDowelJoint(side, horiz, end, kind, jointYs, conn);
@@ -408,6 +409,17 @@ function carcassJoineryByPart(model: StructuralModel, parts: Part[], conn: Conne
         add(horiz.id, dowelOps);
       }
     }
+  };
+  for (const block of model.blocks) {
+    if (block.footprint) {
+      // Phase 4 polish — an L cabinet joins EACH leg into a rigid box (its own corners), using that leg's OWN
+      // depth for the dowel columns (NOT block.box.d, the L envelope). leg-B omits side_r (it opens into leg-A).
+      // The leg-A↔leg-B cross-corner join is a later increment. Same connector + camDowelJoint as a rectangle.
+      jointBox(`${block.id}__legA`, block.footprint.legA.depth_mm10, ["left", "right"]);
+      jointBox(`${block.id}__legB`, block.footprint.legB.depth_mm10, ["left"]);
+      continue;
+    }
+    jointBox(block.id, block.box.d, ["left", "right"]);
   }
   return out;
 }
