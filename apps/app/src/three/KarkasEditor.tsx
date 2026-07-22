@@ -10,11 +10,11 @@ import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
-import type { Box3D, HandleType, LiftType, ApplianceKind } from "../../../../engine/contracts/structure";
+import type { Box3D, HandleType, LiftType, ApplianceKind, StructuralModel } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
-import { buildDemoModel, buildEmptyModel, buildLCornerModel, buildTable } from "../../../../engine/structure/demoModel.js";
+import { buildBedFrame, buildBench, buildBookshelf, buildCarcassModel, buildChair, buildCoffeeTable, buildConsole, buildDemoModel, buildEmptyModel, buildLCornerModel, buildPedestal, buildStool, buildTable } from "../../../../engine/structure/demoModel.js";
 import { exportModelToSWJ008, solveModelToParts, defaultJointProfile } from "../../../../engine/cnc.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { kromkaMetersByVariable } from "../../../../engine/structure/features.js";
@@ -46,6 +46,36 @@ const MOB_TABS: { id: MobTab; label: string }[] = [
   { id: "parts", label: "Detallar" },
   { id: "drawing", label: "Chizma" },
   { id: "ar", label: "AR" },
+];
+
+/** M1.2 — the furniture template gallery: carcass starters + the M1.1 free-assembly library, grouped.
+    Each `make` seeds a fresh model via setModel; default dims come from the engine builders (editable
+    afterwards through the dimension bar, which reflows the template via the "table law"). */
+type TemplateDef = { id: string; emoji: string; name: string; make: () => StructuralModel };
+const TEMPLATE_GROUPS: { group: string; items: TemplateDef[] }[] = [
+  { group: "Boshlash", items: [
+    { id: "empty", emoji: "✦", name: "Bo'sh", make: () => buildEmptyModel() },
+    { id: "cabinet", emoji: "🚪", name: "Shkaf", make: () => buildCarcassModel(600, 720, 560) },
+    { id: "demo", emoji: "▦", name: "Namuna shkaf", make: () => buildDemoModel() },
+    { id: "lcorner", emoji: "⌐", name: "L-burchak", make: () => buildLCornerModel() },
+  ] },
+  { group: "Stollar", items: [
+    { id: "table", emoji: "🍽", name: "Stol", make: () => buildTable(1200, 750, 700) },
+    { id: "coffee", emoji: "☕", name: "Jurnal stol", make: () => buildCoffeeTable() },
+  ] },
+  { group: "O'tirg'ich", items: [
+    { id: "chair", emoji: "🪑", name: "Stul", make: () => buildChair() },
+    { id: "stool", emoji: "🟫", name: "Taburetka", make: () => buildStool() },
+    { id: "bench", emoji: "🛋", name: "Skameyka", make: () => buildBench() },
+  ] },
+  { group: "Saqlash", items: [
+    { id: "console", emoji: "📺", name: "TV-tumba", make: () => buildConsole() },
+    { id: "bookshelf", emoji: "📚", name: "Stellaj", make: () => buildBookshelf() },
+    { id: "pedestal", emoji: "🗄", name: "Tumba", make: () => buildPedestal() },
+  ] },
+  { group: "Karavot", items: [
+    { id: "bed", emoji: "🛏", name: "Karavot", make: () => buildBedFrame() },
+  ] },
 ];
 
 /** All PanelRole values the solver stamps → the decor names SWJ008 should carry, from the plan. */
@@ -149,6 +179,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // 5.r2 — how many walls the room has (primitive number, React 18 rule) — drives the «Devorga» wall picker.
   const roomWallCount = useKarkas((s) => s.model.room?.walls.length ?? 0);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
+  const renameFreePart = useKarkas((s) => s.renameFreePart);
+  const resizeFreeBoardTo = useKarkas((s) => s.resizeFreeBoardTo);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const rotateBlockTo = useKarkas((s) => s.rotateBlockTo);
   const setPlinth = useKarkas((s) => s.setPlinth);
@@ -453,6 +485,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   };
   // compact toolbar: which dropdown (add-variants / overflow) is open
   const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel" | "tools">(null);
+  const [showTemplates, setShowTemplates] = useState(false); // M1.2 — template gallery overlay
   // Step 3.2 (v4 §5) — the two permanent selection modes: ◇ Part-select (edit) / ▢ Space-select (add).
   const [selMode, setSelMode] = useState<"part" | "space" | "block">("part");
   // U3.1 — the mount-effect raycast is a stable closure, so it reads the live select-mode via this ref.
@@ -842,13 +875,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         // read these out BEFORE the store calls: `drag` is a mutable capture, so TS drops the narrowing
         // the moment any function that could reassign it runs.
         const { fpId, axis } = drag;
-        useKarkas.getState().resizeFreeBoard(fpId, dim, Math.round(next / 10), drag.first);
+        // M1.3b — snap the growing face to a nearby part; `res.size` is the applied (possibly snapped) mm.
+        const res = resizeFreeBoardTo(fpId, dim, Math.round(next / 10), drag.first);
         drag.first = false;
-        const mm = Math.round(next / 10);
-        measureRef.current({ dim, mm }); // a SIZE readout (no `move` flag)
+        measureRef.current({ dim, mm: res.size, snapped: res.snapped }); // SIZE readout + snap flag
         // the board has just been re-solved, so read its NEW box rather than extrapolating the drag
         const bd = useKarkas.getState().scene.boards.find((x) => x.id.endsWith(`__free_${fpId}`));
-        if (bd) showDim(0, bd.pos, bd.size, axis, `${mm} mm`);
+        if (bd) showDim(0, bd.pos, bd.size, axis, `${res.size} mm`);
         return;
       }
       // gizmos — slide a SHELF up or down inside its bay (the engine clamps it to the section, so it can
@@ -1408,17 +1441,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   </>
                 )}
                 <div style={popSep} />
-                {/* Start from NOTHING. Every other entry hands over a finished cabinet, which is the
-                    wrong beginning for anything that is not a cabinet. */}
-                <button style={popItem} onClick={() => setModel(buildEmptyModel())} type="button">✦ Yangi — bo'sh</button>
-                <div style={popSep} />
-                <button style={popItem} onClick={() => setModel(buildDemoModel())} type="button">▢ Namuna: Тумба</button>
-                <button style={popItem} onClick={() => setModel(buildLCornerModel())} type="button">⌐ Namuna: L-burchak</button>
-                {/* The first NON-cabinet template. `buildTable` already existed in the engine, fully
-                    tested (a bare block whose body is edge-anchored free parts — the top spans, the legs
-                    are pinned to the corners, so it reflows on resize), but nothing in the UI could
-                    create one. 1200×750×700 is an ordinary dining table. */}
-                <button style={popItem} onClick={() => setModel(buildTable(1200, 750, 700))} type="button">🪑 Namuna: Stol</button>
+                {/* M1.2 — every starter + the free-assembly library now live in one gallery overlay. */}
+                <button style={popItem} onClick={() => { setMenu(null); setShowTemplates(true); }} type="button">▦ Shablonlar</button>
                 {onClose && <><div style={popSep} /><button style={{ ...popItem, color: "#a01a2e" }} onClick={onClose} type="button">✕ Yopish</button></>}
               </div>
             )}
@@ -1426,6 +1450,33 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         </div>
         <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={onFileChange} />
       </header>
+
+      {/* M1.2 — template gallery overlay (opened from the ⋯ menu). Click-outside or × closes it; picking a
+          card seeds a fresh model via setModel and drops any open panel. */}
+      {showTemplates && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 210, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setShowTemplates(false)}>
+          <div role="dialog" aria-label="Shablonlar" onClick={(e) => e.stopPropagation()} style={{ background: theme === "dark" ? "#1c2230" : "#fff", color: theme === "dark" ? "#e7ebf2" : "#1a1a1a", borderRadius: 14, padding: 18, width: "min(560px, 94vw)", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 10px 44px rgba(0,0,0,0.4)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <strong style={{ fontSize: 16 }}>▦ Shablonlar</strong>
+              <button type="button" onClick={() => setShowTemplates(false)} aria-label="Yopish" style={{ border: "none", background: "transparent", color: "inherit", fontSize: 24, lineHeight: 1, cursor: "pointer" }}>×</button>
+            </div>
+            {TEMPLATE_GROUPS.map((g) => (
+              <div key={g.group} style={{ marginBottom: 16 }}>
+                <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginBottom: 8 }}>{g.group}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 10 }}>
+                  {g.items.map((t) => (
+                    <button key={t.id} type="button" title={t.name} onClick={() => { setModel(t.make()); setShowTemplates(false); setRpanel("none"); setActivePanel(null); }}
+                      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7, padding: "15px 8px", borderRadius: 12, border: theme === "dark" ? "1px solid #33405a" : "1px solid #e3e6eb", background: theme === "dark" ? "#232b3d" : "#f7f8fa", color: "inherit", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                      <span style={{ fontSize: 30, lineHeight: 1 }} aria-hidden="true">{t.emoji}</span>
+                      <span>{t.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── U2.1 — Moblo bottom contextual bar (overall dims · selection · +Loyihaga) ── */}
       {tab === "build" && selMode !== "block" && (
@@ -1988,7 +2039,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* ── U3.3 — free-board editor: appears when a free board is selected (resize W/H/D · delete) ── */}
       {tab === "build" && !(compact && toolsOpen) && selFreeBoard && rpanel === "none" && (
         <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 62, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
-          <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>🪵 Erkin taxta</span>
+          <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>🪵</span>
+          <input key={selFreeBoard.id} defaultValue={selFreeBoard.name} title="Nom" aria-label="Nom"
+            onBlur={(e) => renameFreePart(selFreeBoard.id, e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+            style={{ ...mono, fontWeight: 700, color: "#1f5570", width: 100, border: "1px solid #cdd5df", borderRadius: 6, padding: "3px 7px", background: "#fff" }} />
           <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "w", mm)} units={units} />
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />

@@ -270,6 +270,11 @@ interface KarkasState extends Derived {
   /** Resize a free board along one axis (mm). `pushHistory: false` for live drag frames — they replace
    *  the current state instead of stacking one undo entry per pointer move (gizmo resize). */
   resizeFreeBoard: (fpId: string, dim: "w" | "h" | "d", mm: number, pushHistory?: boolean) => void;
+  /** Gizmo resize with a magnet (M1.3b): the growing face snaps to a nearby part face; also detaches the
+   *  board from the template reflow. Returns the applied size (mm) + whether it snapped. */
+  resizeFreeBoardTo: (fpId: string, dim: "w" | "h" | "d", mm: number, first: boolean) => { size: number; snapped: boolean };
+  /** Rename a free board (M1.3a) — its `name` flows to the cut list + SWJ008. Blank → a default. */
+  renameFreePart: (fpId: string, name: string) => void;
   rotateFreeBoard: (fpId: string) => void;
   setFreeBoardMaterial: (fpId: string, matId: string) => void;
   removeFreeBoard: (fpId: string) => void;
@@ -850,7 +855,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
         ...s.model,
         blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
           ...b,
-          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: clampFreeBox({ ...f.box, x: f.box.x + delta.x, y: f.box.y + delta.y, z: f.box.z + delta.z }, block.box) })),
+          // a manual move DETACHES the board from the template reflow (M1.3b), so it stays where dropped.
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: clampFreeBox({ ...f.box, x: f.box.x + delta.x, y: f.box.y + delta.y, z: f.box.z + delta.z }, block.box), anchor: undefined })),
         })),
       };
       // `first` opens ONE undo step; later drag frames just replace it, so a drag isn't 100 undo entries.
@@ -904,12 +910,38 @@ export const useKarkas = create<KarkasState>((set, get) => {
         ...s.model,
         blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
           ...b,
-          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: clampFreeBox({ ...f.box, [dim]: v }, block.box) })),
+          // a manual resize DETACHES the board from the template reflow (anchor dropped), so the typed size
+          // sticks — a later block resize no longer overwrites it via resolveFreePartBox (M1.3b).
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: clampFreeBox({ ...f.box, [dim]: v }, block.box), anchor: undefined })),
         })),
       };
       // keep the board selected while resizing; a live drag frame replaces state instead of stacking undo
       if (pushHistory) apply(model, true);
       else set((st) => ({ ...derive(model, st.plan, st.thickness), selectedId: st.selectedId }));
+    },
+    // M1.3b — gizmo resize with a magnet: the growing HIGH face snaps to a nearby part/compartment face
+    // (same magnet as move-snap), the LOW edge (origin) holds. Also detaches (anchor dropped) so the size
+    // sticks through a later block resize. Returns the applied size (mm) + whether it snapped.
+    resizeFreeBoardTo: (fpId, dim, mm, first) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      const fp = block?.freeParts?.find((f) => f.id === fpId);
+      if (!block || !fp) return { size: mm, snapped: false };
+      const axis = dim === "w" ? "x" : dim === "h" ? "y" : "z";
+      const origin = axis === "x" ? fp.box.x : axis === "y" ? fp.box.y : fp.box.z;
+      const idealHigh = origin + Math.max(30, Math.round(mm * 10)); // mm → mm10, grow the high face
+      const t = snapSpan(idealHigh, 0, freeSnapCandidates(block, axis, fpId), SNAP_PULL); // magnet on the high edge
+      const size = Math.max(30, t.pos - origin);
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, box: clampFreeBox({ ...f.box, [dim]: size }, block.box), anchor: undefined })),
+        })),
+      };
+      if (first) apply(model, true);
+      else set((st) => ({ ...derive(model, st.plan, st.thickness), selectedId: st.selectedId }));
+      return { size: Math.round(size / 10), snapped: t.snapped };
     },
     // U3.3b — rotate 90°: cycle the thin axis y→x→z→y and swap the two dims so the 16 mm thickness moves
     // with it (horizontal shelf → vertical side → front/back panel → …). One undo step, keeps selection.
@@ -928,7 +960,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
             const box = { ...f.box };
             const od = dimOf(f.thicknessAxis), nd = dimOf(next);
             const t = box[od]; box[od] = box[nd]; box[nd] = t; // swap old-thin ↔ new-thin dim
-            return { ...f, thicknessAxis: next, box };
+            return { ...f, thicknessAxis: next, box, anchor: undefined }; // manual rotate detaches (M1.3b)
           }),
         })),
       };
@@ -943,6 +975,20 @@ export const useKarkas = create<KarkasState>((set, get) => {
         blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
           ...b,
           freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, material: matId || undefined })),
+        })),
+      };
+      apply(model, true);
+    },
+    renameFreePart: (fpId, name) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const nm = name.trim() || "Деталь"; // never a nameless part in the cut list / SWJ008
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, name: nm })),
         })),
       };
       apply(model, true);
