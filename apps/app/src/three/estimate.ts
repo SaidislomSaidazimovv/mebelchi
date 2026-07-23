@@ -46,6 +46,46 @@ export interface PartSpec {
   priceUzs: number; // this part's board + edge cost
 }
 
+/**
+ * M8.2 — one cut-list ROW: a panel plus how many identical ones the job needs. A wardrobe asks for four
+ * identical shelves; listing them four times made the usta's paper three times longer than the work.
+ * Moblo groups the same way («×2 Plank bottom»).
+ *
+ * IDENTICAL means the same CUT: name, length, width, thickness, decor and banding pattern. Drilling is
+ * deliberately NOT part of the key — the cut list is what the saw needs, and the holes travel in the
+ * CNC file per part. `ids` keeps every original part behind the row so nothing is lost.
+ */
+export interface GroupedSpec extends PartSpec {
+  qty: number;
+  ids: string[];
+}
+
+/** Fold identical panels into one row each, preserving the order in which they first appear. */
+export function groupSpecs(specs: readonly PartSpec[]): GroupedSpec[] {
+  const out: GroupedSpec[] = [];
+  const at = new Map<string, GroupedSpec>();
+  for (const s of specs) {
+    const key = [s.name, s.l_mm, s.w_mm, s.t_mm, s.materialName, s.bands.map((b) => (b ? 1 : 0)).join("")].join("|");
+    const row = at.get(key);
+    if (row) { row.qty += 1; row.ids.push(s.id); row.areaM2 += s.areaM2; row.edgeM += s.edgeM; row.priceUzs += s.priceUzs; continue; }
+    const fresh: GroupedSpec = { ...s, qty: 1, ids: [s.id] };
+    at.set(key, fresh);
+    out.push(fresh);
+  }
+  return out;
+}
+
+/** M8.2 — how the usta wants the list ordered on the bench. */
+export type SpecSort = "model" | "name" | "length" | "material";
+
+export function sortSpecs(rows: readonly GroupedSpec[], by: SpecSort): GroupedSpec[] {
+  const a = [...rows];
+  if (by === "name") return a.sort((x, y) => x.name.localeCompare(y.name) || y.l_mm - x.l_mm);
+  if (by === "length") return a.sort((x, y) => y.l_mm - x.l_mm || y.w_mm - x.w_mm); // longest first: the saw starts big
+  if (by === "material") return a.sort((x, y) => x.materialName.localeCompare(y.materialName) || y.l_mm - x.l_mm);
+  return a; // "model" — the order the solver emitted, which follows the cabinet itself
+}
+
 export interface ThicknessGroup {
   t_mm: number;
   count: number;

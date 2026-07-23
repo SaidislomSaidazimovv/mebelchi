@@ -28,7 +28,7 @@ import { applianceFittings, withApplianceCutouts } from "./appliances";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, exportObj, exportStl, isAndroid, sceneViewerUrl, startArSession, uploadGlbForAr, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
-import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
+import { estimate, hardwareEstimate, applianceEstimate, groupSpecs, sortSpecs, type SpecSort } from "./estimate";
 import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, partFinishLookup, partTextureLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, materialCategory, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
 
@@ -3016,6 +3016,11 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
   const unlockQuote = useKarkas((s) => s.unlockQuote);
   const money = useMoney();
   const e = estimate(parts, plan);
+  // M8.2 — the cut list the usta actually carries: identical panels folded into one «×N» row, in the
+  // order he wants to cut them. The totals above stay per-PART, because the sheet count and the price
+  // are about panels, not rows.
+  const [specSort, setSpecSort] = useState<SpecSort>("model");
+  const rows = useMemo(() => sortSpecs(groupSpecs(e.parts), specSort), [e.parts, specSort]);
   const hw = hardwareEstimate(model);
   const ap = applianceEstimate(model); // Phase 3 — «Техника» (bought appliances)
   const total = e.priceUzs + hw.priceUzs + ap.priceUzs;
@@ -3138,13 +3143,25 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
           </div>
         )}
       </div>
+      {/* M8.2 — identical panels fold into one row with «×N», and the usta picks the order he cuts in.
+          Four identical shelves used to be four lines; a wardrobe's paper was three times the work. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 14px 8px", flexWrap: "wrap" }}>
+        <span style={{ ...mono, fontSize: 11, opacity: 0.6 }}>{rows.length} qator · {e.count} detal</span>
+        <span style={{ ...mono, fontSize: 11, opacity: 0.6, marginLeft: "auto" }}>Tartib:</span>
+        {([["model", "shkaf bo'yicha"], ["name", "nom"], ["length", "uzunlik"], ["material", "material"]] as const).map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setSpecSort(k)}
+            style={{ ...pill, padding: "3px 9px", fontSize: 11, ...(specSort === k ? { borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 } : {}) }}>{label}</button>
+        ))}
+      </div>
       <div style={specList}>
-        {e.parts.map((p) => (
-          <div key={p.id} style={specRow}>
+        {rows.map((p) => (
+          <div key={p.ids[0]} style={specRow}>
             {/* panel silhouette — true L×W proportions, banded edges inked heavy */}
             <span className="mob-part-thumb" title="Panel shakli · qalin qirra = kromka" dangerouslySetInnerHTML={{ __html: panelThumbSvg(p.l_mm, p.w_mm, p.bands, 40) }} />
             <span style={{ flex: 1, overflow: "hidden" }}>
-              <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
+              <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {p.qty > 1 && <b style={{ ...mono, color: "#1f478a", marginRight: 6 }}>×{p.qty}</b>}
+                {p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
               {/* M7.3 — the usta's own words about this part, right where the cut list is read */}
               {p.note && <span style={{ display: "block", fontSize: 11, color: "#7a6a4a", fontStyle: "italic" }}>✎ {p.note}</span>}
             </span>
