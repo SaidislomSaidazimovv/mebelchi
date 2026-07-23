@@ -79,19 +79,37 @@ export function normalizeStoreId(id: string): string {
 
 export interface BlobAuth { token: string; storeId: string }
 
+/** Just enough of `Headers` to read one value — so tests can pass a plain object. */
+export interface HeaderReader { get(name: string): string | null }
+
 /**
  * Which credential this deployment actually has. Connecting a Blob store in the dashboard now hands the
- * project `BLOB_STORE_ID` plus the rotating `VERCEL_OIDC_TOKEN` — measured on THIS project, where no
+ * project `BLOB_STORE_ID` plus the rotating OIDC credential — measured on THIS project, where no
  * `BLOB_READ_WRITE_TOKEN` was created at all. The long-lived token is still accepted first, so a store
  * connected the older way (or a token pasted by hand) keeps working.
+ *
+ * THE OIDC TOKEN IS NOT AN ENV VAR IN PRODUCTION. It rides on each request as `x-vercel-oidc-token`;
+ * `VERCEL_OIDC_TOKEN` only exists locally (what `vercel env pull` writes). @vercel/oidc reads the header
+ * first for exactly this reason, and reading only the env var is what made the live AR button answer
+ * "Blob saqlagichi ulanmagan" on the first deploy.
  */
-export function resolveBlobAuth(env: Record<string, string | undefined>): BlobAuth | null {
+export function resolveBlobAuth(env: Record<string, string | undefined>, headers?: HeaderReader): BlobAuth | null {
   const rw = env.BLOB_READ_WRITE_TOKEN?.trim();
   if (rw) return { token: rw, storeId: storeIdFromToken(rw) };
-  const oidc = env.VERCEL_OIDC_TOKEN?.trim();
+  const oidc = headers?.get("x-vercel-oidc-token")?.trim() || env.VERCEL_OIDC_TOKEN?.trim();
   const store = env.BLOB_STORE_ID?.trim();
   if (oidc && store) return { token: oidc, storeId: normalizeStoreId(store) };
   return null;
+}
+
+/** Which credentials were present, as booleans — no secrets. Diagnosing this blind cost a deploy cycle. */
+export function credentialReport(env: Record<string, string | undefined>, headers?: HeaderReader): Record<string, boolean> {
+  return {
+    BLOB_READ_WRITE_TOKEN: !!env.BLOB_READ_WRITE_TOKEN?.trim(),
+    "x-vercel-oidc-token": !!headers?.get("x-vercel-oidc-token")?.trim(),
+    VERCEL_OIDC_TOKEN: !!env.VERCEL_OIDC_TOKEN?.trim(),
+    BLOB_STORE_ID: !!env.BLOB_STORE_ID?.trim(),
+  };
 }
 
 /** `PUT /api/blob/?pathname=…` — the exact call @vercel/blob's `put()` makes for a public upload. */
@@ -119,11 +137,12 @@ const json = (status: number, body: unknown): Response =>
 
 export default {
   async fetch(request: Request): Promise<Response> {
-    const auth = resolveBlobAuth(process.env);
+    const auth = resolveBlobAuth(process.env, request.headers);
     if (!auth) {
       // The Blob store is not connected to this project yet. Say so plainly — this is a setup step in the
-      // Vercel dashboard, not a bug the usta can do anything about.
-      return json(503, { error: "Blob saqlagichi ulanmagan (BLOB_STORE_ID / token yo'q)" });
+      // Vercel dashboard, not a bug the usta can do anything about. `have` names which credential was
+      // missing (booleans only, never a value), so the next fix does not cost another deploy to guess.
+      return json(503, { error: "Blob saqlagichi ulanmagan", have: credentialReport(process.env, request.headers) });
     }
 
     const buf = request.method === "POST" ? new Uint8Array(await request.arrayBuffer()) : new Uint8Array();

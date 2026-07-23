@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { AR_MAX_BYTES, blobPutRequest, checkArUpload, normalizeStoreId, resolveBlobAuth, storeIdFromToken } from "../api/ar-upload.js";
+import { AR_MAX_BYTES, blobPutRequest, checkArUpload, credentialReport, normalizeStoreId, resolveBlobAuth, storeIdFromToken } from "../api/ar-upload.js";
 
 /** A body that starts like a real .glb ("glTF" + version + length), padded to `n` bytes. */
 const glb = (n = 32): Uint8Array => {
@@ -87,6 +87,24 @@ describe("M6.1 — which credential the deployment uses", () => {
       .toEqual({ token: "oidc.jwt", storeId: "ubZcVsKW" });
   });
 
+  // THE LIVE BUG (2026-07-23): the first production deploy answered «Blob saqlagichi ulanmagan» because
+  // VERCEL_OIDC_TOKEN is NOT an env var on Vercel — the credential rides on each request as
+  // `x-vercel-oidc-token` (the env var only exists locally, via `vercel env pull`).
+  it("takes the OIDC token from the request header — where production actually puts it", () => {
+    const headers = new Headers({ "x-vercel-oidc-token": "header.jwt" });
+    expect(resolveBlobAuth({ BLOB_STORE_ID: "store_ubZcVsKW" }, headers))
+      .toEqual({ token: "header.jwt", storeId: "ubZcVsKW" });
+  });
+
+  it("the header wins over a stale pulled env token", () => {
+    const headers = new Headers({ "x-vercel-oidc-token": "fresh.jwt" });
+    expect(resolveBlobAuth({ VERCEL_OIDC_TOKEN: "stale.jwt", BLOB_STORE_ID: "store_x" }, headers)?.token).toBe("fresh.jwt");
+  });
+
+  it("a header token without a store id is still no credential", () => {
+    expect(resolveBlobAuth({}, new Headers({ "x-vercel-oidc-token": "header.jwt" }))).toBeNull();
+  });
+
   it("strips the store_ prefix the dashboard publishes", () => {
     expect(normalizeStoreId("store_ubZcVsKW")).toBe("ubZcVsKW");
     expect(normalizeStoreId("ubZcVsKW")).toBe("ubZcVsKW");
@@ -98,6 +116,17 @@ describe("M6.1 — which credential the deployment uses", () => {
 
   it("nothing configured → null, so the endpoint can say «Blob ulanmagan» instead of failing blindly", () => {
     expect(resolveBlobAuth({})).toBeNull();
+  });
+
+  it("the failure report names what was missing and NEVER leaks a value", () => {
+    const report = credentialReport({ BLOB_STORE_ID: "store_x", BLOB_READ_WRITE_TOKEN: "" }, new Headers());
+    expect(report).toEqual({
+      BLOB_READ_WRITE_TOKEN: false,
+      "x-vercel-oidc-token": false,
+      VERCEL_OIDC_TOKEN: false,
+      BLOB_STORE_ID: true,
+    });
+    expect(Object.values(report).every((v) => typeof v === "boolean")).toBe(true);
   });
 });
 
