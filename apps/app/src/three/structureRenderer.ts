@@ -356,6 +356,25 @@ export function highlightBoard(group: THREE.Group, id: string | null): void {
   }
 }
 
+/**
+ * M8.4 — tint EVERY board in a multi-pick. Call it AFTER highlightBoard, which clears all emissive, so
+ * the picked parts win. Ids are PART ids (what the meshes carry), so the caller maps free-part ids first.
+ */
+export function highlightParts(group: THREE.Group, partIds: readonly string[]): void {
+  if (partIds.length === 0) return;
+  const set = new Set(partIds);
+  for (const child of group.children) {
+    const mesh = child as THREE.Mesh;
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    const pid = mesh.userData.partId as string | undefined;
+    if (mat && "emissive" in mat && pid && set.has(pid)) {
+      mat.emissive = new THREE.Color(SELECTED);
+      mat.emissiveIntensity = 0.5;
+      mat.needsUpdate = true;
+    }
+  }
+}
+
 const GROUP_PICK = 0x00a961; // green emissive — a whole block ticked for grouping (U4.2 Blok mode)
 /** U4.2 — tint EVERY board of each picked block green (whole-cabinet group selection). Call it AFTER
  *  highlightBoard (which clears all emissive): the picked blocks then win. A partId is `${blockId}__…`,

@@ -22,7 +22,7 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, highlightParts, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
 import { applianceFittings, withApplianceCutouts } from "./appliances";
 import { specsToCsv } from "./specCsv";
@@ -195,6 +195,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setFreePartView = useKarkas((s) => s.setFreePartView); // M7.4
   const setPartView = useKarkas((s) => s.setPartView);
   const setFreePartTilt = useKarkas((s) => s.setFreePartTilt); // M8.1
+  // M8.4 — multi-pick
+  const multiMode = useKarkas((s) => s.multiMode);
+  const multiIds = useKarkas((s) => s.multiIds);
+  const multiCount = useKarkas((s) => s.multiIds.length); // primitive selector for the render path
+  const setMultiMode = useKarkas((s) => s.setMultiMode);
+  const multiDelete = useKarkas((s) => s.multiDelete);
+  const multiSetView = useKarkas((s) => s.multiSetView);
   const setFreeBoardShape = useKarkas((s) => s.setFreeBoardShape);
   const resizeFreeBoardTo = useKarkas((s) => s.resizeFreeBoardTo);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
@@ -1041,7 +1048,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       const aHit = ag ? raycaster.intersectObjects(ag.children, true)[0] : undefined;
       const pick = aHit && (!hit || aHit.distance < hit.distance) ? aHit : hit;
       useKarkas.getState().selectHole(null); // a panel tap clears any hole selection
-      tapPart((pick?.object.userData.partId as string) ?? null);
+      const tapped = (pick?.object.userData.partId as string) ?? null;
+      // M8.4 — in multi-pick mode a tap TICKS a free part instead of replacing the selection. Only free
+      // parts: the batch actions below are free-part actions, so ticking a carcass panel would promise
+      // something the buttons cannot do.
+      const stM = useKarkas.getState();
+      if (stM.multiMode && tapped && tapped.includes("__free_")) {
+        stM.toggleMulti(tapped.slice(tapped.indexOf("__free_") + "__free_".length));
+        return;
+      }
+      tapPart(tapped);
     };
     renderer.domElement.addEventListener("pointerdown", onDown);
     renderer.domElement.addEventListener("pointermove", onMove);
@@ -1259,7 +1275,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     if (!rt.current?.group) return;
     highlightBoard(rt.current.group, selectedId);
     highlightBlocks(rt.current.group, selMode === "block" ? selectedBlockIds : []);
-  }, [selectedId, selectedBlockIds, selMode]);
+    // M8.4 — the multi-pick paints on top, so several ticked parts all read as selected
+    const blk = model.blocks[0];
+    highlightParts(rt.current.group, multiMode && blk ? multiIds.map((f) => `${blk.id}__free_${f}`) : []);
+  }, [selectedId, selectedBlockIds, selMode, multiMode, multiIds, model]);
 
   // ── Step 4b: 3D corner chips — project the selected panel's face corners to canvas px, and reproject on
   //    every camera move (OrbitControls "change"). Only while the corner tool is open on a real panel. ──
@@ -1751,6 +1770,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button className={"mob-round" + (showHoles ? " is-active" : "")} title="Teshiklar" aria-label="Teshiklar" type="button" onClick={() => setShowHoles((v) => !v)}><MobHoles /></button>
           <button className="mob-round" title="Skrinshot" aria-label="Skrinshot" type="button" onClick={screenshot}><MobCamera /></button>
           <button className="mob-round" title="Markazga qaytar" aria-label="Markazga qaytar" type="button" onClick={recenter}><MobTarget /></button>
+          {/* M8.4 — pick several free parts and act on them at once (Moblo's selection tool, by tap) */}
+          <button className={"mob-round" + (multiMode ? " is-active" : "")} title="Ko'p tanlash" aria-label="Ko'p tanlash" type="button"
+            onClick={() => setMultiMode(!multiMode)}>☑</button>
         </div>
       )}
 
@@ -2234,6 +2256,23 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           </div>
         );
       })()}
+      {/* M8.4 — the batch bar. Appears the moment something is ticked; every button acts on ALL of them in
+          ONE step, so undo gives them all back at once. */}
+      {tab === "build" && multiMode && (
+        <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 63, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
+          <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>☑ {multiCount} ta</span>
+          {multiCount === 0 && <span style={{ ...mono, fontSize: 11, opacity: 0.6 }}>qismlarni bosing</span>}
+          {multiCount > 0 && (
+            <>
+              <button type="button" style={{ ...act, minHeight: 34 }} onClick={() => setSwatchTarget({ kind: "multi" })}>▦ Material</button>
+              <button type="button" style={{ ...act, minHeight: 34 }} onClick={() => multiSetView("hidden", true)} title="Ko'rinishdan yashirish (kesim ro'yxatida qoladi)">👁 Yashir</button>
+              <button type="button" style={{ ...act, minHeight: 34 }} onClick={() => multiSetView("locked", true)} title="Qulflash">🔒 Qulfla</button>
+              <button type="button" style={{ ...act, minHeight: 34, borderColor: "#a01a2e", color: "#a01a2e" }} onClick={multiDelete} title="O'chirish (qulflanganlar qoladi)">🗑 O'chir</button>
+            </>
+          )}
+          <button type="button" style={{ ...act, minHeight: 34 }} onClick={() => setMultiMode(false)}>✕</button>
+        </div>
+      )}
       {/* ── U3.3 — free-board editor: appears when a free board is selected (resize W/H/D · delete) ── */}
       {tab === "build" && !(compact && toolsOpen) && selFreeBoard && rpanel === "none" && (
         <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 62, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
@@ -2937,7 +2976,8 @@ function TreePanel({ onClose }: { onClose: () => void }) {
 
 /** Board-decor <select> for one plan slot, with a colour swatch of the current pick. */
 // M3.4 — one material target the swatch picker acts on: a plan slot, or a specific free board.
-type SwatchTarget = { kind: "plan"; slot: keyof Omit<MaterialPlan, "edge"> } | { kind: "free"; id: string };
+type SwatchTarget = { kind: "plan"; slot: keyof Omit<MaterialPlan, "edge"> } | { kind: "free"; id: string }
+  | { kind: "multi" }; // M8.4 — one decor onto every ticked part
 /** M3.4 — a MatSelect (used in the mobile panel AND the deep SpecPanel) opens the ONE swatch overlay via
  *  this context, so neither has to prop-drill the setter (Antigravity's single-overlay pattern). */
 const SwatchCtx = createContext<null | ((t: SwatchTarget) => void)>(null);
@@ -2950,8 +2990,16 @@ const SWATCH_BADGE: Record<string, string> = { "Laminat": "▤", "Yog'och": "�
 function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarget; theme: "light" | "dark"; onClose: () => void }) {
   const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
-  const current = useKarkas((s) => (target.kind === "plan" ? s.plan[target.slot] : s.model.blocks[0]?.freeParts?.find((f) => f.id === target.id)?.material ?? ""));
-  const pick = (id: string): void => { if (target.kind === "plan") setPlanMaterial(target.slot, id); else setFreeBoardMaterial(target.id, id); onClose(); };
+  const multiSetMaterial = useKarkas((s) => s.multiSetMaterial); // M8.4
+  const current = useKarkas((s) => (target.kind === "plan" ? s.plan[target.slot]
+    : target.kind === "free" ? s.model.blocks[0]?.freeParts?.find((f) => f.id === target.id)?.material ?? ""
+      : "")); // a multi-pick has no single «current» — several parts may differ
+  const pick = (id: string): void => {
+    if (target.kind === "plan") setPlanMaterial(target.slot, id);
+    else if (target.kind === "free") setFreeBoardMaterial(target.id, id);
+    else multiSetMaterial(id || null); // M8.4 — "" clears back to the role's decor
+    onClose();
+  };
   const dark = theme === "dark";
   const groups = SWATCH_ORDER.map((g) => ({ g, items: BOARDS.filter((b) => materialCategory(b) === g) })).filter((x) => x.items.length);
   const chip = (key: string, bg: string, active: boolean, label: string, on: () => void) => (
@@ -2968,7 +3016,7 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
           <strong style={{ fontSize: 16 }}>▦ Material</strong>
           <button type="button" onClick={onClose} aria-label="Yopish" style={{ border: "none", background: "transparent", color: "inherit", fontSize: 24, lineHeight: 1, cursor: "pointer" }}>×</button>
         </div>
-        {target.kind === "free" && <div style={{ marginBottom: 12 }}>{chip("std", "#e6e6e6", current === "", "Standart (rol bo'yicha)", () => pick(""))}</div>}
+        {target.kind !== "plan" && <div style={{ marginBottom: 12 }}>{chip("std", "#e6e6e6", current === "", "Standart (rol bo'yicha)", () => pick(""))}</div>}
         {groups.map(({ g, items }) => (
           <div key={g} style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginBottom: 7 }}>{SWATCH_BADGE[g]} {g}</div>

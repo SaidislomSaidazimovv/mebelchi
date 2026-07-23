@@ -287,6 +287,18 @@ interface KarkasState extends Derived {
   setFreePartView: (fpId: string, key: "hidden" | "locked", on: boolean) => void;
   /** M8.1 — tilt a free part about X or Z (degrees, 0-359). Y keeps its own rotate action. */
   setFreePartTilt: (fpId: string, axis: "x" | "z", deg: number) => void;
+  /**
+   * M8.4 — pick SEVERAL free parts and act on them at once. Four legs get one decor, three offcuts go
+   * in one tap. Ids here are FREE-PART ids (not part ids), because that is what every free-part action
+   * takes. Turning the mode off clears the pick, so a stale selection can never act by surprise.
+   */
+  multiMode: boolean;
+  multiIds: string[];
+  setMultiMode: (on: boolean) => void;
+  toggleMulti: (fpId: string) => void;
+  multiDelete: () => void;
+  multiSetMaterial: (matId: string | null) => void;
+  multiSetView: (key: "hidden" | "locked", on: boolean) => void;
   setPartView: (key: "hidden" | "locked", on: boolean) => void;
   /** M7.4 — is this free part locked against editing? Every mutating free-part action asks first. */
   isFreePartLocked: (fpId: string) => boolean;
@@ -565,6 +577,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
     open: false,
     selectedId: null,
     selectedBlockIds: [],
+    multiMode: false,
+    multiIds: [],
     targetId: null,
     setTarget: (id) => set({ targetId: id }),
     // U3.2 — free assembly: a board that lives OUTSIDE the carcass sections, placed by its own box and
@@ -1138,6 +1152,60 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     // M8.1 — the tilt an usta sets by hand. Render-only: the part is the same cut panel however it
     // leans, so nothing downstream of the cut list changes. 0 CLEARS the field (byte-identical again).
+    // M8.4 — the multi-pick. One model transform per batch, so «delete 4 legs» is ONE undo step, not
+    // four: an usta who taps undo expects his four legs back, not one of them.
+    setMultiMode: (on) => set({ multiMode: on, multiIds: on ? get().multiIds : [] }),
+    toggleMulti: (fpId) => set((s2) => ({
+      multiIds: s2.multiIds.includes(fpId) ? s2.multiIds.filter((x) => x !== fpId) : [...s2.multiIds, fpId],
+    })),
+    multiDelete: () => {
+      const s2 = get();
+      const block = s2.model.blocks[0];
+      if (!block?.freeParts) return;
+      // a locked part is not deleted — the lock means «leave this one alone», batch or not
+      const gone = new Set(s2.multiIds.filter((id) => !s2.isFreePartLocked(id)));
+      if (!gone.size) return;
+      apply({
+        ...s2.model,
+        blocks: s2.model.blocks.map((b) => (b.id !== block.id ? b : { ...b, freeParts: b.freeParts!.filter((f) => !gone.has(f.id)) })),
+      }, true);
+      set({ multiIds: s2.multiIds.filter((id) => !gone.has(id)), selectedId: null });
+    },
+    multiSetMaterial: (matId) => {
+      const s2 = get();
+      const block = s2.model.blocks[0];
+      if (!block?.freeParts || !s2.multiIds.length) return;
+      const pick = new Set(s2.multiIds);
+      apply({
+        ...s2.model,
+        blocks: s2.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (!pick.has(f.id)) return f;
+            if (!matId) { const { material: _drop, ...rest } = f; return rest; }
+            return { ...f, material: matId };
+          }),
+        })),
+      }, true);
+      if (matId) set((s3) => ({ materialPool: [...new Set([...s3.materialPool, matId])] }));
+    },
+    multiSetView: (key, on) => {
+      const s2 = get();
+      const block = s2.model.blocks[0];
+      if (!block?.freeParts || !s2.multiIds.length) return;
+      const pick = new Set(s2.multiIds);
+      apply({
+        ...s2.model,
+        blocks: s2.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (!pick.has(f.id)) return f;
+            if (!on) { const { [key]: _drop, ...rest } = f; return rest; }
+            return { ...f, [key]: true };
+          }),
+        })),
+      }, true);
+    },
     setFreePartTilt: (fpId, axis, deg) => {
       const s = get();
       const block = s.model.blocks[0];
@@ -1178,8 +1246,10 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, materialPool: [...new Set([...s.materialPool, id])], ...derive(s.model, plan, s.thickness) }; }),
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
     // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
-    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p, s.thickness), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
-    setModel: (model) => set((s) => ({ ...derive(model, s.plan, s.thickness), selectedId: null, selectedBlockIds: [], past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
+    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p, s.thickness), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, multiIds: [], past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
+    // M8.4 — the multi-pick is cleared with the model: its ids belong to the OLD project, and an id that
+    // happens to repeat in the new one would act on a part the usta never touched.
+    setModel: (model) => set((s) => ({ ...derive(model, s.plan, s.thickness), selectedId: null, selectedBlockIds: [], multiIds: [], past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
     close: () => set({ open: false }),
     tapPart: (id) => {
       // tapping a placed part also targets its section, so the next add lands where you're looking
