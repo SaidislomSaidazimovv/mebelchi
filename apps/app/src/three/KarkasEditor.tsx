@@ -25,7 +25,7 @@ import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
 import { applianceFittings, withApplianceCutouts } from "./appliances";
-import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, isAndroid, sceneViewerUrl, startArSession, uploadGlbForAr, type ArSession, type ArSupport } from "./karkasAr";
+import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, exportObj, exportStl, isAndroid, sceneViewerUrl, startArSession, uploadGlbForAr, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
@@ -1464,13 +1464,19 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       setArError(`AR ochilmadi: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
-  const downloadGlb = async () => {
+  /**
+   * M7.2 — hand the solved model to the outside world. `.glb` is for phones and AR, `.stl` for a 3-D
+   * printer or a machinist, `.obj` for any CAD. All three are the same model at 1 unit = 1 m, so a part
+   * measured in another program measures what the cut list says.
+   */
+  const download3d = async (kind: "glb" | "stl" | "obj") => {
     setArError(null);
     try {
-      const blob = await exportGlb(arGroup());
+      const group = arGroup();
+      const blob = kind === "glb" ? await exportGlb(group) : kind === "stl" ? await exportStl(group) : await exportObj(group);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "karkas.glb";
+      a.download = `karkas.${kind}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     } catch (err) {
@@ -1698,7 +1704,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 >{arCopied ? "✓ Nusxa olindi" : "⧉ Nusxa olish"}</button>
               </details>
             )}
-            <button type="button" className="mob-ar-alt" onClick={downloadGlb}>⬇ 3D fayl (.glb) yuklab olish</button>
+            <button type="button" className="mob-ar-alt" onClick={() => void download3d("glb")}>⬇ 3D fayl (.glb) yuklab olish</button>
+            {/* M7.2 — the neutral formats: .stl for a 3-D printer or machinist, .obj for any CAD. */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="mob-ar-alt" style={{ flex: 1 }} onClick={() => void download3d("stl")} title="3D printer / stanok uchun">⬇ .stl</button>
+              <button type="button" className="mob-ar-alt" style={{ flex: 1 }} onClick={() => void download3d("obj")} title="Boshqa CAD dasturlar uchun">⬇ .obj</button>
+            </div>
             <span className="mob-ar-note">Model haqiqiy o'lchamda (1 m = 1 m) — mijozga yuborsa ham bo'ladi.</span>
           </div>
         </div>

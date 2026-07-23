@@ -108,6 +108,28 @@ export function exportGlb(group: THREE.Object3D): Promise<Blob> {
 }
 
 /**
+ * M7.2 — the two neutral 3-D formats a workshop meets outside this app: `.stl` goes to a 3-D printer or
+ * a machinist, `.obj` opens in every CAD and renderer there is. `.glb` above stays the one for phones
+ * and AR. All three describe the SOLVED model at 1 unit = 1 m, so a part measured in another program
+ * measures the same as in the cut list.
+ *
+ * STL is written BINARY on purpose: the ASCII form of the same model is roughly five times the size and
+ * a wardrobe would run to tens of megabytes on a phone.
+ */
+export async function exportStl(group: THREE.Object3D): Promise<Blob> {
+  const { STLExporter } = await import("three/examples/jsm/exporters/STLExporter.js");
+  const data = new STLExporter().parse(group, { binary: true }) as unknown as DataView;
+  // Copy through a plain byte view: the DataView's buffer is typed ArrayBufferLike (it could be shared),
+  // which Blob will not take.
+  return new Blob([new Uint8Array(data.buffer as ArrayBuffer, data.byteOffset, data.byteLength)], { type: "model/stl" });
+}
+
+export async function exportObj(group: THREE.Object3D): Promise<Blob> {
+  const { OBJExporter } = await import("three/examples/jsm/exporters/OBJExporter.js");
+  return new Blob([new OBJExporter().parse(group)], { type: "model/obj" });
+}
+
+/**
  * Re-seat a clone of the model so its FOOTPRINT CENTRE sits at the origin and its base at y=0. A hit-test
  * gives us a point on the floor, so the model must grow upward from that point rather than straddling it.
  */
