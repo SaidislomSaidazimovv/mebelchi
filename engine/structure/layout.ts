@@ -68,6 +68,11 @@ export interface PanelPlacement {
    */
   readonly rotY_deg?: number;
   /**
+   * M8.1 — tilt about the Z axis in degrees (see FreePart.rotZ_deg). Render-only, like the other two.
+   * With rotX_deg and rotY_deg this completes free rotation on all three axes.
+   */
+  readonly rotZ_deg?: number;
+  /**
    * M4 — the primitive SHAPE drawn inside this box (a cylinder leg / hanging rail, a sphere knob, a tube,
    * a wedge). Render-only, exactly like rotY_deg: the box (and so every layout figure) is unchanged, only
    * the viewport draws something other than a cuboid. Absent = "box" — every existing placement unchanged.
@@ -584,8 +589,11 @@ function applyJunction(p: PanelPlacement, j: Junction3D): PanelPlacement {
 function freePartPlacement(block: Block, fp: FreePart): PanelPlacement {
   const b = fp.box;
   const p = place(`${block.id}__free_${fp.id}`, fp.name, block.box.x + b.x, block.box.y + b.y, block.box.z + b.z, b.w, b.h, b.d);
+  // M8.1 — all three axes ride through, render-only: a tilted board is the same cut panel.
   const turned = fp.rotY_deg ? { ...p, rotY_deg: fp.rotY_deg } : p; // render-only turn about the vertical axis
-  const shaped = fp.shape && fp.shape !== "box" ? { ...turned, shape: fp.shape } : turned; // M4 — render-only shape
+  const tiltedX = fp.rotX_deg ? { ...turned, rotX_deg: fp.rotX_deg } : turned;
+  const tilted = fp.rotZ_deg ? { ...tiltedX, rotZ_deg: fp.rotZ_deg } : tiltedX;
+  const shaped = fp.shape && fp.shape !== "box" ? { ...tilted, shape: fp.shape } : tilted; // M4 — render-only shape
   return fp.hidden ? { ...shaped, hidden: true } : shaped; // M7.4 — hidden in the viewport only
 }
 

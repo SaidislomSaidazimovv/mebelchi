@@ -540,6 +540,11 @@ function freePartJoineryByPart(model: StructuralModel, parts: Part[], conn: Conn
     for (let i = 0; i < fps.length; i++) {
       for (let j = i + 1; j < fps.length; j++) {
         const A = fps[i]!, B = fps[j]!;
+        // M8.1 — a TILTED part takes no automatic dowels. Two reasons, either alone decisive: the
+        // contact below is computed from axis-aligned boxes, which stop describing a leaning board; and
+        // a 3-axis router can only bore perpendicular to a face, so an angled joint cannot be drilled
+        // by the machine at all. The workshop marks and bores those by hand.
+        if (A.rotX_deg || A.rotZ_deg || B.rotX_deg || B.rotZ_deg) continue;
         const c = freeContact(A.box, B.box);
         if (!c) continue;
         const axA = freeAxes(A), axB = freeAxes(B);

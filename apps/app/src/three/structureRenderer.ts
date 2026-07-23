@@ -287,20 +287,29 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
     // poking out of the carcass. A centred BoxGeometry rotates about its centre, so after rotating we
     // shift the mesh by (e − R·e) to pin that edge. The edge outline is a child, so it follows. (rotX
     // is radians; only set when actually inclined, so flat shelves are untouched.)
+    //
+    // M8.1 — the edge-pinning above is a SHELF's reason, not a rule of rotation: a free board the usta
+    // tilts by hand must turn about its own centre, or it would slide out from under his finger and away
+    // from its own selection box. Free parts are the ones whose id carries `__free_` — the same test the
+    // store, the editor's drag and the drilling already use to recognise them.
+    const isFree = b.id.includes("__free_");
     if (b.rotX) {
       const ang = -b.rotX; // negative raises the back edge (front stays low)
-      const ey = b.size[1] / 2; // TOP, local y
-      const ez = -b.size[2] / 2; // front, local z (back panel is at +z)
-      const cos = Math.cos(ang), sin = Math.sin(ang);
-      const ry = ey * cos - ez * sin;
-      const rz = ey * sin + ez * cos;
       mesh.rotation.x = ang;
-      mesh.position.y += ey - ry; // pin the front-top edge: position += (e − R·e)
-      mesh.position.z += ez - rz;
+      if (!isFree) {
+        const ey = b.size[1] / 2; // TOP, local y
+        const ez = -b.size[2] / 2; // front, local z (back panel is at +z)
+        const cos = Math.cos(ang), sin = Math.sin(ang);
+        const ry = ey * cos - ez * sin;
+        const rz = ey * sin + ez * cos;
+        mesh.position.y += ey - ry; // pin the front-top edge: position += (e − R·e)
+        mesh.position.z += ez - rz;
+      }
     }
     // A free board turned about the VERTICAL axis (rotY, radians) simply spins in place — its centre is
     // the natural pivot for "face another way", so no edge-pinning offset is needed here.
     if (b.rotY) mesh.rotation.y = b.rotY;
+    if (b.rotZ) mesh.rotation.z = b.rotZ; // M8.1 — the third axis, centre-pivoted like rotY
     mesh.userData.partId = b.id;
     // thin edge outline so adjacent panels read as separate boards
     const edges = new THREE.LineSegments(

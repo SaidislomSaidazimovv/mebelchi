@@ -599,6 +599,23 @@ export interface FreePart {
    * its own centre. Absent/0 = axis-aligned (every existing model is unchanged).
    */
   readonly rotY_deg?: number;
+  /**
+   * M8.1 — TILT about the X and Z axes, in degrees. Until now a free part could only be turned about the
+   * vertical axis, so the whole app could not build anything slanted: an A-frame, a ladder shelf, a
+   * pitched roof, a reclined chair back. Moblo turns on every axis (in 1°/5° steps) and its users build
+   * exactly those.
+   *
+   * RENDER-ONLY, like `rotY_deg`: a tilted board is the SAME cut panel — 1000×100×18 stays 1000×100×18
+   * however it leans — so `solveStructure`, the drilling and the price are untouched. A free part spins
+   * about its own CENTRE (an inclined carcass shelf keeps pinning its front-top edge instead — that is a
+   * different part with a different reason, see the renderer).
+   *
+   * A tilted part is deliberately kept OUT of the M5 dowel joinery: those contacts are computed from
+   * axis-aligned boxes, and a 3-axis router can only drill perpendicular to a face — an angled joint is
+   * marked and bored by hand in the workshop.
+   */
+  readonly rotX_deg?: number;
+  readonly rotZ_deg?: number;
   /** Optional per-part decor override (opaque catalog key), like a Component's `material`. */
   readonly material?: string;
   /** M7.3 — free text about this part, carried to the cut list and the drawing. See Component.note. */

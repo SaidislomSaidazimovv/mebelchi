@@ -285,6 +285,8 @@ interface KarkasState extends Derived {
   setFreePartNote: (fpId: string, text: string) => void;
   /** M7.4 — viewport flags: hide a part from the 3-D view (still cut/priced), or lock it against edits. */
   setFreePartView: (fpId: string, key: "hidden" | "locked", on: boolean) => void;
+  /** M8.1 — tilt a free part about X or Z (degrees, 0-359). Y keeps its own rotate action. */
+  setFreePartTilt: (fpId: string, axis: "x" | "z", deg: number) => void;
   setPartView: (key: "hidden" | "locked", on: boolean) => void;
   /** M7.4 — is this free part locked against editing? Every mutating free-part action asks first. */
   isFreePartLocked: (fpId: string) => boolean;
@@ -1133,6 +1135,29 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setPartView: (key, on) => {
       const f = forkSelected();
       if (f) apply(setComponentView(f.model, f.compId, key, on), true);
+    },
+    // M8.1 — the tilt an usta sets by hand. Render-only: the part is the same cut panel however it
+    // leans, so nothing downstream of the cut list changes. 0 CLEARS the field (byte-identical again).
+    setFreePartTilt: (fpId, axis, deg) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts || get().isFreePartLocked(fpId)) return;
+      const key = axis === "x" ? "rotX_deg" : "rotZ_deg";
+      const val = ((Math.round(deg) % 360) + 360) % 360; // a tilt is an angle, not a distance — wrap it
+      const cur = block.freeParts.find((f) => f.id === fpId);
+      if (!cur || (cur[key] ?? 0) === val) return; // no-op → no dead undo step
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (f.id !== fpId) return f;
+            if (!val) { const { [key]: _drop, ...rest } = f; return rest; }
+            return { ...f, [key]: val };
+          }),
+        })),
+      };
+      apply(model, true);
     },
     removeFreeBoard: (fpId) => {
       if (get().isFreePartLocked(fpId)) return;

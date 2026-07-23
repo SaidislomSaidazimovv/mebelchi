@@ -193,6 +193,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setPartNote = useKarkas((s) => s.setPartNote);
   const setFreePartView = useKarkas((s) => s.setFreePartView); // M7.4
   const setPartView = useKarkas((s) => s.setPartView);
+  const setFreePartTilt = useKarkas((s) => s.setFreePartTilt); // M8.1
   const setFreeBoardShape = useKarkas((s) => s.setFreeBoardShape);
   const resizeFreeBoardTo = useKarkas((s) => s.resizeFreeBoardTo);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
@@ -2256,6 +2257,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
           <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 34, padding: "6px 11px" }}>↻</button>
+          {/* M8.1 — the two tilts. Y already has the ↻ button (90° at a time, the everyday turn); X and Z
+              are typed, because a slanted part is set to an angle («30°»), not nudged to one. */}
+          <label className="mob-props-f" title="Oldinga/orqaga qiyalik (X o'qi)"><span>↕°</span>
+            <DimField label="°" value={Math.round(selFreeBoard.rotX_deg ?? 0)} onCommit={(d) => setFreePartTilt(selFreeBoard.id, "x", d)} min={0} suffix="°" />
+          </label>
+          <label className="mob-props-f" title="Chapga/o'ngga qiyalik (Z o'qi)"><span>↔°</span>
+            <DimField label="°" value={Math.round(selFreeBoard.rotZ_deg ?? 0)} onCommit={(d) => setFreePartTilt(selFreeBoard.id, "z", d)} min={0} suffix="°" />
+          </label>
           <button type="button" title="Nusxalash" onClick={duplicateSelected} style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", minHeight: 34, padding: "6px 11px" }}>⧉</button>
           {/* M4 — switch this part's primitive. Back to «Quti» makes it a flat, cuttable panel again. */}
           <select value={selFreeBoard.shape ?? "box"} onChange={(e) => setFreeBoardShape(selFreeBoard.id, e.target.value as PrimitiveShape)} title="Shakl" style={{ ...matSel, flex: "0 0 auto", maxWidth: 112, minHeight: 34 }}>
