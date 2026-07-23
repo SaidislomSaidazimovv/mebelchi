@@ -89,13 +89,18 @@ export function buildBlockDrawing(placements: readonly PanelPlacement[], parts: 
   }
   const W = maxX - minX, H = maxY - minY, D = maxZ - minZ;
 
+  // M8.1b — each view shows the tilt that lies IN ITS OWN PLANE, or a slanted part would be drawn square
+  // on a sheet the workshop cuts from: the front (X-Y) shows the Z tilt, the plan (X-Z) shows the Y turn,
+  // and the side (Z-Y) keeps showing the X tilt it always did.
   const front: DrawRect[] = placements.map((p) => ({
     id: p.id, kind: kindOf(p),
     x: MM(p.x_mm10) - minX, y: MM(p.y_mm10) - minY, w: MM(p.w_mm10), h: MM(p.h_mm10),
+    ...(p.rotZ_deg ? { rotDeg: p.rotZ_deg } : {}),
   }));
   const plan: DrawRect[] = placements.map((p) => ({
     id: p.id, kind: kindOf(p),
     x: MM(p.x_mm10) - minX, y: MM(p.z_mm10) - minZ, w: MM(p.w_mm10), h: MM(p.d_mm10),
+    ...(p.rotY_deg ? { rotDeg: p.rotY_deg } : {}),
   }));
   const side: DrawRect[] = placements.map((p) => ({
     id: p.id, kind: kindOf(p),

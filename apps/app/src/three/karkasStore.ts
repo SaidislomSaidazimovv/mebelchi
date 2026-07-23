@@ -5,9 +5,25 @@
 // call the engine's PURE immutable operations (divideSection / addInstance) and re-derive.
 
 import { create } from "zustand";
-import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind, PanelShell, PrimitiveShape } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind, PanelShell, PrimitiveShape, CarcassSlot, CarcassPanel } from "../../../../engine/contracts/structure.js";
 
 /** The shapes furniture is actually made of — what the ＋ panel offers. */
+/**
+ * M8.5 — WHICH carcass board a solved part id names, or null if it is not one. The ids come from
+ * solve.ts/layout.ts (`…__side_l`, `…__legB__top`, `…__worktop_a`), so an L-corner's two legs and the
+ * two halves of an L worktop resolve to the SAME slot — one override covers both, exactly like `shell`.
+ */
+export function carcassSlotOf(partId: string): CarcassSlot | null {
+  if (partId.endsWith("__side_l")) return "sideL";
+  if (partId.endsWith("__side_r")) return "sideR";
+  if (partId.endsWith("__top")) return "top";
+  if (partId.endsWith("__bottom")) return "bottom";
+  if (partId.endsWith("__back")) return "back";
+  if (/__plinth(_[ab])?$/.test(partId)) return "plinth";
+  if (/__worktop(_[ab])?$/.test(partId)) return "worktop";
+  return null;
+}
+
 export type PrimitiveKind =
   | "board" | "panel" | "post" | "box" | "cylinder" | "rail" | "sphere" | "tube" | "wedge"
   | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus"; // M7
@@ -285,6 +301,22 @@ interface KarkasState extends Derived {
   setFreePartNote: (fpId: string, text: string) => void;
   /** M7.4 — viewport flags: hide a part from the 3-D view (still cut/priced), or lock it against edits. */
   setFreePartView: (fpId: string, key: "hidden" | "locked", on: boolean) => void;
+  /** M8.1 — tilt a free part about X or Z (degrees, 0-359). Y keeps its own rotate action. */
+  setFreePartTilt: (fpId: string, axis: "x" | "z", deg: number) => void;
+  /**
+   * M8.4 — pick SEVERAL free parts and act on them at once. Four legs get one decor, three offcuts go
+   * in one tap. Ids here are FREE-PART ids (not part ids), because that is what every free-part action
+   * takes. Turning the mode off clears the pick, so a stale selection can never act by surprise.
+   */
+  multiMode: boolean;
+  multiIds: string[];
+  setMultiMode: (on: boolean) => void;
+  toggleMulti: (fpId: string) => void;
+  multiDelete: () => void;
+  multiSetMaterial: (matId: string | null) => void;
+  multiSetView: (key: "hidden" | "locked", on: boolean) => void;
+  /** M8.5 — the note / view / decor of ONE carcass board of the selected part's block. */
+  setCarcassPanel: (slot: CarcassSlot, patch: Partial<CarcassPanel>) => void;
   setPartView: (key: "hidden" | "locked", on: boolean) => void;
   /** M7.4 — is this free part locked against editing? Every mutating free-part action asks first. */
   isFreePartLocked: (fpId: string) => boolean;
@@ -563,6 +595,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
     open: false,
     selectedId: null,
     selectedBlockIds: [],
+    multiMode: false,
+    multiIds: [],
     targetId: null,
     setTarget: (id) => set({ targetId: id }),
     // U3.2 — free assembly: a board that lives OUTSIDE the carcass sections, placed by its own box and
@@ -1134,6 +1168,110 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const f = forkSelected();
       if (f) apply(setComponentView(f.model, f.compId, key, on), true);
     },
+    // M8.1 — the tilt an usta sets by hand. Render-only: the part is the same cut panel however it
+    // leans, so nothing downstream of the cut list changes. 0 CLEARS the field (byte-identical again).
+    // M8.4 — the multi-pick. One model transform per batch, so «delete 4 legs» is ONE undo step, not
+    // four: an usta who taps undo expects his four legs back, not one of them.
+    // M8.5 — the cabinet's own boards were the only parts an usta could say nothing about. This writes
+    // the override onto the BLOCK (keyed like `shell`), never onto geometry: an empty value removes the
+    // key entirely, so a block nobody touched stays byte-identical.
+    setCarcassPanel: (slot, patch) => {
+      const s2 = get();
+      const blockId = (s2.selectedId ?? "").split("__")[0];
+      const block = s2.model.blocks.find((b) => b.id === blockId) ?? s2.model.blocks[0];
+      if (!block) return;
+      const cur = block.panels?.[slot] ?? {};
+      const next: Record<string, unknown> = { ...cur };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === "" || v === false || v === undefined || v === null) delete next[k];
+        else next[k] = typeof v === "string" ? v.trim() : v;
+      }
+      if (JSON.stringify(next) === JSON.stringify(cur)) return; // no-op → no dead undo step
+      const panels = { ...(block.panels ?? {}) } as Record<string, unknown>;
+      if (Object.keys(next).length === 0) delete panels[slot];
+      else panels[slot] = next;
+      apply({
+        ...s2.model,
+        blocks: s2.model.blocks.map((b) => {
+          if (b.id !== block.id) return b;
+          if (Object.keys(panels).length === 0) { const { panels: _drop, ...rest } = b; return rest; }
+          return { ...b, panels: panels as Block["panels"] };
+        }),
+      }, true);
+    },
+    setMultiMode: (on) => set({ multiMode: on, multiIds: on ? get().multiIds : [] }),
+    toggleMulti: (fpId) => set((s2) => ({
+      multiIds: s2.multiIds.includes(fpId) ? s2.multiIds.filter((x) => x !== fpId) : [...s2.multiIds, fpId],
+    })),
+    multiDelete: () => {
+      const s2 = get();
+      const block = s2.model.blocks[0];
+      if (!block?.freeParts) return;
+      // a locked part is not deleted — the lock means «leave this one alone», batch or not
+      const gone = new Set(s2.multiIds.filter((id) => !s2.isFreePartLocked(id)));
+      if (!gone.size) return;
+      apply({
+        ...s2.model,
+        blocks: s2.model.blocks.map((b) => (b.id !== block.id ? b : { ...b, freeParts: b.freeParts!.filter((f) => !gone.has(f.id)) })),
+      }, true);
+      set({ multiIds: s2.multiIds.filter((id) => !gone.has(id)), selectedId: null });
+    },
+    multiSetMaterial: (matId) => {
+      const s2 = get();
+      const block = s2.model.blocks[0];
+      if (!block?.freeParts || !s2.multiIds.length) return;
+      const pick = new Set(s2.multiIds);
+      apply({
+        ...s2.model,
+        blocks: s2.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (!pick.has(f.id)) return f;
+            if (!matId) { const { material: _drop, ...rest } = f; return rest; }
+            return { ...f, material: matId };
+          }),
+        })),
+      }, true);
+      if (matId) set((s3) => ({ materialPool: [...new Set([...s3.materialPool, matId])] }));
+    },
+    multiSetView: (key, on) => {
+      const s2 = get();
+      const block = s2.model.blocks[0];
+      if (!block?.freeParts || !s2.multiIds.length) return;
+      const pick = new Set(s2.multiIds);
+      apply({
+        ...s2.model,
+        blocks: s2.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (!pick.has(f.id)) return f;
+            if (!on) { const { [key]: _drop, ...rest } = f; return rest; }
+            return { ...f, [key]: true };
+          }),
+        })),
+      }, true);
+    },
+    setFreePartTilt: (fpId, axis, deg) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts || get().isFreePartLocked(fpId)) return;
+      const key = axis === "x" ? "rotX_deg" : "rotZ_deg";
+      const val = ((Math.round(deg) % 360) + 360) % 360; // a tilt is an angle, not a distance — wrap it
+      const cur = block.freeParts.find((f) => f.id === fpId);
+      if (!cur || (cur[key] ?? 0) === val) return; // no-op → no dead undo step
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (f.id !== fpId) return f;
+            if (!val) { const { [key]: _drop, ...rest } = f; return rest; }
+            return { ...f, [key]: val };
+          }),
+        })),
+      };
+      apply(model, true);
+    },
     removeFreeBoard: (fpId) => {
       if (get().isFreePartLocked(fpId)) return;
       const s = get();
@@ -1153,8 +1291,10 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, materialPool: [...new Set([...s.materialPool, id])], ...derive(s.model, plan, s.thickness) }; }),
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
     // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
-    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p, s.thickness), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
-    setModel: (model) => set((s) => ({ ...derive(model, s.plan, s.thickness), selectedId: null, selectedBlockIds: [], past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
+    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p, s.thickness), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, multiIds: [], past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
+    // M8.4 — the multi-pick is cleared with the model: its ids belong to the OLD project, and an id that
+    // happens to repeat in the new one would act on a part the usta never touched.
+    setModel: (model) => set((s) => ({ ...derive(model, s.plan, s.thickness), selectedId: null, selectedBlockIds: [], multiIds: [], past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),
     close: () => set({ open: false }),
     tapPart: (id) => {
       // tapping a placed part also targets its section, so the next add lands where you're looking
@@ -1610,7 +1750,9 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const foreign = foreignDecors(get().materialPool, data.model, plan);
       // reset the FULL edit context on load (Step 12 audit fix): future[] (else redo restores the previous
       // project), and the manufacturing exportOverride / selectedHole (else block A's override leaks to B).
-      set({ ...derive(data.model, plan, get().thickness), plan, selectedId: null, past: [], future: [], exportOverride: false, selectedHole: null, open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null, lockedQuote: data.lockedQuote ?? null });
+      // M8.4 — the PICKS go with the project too: a multi-pick or a block tick from the old file names
+      // ids that mean something else here, and a batch action would land on a part the usta never chose.
+      set({ ...derive(data.model, plan, get().thickness), plan, selectedId: null, selectedBlockIds: [], multiIds: [], past: [], future: [], exportOverride: false, selectedHole: null, open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null, lockedQuote: data.lockedQuote ?? null });
     },
     resolveBinding: (mapping) => {
       const s = get();

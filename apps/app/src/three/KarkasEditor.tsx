@@ -7,11 +7,11 @@ import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useSta
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
+import { carcassSlotOf, useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
-import type { Box3D, HandleType, LiftType, ApplianceKind, StructuralModel, PrimitiveShape } from "../../../../engine/contracts/structure";
+import type { Box3D, HandleType, LiftType, ApplianceKind, StructuralModel, PrimitiveShape, CarcassSlot } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
@@ -22,13 +22,14 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, highlightParts, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
 import { applianceFittings, withApplianceCutouts } from "./appliances";
+import { specsToCsv } from "./specCsv";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, exportObj, exportStl, isAndroid, sceneViewerUrl, startArSession, uploadGlbForAr, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
-import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
+import { estimate, hardwareEstimate, applianceEstimate, groupSpecs, sortSpecs, type SpecSort } from "./estimate";
 import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, partFinishLookup, partTextureLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, materialCategory, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
 
@@ -165,6 +166,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // as a floating callout so the usta sees the measurement change in real time. Cleared on pointer-up.
   const [measure, setMeasure] = useState<{ dim: "w" | "h" | "d"; mm: number; move?: boolean; snapped?: boolean; rot?: boolean } | null>(null);
   const measureRef = useRef(setMeasure); // stable handle for the once-mounted pointer effect
+  // M8.6 — the «O'lchash» tape: tap two points on the model, read the distance. Moblo has it; an usta
+  // checks a gap a hundred times a day. State drives the button + hint; refs feed the mounted pointer
+  // handler (which never re-binds), and a dedicated dim line draws the span.
+  const [measureMode, setMeasureMode] = useState(false);
+  const [measureMm, setMeasureMm] = useState<number | null>(null);
+  const measureModeRef = useRef(false);
+  const measureFirstRef = useRef<THREE.Vector3 | null>(null);
+  const measureLineRef = useRef<DimLine | null>(null);
   measureRef.current = setMeasure;
   // Commit a pending DimField edit before a control hides/unmounts the editor: blur the focused input so
   // its onBlur commit fires FIRST (synchronously). Mobile taps on the sheet's ✕ / ⋯ / FABs don't reliably
@@ -193,6 +202,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setPartNote = useKarkas((s) => s.setPartNote);
   const setFreePartView = useKarkas((s) => s.setFreePartView); // M7.4
   const setPartView = useKarkas((s) => s.setPartView);
+  const setFreePartTilt = useKarkas((s) => s.setFreePartTilt); // M8.1
+  const setCarcassPanel = useKarkas((s) => s.setCarcassPanel); // M8.5
+  // M8.4 — multi-pick
+  const multiMode = useKarkas((s) => s.multiMode);
+  const multiIds = useKarkas((s) => s.multiIds);
+  const multiCount = useKarkas((s) => s.multiIds.length); // primitive selector for the render path
+  const setMultiMode = useKarkas((s) => s.setMultiMode);
+  const multiDelete = useKarkas((s) => s.multiDelete);
+  const multiSetView = useKarkas((s) => s.multiSetView);
   const setFreeBoardShape = useKarkas((s) => s.setFreeBoardShape);
   const resizeFreeBoardTo = useKarkas((s) => s.resizeFreeBoardTo);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
@@ -514,6 +532,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // U3.1 — the mount-effect raycast is a stable closure, so it reads the live select-mode via this ref.
   const selModeRef = useRef(selMode);
   useEffect(() => { selModeRef.current = selMode; }, [selMode]);
+  // M8.6 — mirror the measure mode into the pointer handler, and wipe a half-finished measurement when
+  // it is switched off so a stale first point can never pair with the next session's tap.
+  useEffect(() => {
+    measureModeRef.current = measureMode;
+    if (!measureMode) {
+      measureFirstRef.current = null;
+      setMeasureMm(null);
+      if (measureLineRef.current && rt.current) { rt.current.scene.remove(measureLineRef.current.group); measureLineRef.current.dispose(); measureLineRef.current = null; }
+    }
+  }, [measureMode]);
   // U2.4 — the RAF loop reads the active tab via this ref, to hide the 3D dim labels off the «Yig'ish» tab.
   const tabRef = useRef(tab);
   useEffect(() => { tabRef.current = tab; }, [tab]);
@@ -765,6 +793,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const onDown = (e: PointerEvent) => {
       down.x = e.clientX; down.y = e.clientY;
+      if (measureModeRef.current) return; // M8.6 — no drag arms while measuring; the tap is handled on up
       const g = rt.current?.group; if (!g) return;
       raycaster.setFromCamera(ndc(e), camera);
       const st = useKarkas.getState();
@@ -1008,6 +1037,22 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (drag) { if (drag.kind === "freemove") useKarkas.getState().snapFreePart(drag.fpId); drag = null; controls.enabled = true; measureRef.current(null); hideDim(); return; } // finished a move / resize (free board snaps to a face)
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return; // a camera orbit, not a tap
       raycaster.setFromCamera(ndc(e), camera);
+      // M8.6 — measure mode owns the tap: hit the model, drop a point; the second point draws the span
+      // and prints the distance. A third tap starts over from the new point.
+      if (measureModeRef.current) {
+        const mg = rt.current?.group;
+        const mHit = mg ? raycaster.intersectObjects(mg.children, false)[0] : undefined;
+        if (!mHit) return;
+        const pt = mHit.point.clone();
+        const first = measureFirstRef.current;
+        if (!first) { measureFirstRef.current = pt; setMeasureMm(0); return; }
+        const mm = Math.round(first.distanceTo(pt) * 1000); // scene unit = M(mm10)=mm10/10000, so ×1000 = mm
+        if (!measureLineRef.current && rt.current) { measureLineRef.current = createDimLine(0x2f9e44); rt.current.scene.add(measureLineRef.current.group); }
+        measureLineRef.current?.update([first.x, first.y, first.z], [pt.x, pt.y, pt.z], `${mm} mm`);
+        setMeasureMm(mm);
+        measureFirstRef.current = pt; // chain: the next tap measures from here
+        return;
+      }
       // Step 7c — a tap on a drill marker selects that individual hole (markers sit proud of the face)
       const hg = rt.current?.holeGroup;
       if (hg) {
@@ -1039,7 +1084,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       const aHit = ag ? raycaster.intersectObjects(ag.children, true)[0] : undefined;
       const pick = aHit && (!hit || aHit.distance < hit.distance) ? aHit : hit;
       useKarkas.getState().selectHole(null); // a panel tap clears any hole selection
-      tapPart((pick?.object.userData.partId as string) ?? null);
+      const tapped = (pick?.object.userData.partId as string) ?? null;
+      // M8.4 — in multi-pick mode a tap TICKS a free part instead of replacing the selection. Only free
+      // parts: the batch actions below are free-part actions, so ticking a carcass panel would promise
+      // something the buttons cannot do.
+      const stM = useKarkas.getState();
+      if (stM.multiMode && tapped && tapped.includes("__free_")) {
+        stM.toggleMulti(tapped.slice(tapped.indexOf("__free_") + "__free_".length));
+        return;
+      }
+      tapPart(tapped);
     };
     renderer.domElement.addEventListener("pointerdown", onDown);
     renderer.domElement.addEventListener("pointermove", onMove);
@@ -1257,7 +1311,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     if (!rt.current?.group) return;
     highlightBoard(rt.current.group, selectedId);
     highlightBlocks(rt.current.group, selMode === "block" ? selectedBlockIds : []);
-  }, [selectedId, selectedBlockIds, selMode]);
+    // M8.4 — the multi-pick paints on top, so several ticked parts all read as selected
+    const blk = model.blocks[0];
+    highlightParts(rt.current.group, multiMode && blk ? multiIds.map((f) => `${blk.id}__free_${f}`) : []);
+  }, [selectedId, selectedBlockIds, selMode, multiMode, multiIds, model]);
 
   // ── Step 4b: 3D corner chips — project the selected panel's face corners to canvas px, and reproject on
   //    every camera move (OrbitControls "change"). Only while the corner tool is open on a real panel. ──
@@ -1494,6 +1551,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // U3.3 fix — the readout / resize reflects a CARCASS block, not the scene bounds (which would balloon
   // when a free board floats far away). B (multi-block) — it follows the ACTIVE cabinet: the selected
   // part's block, else block-0. So selecting a part in the 2nd cabinet shows + edits that cabinet's size.
+  // M8.5 — which carcass board is selected (null for a component, a free part or nothing)
+  const carcassSlot = selectedId ? carcassSlotOf(selectedId) : null;
   const activeBlock = blockOfPart(model, selectedId);
   const dims = activeBlock ? { w: Math.round(activeBlock.box.w / 10), h: Math.round(activeBlock.box.h / 10), d: Math.round(activeBlock.box.d / 10) } : sceneDimsMm(scene);
   return (
@@ -1721,6 +1780,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           </div>
         </div>
       )}
+      {/* M8.6 — measure hint / readout: what to do, then the running distance */}
+      {tab === "build" && measureMode && (
+        <div style={{ position: "fixed", top: 96, left: "50%", transform: "translateX(-50%)", zIndex: 64, background: "rgba(20,40,25,0.92)", color: "#eafff0", borderRadius: 10, padding: "7px 14px", ...mono, fontSize: 13, display: "flex", gap: 10, alignItems: "center", whiteSpace: "nowrap" }}>
+          <span>📏 {measureMm == null ? "birinchi nuqtani bosing" : measureMm === 0 ? "ikkinchi nuqtani bosing" : `${measureMm} mm`}</span>
+          <button type="button" onClick={() => setMeasureMode(false)} style={{ border: "none", background: "transparent", color: "#eafff0", fontSize: 18, lineHeight: 1, cursor: "pointer" }}>✕</button>
+        </div>
+      )}
       {/* dom-overlay root — the browser paints this over the camera feed during an AR session */}
       <div ref={arOverlayRef} className="mob-ar-overlay" style={{ display: arActive ? "flex" : "none" }}>
         <span className="mob-ar-hint">
@@ -1749,6 +1815,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button className={"mob-round" + (showHoles ? " is-active" : "")} title="Teshiklar" aria-label="Teshiklar" type="button" onClick={() => setShowHoles((v) => !v)}><MobHoles /></button>
           <button className="mob-round" title="Skrinshot" aria-label="Skrinshot" type="button" onClick={screenshot}><MobCamera /></button>
           <button className="mob-round" title="Markazga qaytar" aria-label="Markazga qaytar" type="button" onClick={recenter}><MobTarget /></button>
+          {/* M8.4 — pick several free parts and act on them at once (Moblo's selection tool, by tap) */}
+          <button className={"mob-round" + (multiMode ? " is-active" : "")} title="Ko'p tanlash" aria-label="Ko'p tanlash" type="button"
+            onClick={() => setMultiMode(!multiMode)}>☑</button>
+          {/* M8.6 — the measuring tape: tap two points, read the gap */}
+          <button className={"mob-round" + (measureMode ? " is-active" : "")} title="O'lchash" aria-label="O'lchash" type="button"
+            onClick={() => { setMeasureMode((v) => !v); if (multiMode) setMultiMode(false); }}>📏</button>
         </div>
       )}
 
@@ -2152,6 +2224,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 </select>
               </label>
             )}
+            {/* M8.5 — the CABINET'S OWN boards (side / top / bottom / back / plinth / worktop). They are
+                not Components, so until now they took no note, could not be hidden and followed their
+                role's decor with no way to make just this one different. */}
+            {carcassSlot && (() => {
+              const cur = model.blocks.find((b) => b.id === (selectedId ?? "").split("__")[0])?.panels?.[carcassSlot]
+                ?? model.blocks[0]?.panels?.[carcassSlot];
+              return (
+                <>
+                  <label className="mob-props-f"><span>Izoh</span>
+                    <input key={`cn_${carcassSlot}_${selectedId}`} defaultValue={cur?.note ?? ""} placeholder="✎" title="Izoh — kesim ro'yxati va chizmaga tushadi"
+                      onBlur={(e) => setCarcassPanel(carcassSlot, { note: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                      style={{ ...mono, width: 96, border: "1px solid #cdd5df", borderRadius: 6, padding: "2px 6px", background: "#fff", color: "#7a6a4a" }} />
+                  </label>
+                  <button type="button" className="mob-props-toggle" title="Yashirish — kesim ro'yxatida va narxda qoladi"
+                    onClick={() => setCarcassPanel(carcassSlot, { hidden: !cur?.hidden })}>{cur?.hidden ? "🚫 Yashirilgan" : "👁 Ko'rinadi"}</button>
+                  <button type="button" className="mob-props-toggle" title="Shu taxtaning materiali"
+                    onClick={() => setSwatchTarget({ kind: "carcass", slot: carcassSlot })}>▦ {BOARDS.find((b) => b.id === cur?.material)?.name ?? "Standart"}</button>
+                </>
+              );
+            })()}
             {/* M7.3 — the same note, for a carcass component (a shelf, a door, a drawer front). */}
             {selComp && (
               <label className="mob-props-f"><span>Izoh</span>
@@ -2232,6 +2325,23 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           </div>
         );
       })()}
+      {/* M8.4 — the batch bar. Appears the moment something is ticked; every button acts on ALL of them in
+          ONE step, so undo gives them all back at once. */}
+      {tab === "build" && multiMode && (
+        <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 63, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
+          <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>☑ {multiCount} ta</span>
+          {multiCount === 0 && <span style={{ ...mono, fontSize: 11, opacity: 0.6 }}>qismlarni bosing</span>}
+          {multiCount > 0 && (
+            <>
+              <button type="button" style={{ ...act, minHeight: 34 }} onClick={() => setSwatchTarget({ kind: "multi" })}>▦ Material</button>
+              <button type="button" style={{ ...act, minHeight: 34 }} onClick={() => multiSetView("hidden", true)} title="Ko'rinishdan yashirish (kesim ro'yxatida qoladi)">👁 Yashir</button>
+              <button type="button" style={{ ...act, minHeight: 34 }} onClick={() => multiSetView("locked", true)} title="Qulflash">🔒 Qulfla</button>
+              <button type="button" style={{ ...act, minHeight: 34, borderColor: "#a01a2e", color: "#a01a2e" }} onClick={multiDelete} title="O'chirish (qulflanganlar qoladi)">🗑 O'chir</button>
+            </>
+          )}
+          <button type="button" style={{ ...act, minHeight: 34 }} onClick={() => setMultiMode(false)}>✕</button>
+        </div>
+      )}
       {/* ── U3.3 — free-board editor: appears when a free board is selected (resize W/H/D · delete) ── */}
       {tab === "build" && !(compact && toolsOpen) && selFreeBoard && rpanel === "none" && (
         <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 62, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
@@ -2256,6 +2366,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
           <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 34, padding: "6px 11px" }}>↻</button>
+          {/* M8.1 — the two tilts. Y already has the ↻ button (90° at a time, the everyday turn); X and Z
+              are typed, because a slanted part is set to an angle («30°»), not nudged to one. */}
+          <label className="mob-props-f" title="Oldinga/orqaga qiyalik (X o'qi)"><span>↕°</span>
+            <DimField label="°" value={Math.round(selFreeBoard.rotX_deg ?? 0)} onCommit={(d) => setFreePartTilt(selFreeBoard.id, "x", d)} min={0} suffix="°" />
+          </label>
+          <label className="mob-props-f" title="Chapga/o'ngga qiyalik (Z o'qi)"><span>↔°</span>
+            <DimField label="°" value={Math.round(selFreeBoard.rotZ_deg ?? 0)} onCommit={(d) => setFreePartTilt(selFreeBoard.id, "z", d)} min={0} suffix="°" />
+          </label>
           <button type="button" title="Nusxalash" onClick={duplicateSelected} style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", minHeight: 34, padding: "6px 11px" }}>⧉</button>
           {/* M4 — switch this part's primitive. Back to «Quti» makes it a flat, cuttable panel again. */}
           <select value={selFreeBoard.shape ?? "box"} onChange={(e) => setFreeBoardShape(selFreeBoard.id, e.target.value as PrimitiveShape)} title="Shakl" style={{ ...matSel, flex: "0 0 auto", maxWidth: 112, minHeight: 34 }}>
@@ -2927,12 +3045,14 @@ function TreePanel({ onClose }: { onClose: () => void }) {
 
 /** Board-decor <select> for one plan slot, with a colour swatch of the current pick. */
 // M3.4 — one material target the swatch picker acts on: a plan slot, or a specific free board.
-type SwatchTarget = { kind: "plan"; slot: keyof Omit<MaterialPlan, "edge"> } | { kind: "free"; id: string };
+type SwatchTarget = { kind: "plan"; slot: keyof Omit<MaterialPlan, "edge"> } | { kind: "free"; id: string }
+  | { kind: "multi" } // M8.4 — one decor onto every ticked part
+  | { kind: "carcass"; slot: CarcassSlot }; // M8.5 — one decor onto ONE carcass board
 /** M3.4 — a MatSelect (used in the mobile panel AND the deep SpecPanel) opens the ONE swatch overlay via
  *  this context, so neither has to prop-drill the setter (Antigravity's single-overlay pattern). */
 const SwatchCtx = createContext<null | ((t: SwatchTarget) => void)>(null);
-const SWATCH_ORDER = ["Laminat", "Yog'och", "Shisha", "Metall", "Marmar", "Mato"] as const;
-const SWATCH_BADGE: Record<string, string> = { "Laminat": "▤", "Yog'och": "🪵", "Shisha": "🧊", "Metall": "✨", "Marmar": "◈", "Mato": "🧵" };
+const SWATCH_ORDER = ["Massiv", "Laminat", "Yog'och", "Shisha", "Metall", "Marmar", "Mato"] as const; // M8.7 — Massiv first
+const SWATCH_BADGE: Record<string, string> = { "Massiv": "🌳", "Laminat": "▤", "Yog'och": "🪵", "Shisha": "🧊", "Metall": "✨", "Marmar": "◈", "Mato": "🧵" };
 
 /** M3.4 — ONE centralised material swatch picker (Antigravity's single-overlay pattern). Opened from any
  *  MatSelect slot or the free-board bar; picks a board (or «Standart» for a free board) and closes. Boards
@@ -2940,8 +3060,19 @@ const SWATCH_BADGE: Record<string, string> = { "Laminat": "▤", "Yog'och": "�
 function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarget; theme: "light" | "dark"; onClose: () => void }) {
   const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
-  const current = useKarkas((s) => (target.kind === "plan" ? s.plan[target.slot] : s.model.blocks[0]?.freeParts?.find((f) => f.id === target.id)?.material ?? ""));
-  const pick = (id: string): void => { if (target.kind === "plan") setPlanMaterial(target.slot, id); else setFreeBoardMaterial(target.id, id); onClose(); };
+  const multiSetMaterial = useKarkas((s) => s.multiSetMaterial); // M8.4
+  const setCarcassPanelMat = useKarkas((s) => s.setCarcassPanel); // M8.5
+  const current = useKarkas((s) => (target.kind === "plan" ? s.plan[target.slot]
+    : target.kind === "free" ? s.model.blocks[0]?.freeParts?.find((f) => f.id === target.id)?.material ?? ""
+      : target.kind === "carcass" ? s.model.blocks[0]?.panels?.[target.slot]?.material ?? ""
+        : "")); // a multi-pick has no single «current» — several parts may differ
+  const pick = (id: string): void => {
+    if (target.kind === "plan") setPlanMaterial(target.slot, id);
+    else if (target.kind === "free") setFreeBoardMaterial(target.id, id);
+    else if (target.kind === "carcass") setCarcassPanelMat(target.slot, { material: id }); // M8.5
+    else multiSetMaterial(id || null); // M8.4 — "" clears back to the role's decor
+    onClose();
+  };
   const dark = theme === "dark";
   const groups = SWATCH_ORDER.map((g) => ({ g, items: BOARDS.filter((b) => materialCategory(b) === g) })).filter((x) => x.items.length);
   const chip = (key: string, bg: string, active: boolean, label: string, on: () => void) => (
@@ -2958,7 +3089,7 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
           <strong style={{ fontSize: 16 }}>▦ Material</strong>
           <button type="button" onClick={onClose} aria-label="Yopish" style={{ border: "none", background: "transparent", color: "inherit", fontSize: 24, lineHeight: 1, cursor: "pointer" }}>×</button>
         </div>
-        {target.kind === "free" && <div style={{ marginBottom: 12 }}>{chip("std", "#e6e6e6", current === "", "Standart (rol bo'yicha)", () => pick(""))}</div>}
+        {target.kind !== "plan" && <div style={{ marginBottom: 12 }}>{chip("std", "#e6e6e6", current === "", "Standart (rol bo'yicha)", () => pick(""))}</div>}
         {groups.map(({ g, items }) => (
           <div key={g} style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginBottom: 7 }}>{SWATCH_BADGE[g]} {g}</div>
@@ -3007,6 +3138,20 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
   const unlockQuote = useKarkas((s) => s.unlockQuote);
   const money = useMoney();
   const e = estimate(parts, plan);
+  // M8.2 — the cut list the usta actually carries: identical panels folded into one «×N» row, in the
+  // order he wants to cut them. The totals above stay per-PART, because the sheet count and the price
+  // are about panels, not rows.
+  const [specSort, setSpecSort] = useState<SpecSort>("model");
+  const rows = useMemo(() => sortSpecs(groupSpecs(e.parts), specSort), [e.parts, specSort]);
+  const exportCsv = () => {
+    const text = specsToCsv(rows, { title: `Karkas blok — kesim ro'yxati (${new Date().toISOString().slice(0, 10)})`, totalLabel: "so'm" });
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "karkas-detallar.csv";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
   const hw = hardwareEstimate(model);
   const ap = applianceEstimate(model); // Phase 3 — «Техника» (bought appliances)
   const total = e.priceUzs + hw.priceUzs + ap.priceUzs;
@@ -3045,9 +3190,12 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
       : compact ? { ...specPanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : specPanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Спецификация</b>
+        {/* M8.3 — the same list as a spreadsheet: for the board supplier, the client's quote, the books. */}
+        <button onClick={exportCsv} type="button" title="Kesim ro'yxati — Excel/Sheets uchun (.csv)"
+          style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }}>⬇ CSV</button>
         {onExportCnc && (
           <button onClick={onExportCnc} type="button" title="Stanok uchun fayl (SWJ008)"
-            style={{ ...pill, marginLeft: "auto", borderColor: "#00a961", background: "#e6f6ee", color: "#006b3f", fontWeight: 700 }}>⬇ CNC</button>
+            style={{ ...pill, borderColor: "#00a961", background: "#e6f6ee", color: "#006b3f", fontWeight: 700 }}>⬇ CNC</button>
         )}
         <button onClick={onClose} style={{ ...pill, ...(onExportCnc ? {} : { marginLeft: "auto" }) }} type="button">✕</button>
       </div>
@@ -3129,13 +3277,25 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
           </div>
         )}
       </div>
+      {/* M8.2 — identical panels fold into one row with «×N», and the usta picks the order he cuts in.
+          Four identical shelves used to be four lines; a wardrobe's paper was three times the work. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 14px 8px", flexWrap: "wrap" }}>
+        <span style={{ ...mono, fontSize: 11, opacity: 0.6 }}>{rows.length} qator · {e.count} detal</span>
+        <span style={{ ...mono, fontSize: 11, opacity: 0.6, marginLeft: "auto" }}>Tartib:</span>
+        {([["model", "shkaf bo'yicha"], ["name", "nom"], ["length", "uzunlik"], ["material", "material"]] as const).map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setSpecSort(k)}
+            style={{ ...pill, padding: "3px 9px", fontSize: 11, ...(specSort === k ? { borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 } : {}) }}>{label}</button>
+        ))}
+      </div>
       <div style={specList}>
-        {e.parts.map((p) => (
-          <div key={p.id} style={specRow}>
+        {rows.map((p) => (
+          <div key={p.ids[0]} style={specRow}>
             {/* panel silhouette — true L×W proportions, banded edges inked heavy */}
             <span className="mob-part-thumb" title="Panel shakli · qalin qirra = kromka" dangerouslySetInnerHTML={{ __html: panelThumbSvg(p.l_mm, p.w_mm, p.bands, 40) }} />
             <span style={{ flex: 1, overflow: "hidden" }}>
-              <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
+              <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {p.qty > 1 && <b style={{ ...mono, color: "#1f478a", marginRight: 6 }}>×{p.qty}</b>}
+                {p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
               {/* M7.3 — the usta's own words about this part, right where the cut list is read */}
               {p.note && <span style={{ display: "block", fontSize: 11, color: "#7a6a4a", fontStyle: "italic" }}>✎ {p.note}</span>}
             </span>

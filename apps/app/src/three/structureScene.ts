@@ -24,6 +24,8 @@ export interface Board {
   rotX?: number;
   /** turn about the vertical (Y) axis in RADIANS — a free board facing another way. Absent = square-on. */
   rotY?: number;
+  /** M8.1 — tilt about Z in RADIANS (from rotZ_deg). A free part spins about its own centre. */
+  rotZ?: number;
   /** Step 4b — corner radii mm10 [tl,tr,br,bl] on this panel's largest face (rendered as a rounded rect). */
   corners?: readonly [number, number, number, number];
   /** Step 4b — rectangular apertures (mm10, part-local) punched through the panel's largest face. */
@@ -64,6 +66,8 @@ interface RawBox {
   rot?: number;
   /** turn about the vertical Y axis in DEGREES (from rotY_deg); converted to radians on the Board. */
   rotYDeg?: number;
+  /** M8.1 — tilt about Z in DEGREES (from a PanelPlacement's rotZ_deg); converted to radians here. */
+  rotZDeg?: number;
   /** M4 — primitive shape carried straight through from the placement to the Board. */
   shape?: PrimitiveShape;
   hidden?: boolean; // M7.4
@@ -104,6 +108,7 @@ export function boxesToScene(
       size: [M(b.w), M(b.h), M(b.d)],
       ...(b.rot ? { rotX: (b.rot * Math.PI) / 180 } : {}),
       ...(b.rotYDeg ? { rotY: (b.rotYDeg * Math.PI) / 180 } : {}),
+      ...(b.rotZDeg ? { rotZ: (b.rotZDeg * Math.PI) / 180 } : {}), // M8.1
       ...(f?.corners && f.corners.some((r) => r > 0) ? { corners: f.corners } : {}),
       ...(f?.cutouts && f.cutouts.length > 0 ? { cutouts: f.cutouts } : {}),
       ...(f?.kromka && f.kromka.some((k) => k) ? { kromka: f.kromka } : {}),
@@ -166,6 +171,7 @@ export function layoutToScene(
       w: p.w_mm10, h: p.h_mm10, d: p.d_mm10,
       rot: p.rotX_deg,
       rotYDeg: p.rotY_deg,
+      rotZDeg: p.rotZ_deg, // M8.1
       shape: p.shape, // M4
       hidden: p.hidden, // M7.4 — the usta hid it in the viewport
     })),

@@ -27,6 +27,9 @@ export interface BoardMaterial {
   finish?: MaterialFinish;
   /** M3.3 — a procedural texture (wood grain / marble / leather / fabric). Absent = a flat finish. */
   texture?: TextureKind;
+  /** M8.7 — real SOLID timber (массив), not a wood-look ЛДСП. Groups under «Massiv» and is priced as
+   *  a real board is. Absent = a sheet material (ЛДСП / МДФ / the wood-look decors). */
+  solid?: boolean;
 }
 
 /** An edge-banding material (kromka / jiyak K-variable): priced per running metre, with a view colour
@@ -68,6 +71,18 @@ export const BOARDS: readonly BoardMaterial[] = [
   { id: "marble_white", name: "Мрамор белый", hex: "#eceef0", pricePerM2: 520000, thickness_mm: 20, finish: "gloss", texture: "marble" },
   { id: "leather_brown", name: "Кожа коричневая", hex: "#7a5236", pricePerM2: 480000, thickness_mm: 20, texture: "leather" },
   { id: "fabric_grey", name: "Ткань серая", hex: "#8b8d90", pricePerM2: 260000, thickness_mm: 20, texture: "fabric" },
+  // M8.7 — SOLID timber (массив). An Uzbek usta works these by hand as well as sheet goods; they are
+  // real boards at real prices, not wood-look ЛДСП, so they carry `solid` and group under «Massiv».
+  { id: "massiv_terak", name: "Массив Терак (тополь)", hex: "#d8c39a", pricePerM2: 320000, thickness_mm: 20, texture: "wood", solid: true },
+  { id: "massiv_qaragay", name: "Массив Қарағай (сосна)", hex: "#e0bf87", pricePerM2: 360000, thickness_mm: 20, texture: "wood", solid: true },
+  { id: "massiv_archa", name: "Массив Арча (ель)", hex: "#e6cd9a", pricePerM2: 380000, thickness_mm: 20, texture: "wood", solid: true },
+  { id: "massiv_tut", name: "Массив Тут (шелковица)", hex: "#c69a5b", pricePerM2: 440000, thickness_mm: 20, texture: "wood", solid: true },
+  { id: "massiv_chinor", name: "Массив Чинор (платан)", hex: "#c2a06e", pricePerM2: 520000, thickness_mm: 20, texture: "wood", solid: true },
+  { id: "massiv_zarang", name: "Массив Заранг (клён)", hex: "#dcc59b", pricePerM2: 640000, thickness_mm: 20, texture: "wood", solid: true },
+  { id: "massiv_yasen", name: "Массив Ясен (ясень)", hex: "#cbb18a", pricePerM2: 680000, thickness_mm: 20, texture: "wood", solid: true },
+  { id: "massiv_buk", name: "Массив Бук", hex: "#c99a72", pricePerM2: 720000, thickness_mm: 20, texture: "wood", solid: true },
+  { id: "massiv_emand", name: "Массив Эманд (дуб)", hex: "#a9824f", pricePerM2: 820000, thickness_mm: 20, texture: "wood", solid: true },
+  { id: "massiv_yongoq", name: "Массив Ёнғоқ (орех)", hex: "#6b4a30", pricePerM2: 960000, thickness_mm: 20, texture: "wood", solid: true },
 ];
 
 export const EDGES: readonly EdgeMaterial[] = [
@@ -196,7 +211,8 @@ export function partBoard(plan: MaterialPlan, role: string | undefined, material
 }
 
 /** M3.4 — which swatch-picker group a board belongs to, derived from its finish/texture (not stored). */
-export function materialCategory(b: BoardMaterial): "Laminat" | "Yog'och" | "Shisha" | "Metall" | "Marmar" | "Mato" {
+export function materialCategory(b: BoardMaterial): "Massiv" | "Laminat" | "Yog'och" | "Shisha" | "Metall" | "Marmar" | "Mato" {
+  if (b.solid) return "Massiv"; // M8.7 — real timber, before the wood-look check below
   if (b.texture === "wood") return "Yog'och";
   if (b.texture === "marble") return "Marmar";
   if (b.texture === "leather" || b.texture === "fabric") return "Mato";
