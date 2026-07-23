@@ -1798,6 +1798,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("tube"); setRpanel("none"); }}>◎ Quvur</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("sphere"); setRpanel("none"); }}>⬤ Shar</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("wedge"); setRpanel("none"); }}>◺ Pona</button>
+                  {/* M7 — the shapes a workshop turns by hand or buys: a bowed door, a tapered leg, a
+                      rounded worktop end, a hex post, a ring pull. */}
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("arc"); setRpanel("none"); }}>◠ Egri fasad</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("cone"); setRpanel("none"); }}>△ Torayuvchi oyoq</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("halfCylinder"); setRpanel("none"); }}>◗ Yumaloq uch</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("hexagon"); setRpanel("none"); }}>⬡ Olti qirrali</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("torus"); setRpanel("none"); }}>◯ Halqa</button>
                 </div>
                 {selectedId && !selectedId.includes("__div_") && (
                   <div className="mob-addgrid" style={{ marginTop: 10 }}>
@@ -2209,6 +2216,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <option value="tube">◎ Quvur</option>
             <option value="sphere">⬤ Shar</option>
             <option value="wedge">◺ Pona</option>
+            <option value="arc">◠ Egri fasad</option>
+            <option value="cone">△ Torayuvchi</option>
+            <option value="halfCylinder">◗ Yumaloq uch</option>
+            <option value="hexagon">⬡ Olti qirrali</option>
+            <option value="torus">◯ Halqa</option>
           </select>
           <button type="button" aria-haspopup="dialog" title="Material" onClick={() => setSwatchTarget({ kind: "free", id: selFreeBoard.id })} style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34, display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ ...swatch, background: BOARDS.find((bd) => bd.id === selFreeBoard.material)?.hex ?? "#e6e6e6" }} />

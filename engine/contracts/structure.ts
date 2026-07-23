@@ -522,8 +522,18 @@ export type FreePartRole = "top" | "leg" | "rail" | "stretcher" | "panel" | "she
  * support). The `box` stays the ENVELOPE — a cylinder's height is box.h and its radius min(box.w,box.d)/2
  * — so anchors, moving and resizing keep working unchanged. Because they cannot be cut from a sheet,
  * non-box parts are kept OUT of the panel cut list, the CNC export and the m² price (see solve/drilling).
+ *
+ * M7 widened the family to what a workshop actually shapes by hand or buys ready-made: an ARC (the
+ * curved fascia of a rounded worktop or a bowed door), a CONE (the tapered leg every Scandinavian-style
+ * table stands on), a HALF-CYLINDER (the rounded end of a worktop or a handrail), a HEXAGON post and a
+ * TORUS ring (a pull). None of them can be nested on a sheet either, so they inherit the same treatment
+ * — drawn in 3-D and in AR, listed under «Boshqa qismlar», never in the cut file. A curved door IS
+ * cuttable in the real world, but only by a contour the SWJ008 export does not speak; sending a guessed
+ * arc toolpath to a machine is not a risk worth taking, so the usta cuts that curve himself.
  */
-export type PrimitiveShape = "box" | "cylinder" | "sphere" | "tube" | "wedge";
+export type PrimitiveShape =
+  | "box" | "cylinder" | "sphere" | "tube" | "wedge"
+  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus";
 
 /** One edge of a free part on an axis, pinned to the block's LOW (`x=0`) or HIGH (`x=extent`) face at a
  *  fixed `offset_mm10` inside it. This is what makes the "table law" work for free parts: on a block

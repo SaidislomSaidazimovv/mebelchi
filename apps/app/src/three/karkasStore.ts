@@ -8,7 +8,9 @@ import { create } from "zustand";
 import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind, PanelShell, PrimitiveShape } from "../../../../engine/contracts/structure.js";
 
 /** The shapes furniture is actually made of — what the ＋ panel offers. */
-export type PrimitiveKind = "board" | "panel" | "post" | "box" | "cylinder" | "rail" | "sphere" | "tube" | "wedge";
+export type PrimitiveKind =
+  | "board" | "panel" | "post" | "box" | "cylinder" | "rail" | "sphere" | "tube" | "wedge"
+  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus"; // M7
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
@@ -581,6 +583,14 @@ export const useKarkas = create<KarkasState>((set, get) => {
         sphere: { name: "Shar", role: "panel", axis: "y", w: 600, h: 600, d: 600, shape: "sphere" },
         tube: { name: "Quvur", role: "rail", axis: "x", w: 400, h: Math.min(7100, bx.h), d: 400, shape: "tube" },
         wedge: { name: "Pona", role: "panel", axis: "z", w: 2000, h: 2000, d: 300, shape: "wedge" },
+        // M7 — the shapes a workshop turns by hand or buys ready-made. Each arrives already the size and
+        // the way round it is normally used, so the first thing an usta sees is a believable part.
+        arc: { name: "Egri fasad", role: "panel", axis: "z", w: 6000, h: Math.min(7200, bx.h), d: 800, shape: "arc" },
+        cone: { name: "Torayuvchi oyoq", role: "leg", axis: "x", w: 700, h: Math.min(7100, bx.h), d: 700, shape: "cone" },
+        halfCylinder: { name: "Yumaloq uch", role: "panel", axis: "y", w: Math.min(4000, Math.round(bx.w * 0.55)), h: 400, d: 400, shape: "halfCylinder" },
+        hexagon: { name: "Olti qirrali ustun", role: "leg", axis: "x", w: 600, h: Math.min(7100, bx.h), d: 600, shape: "hexagon" },
+        // a ring is a pull — it belongs at handle height, not on the floor
+        torus: { name: "Halqa", role: "rail", axis: "z", w: 1200, h: 1200, d: 300, shape: "torus", y: Math.max(0, Math.round(bx.h * 0.45)) },
       };
       const spec = specs[kind];
       // Placed ON THE FLOOR and centred, nudged clear of what is already there — a new part that lands
