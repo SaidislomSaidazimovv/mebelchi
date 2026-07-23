@@ -564,8 +564,13 @@ function instanceParts(block: Block, inst: Instance, t: ResolvedT): Part[] {
   if (!section || !component) return [];
   // F2 — carry the component's per-part material override onto every emitted part.
   const mat = component.material;
+  // M7.3 — the usta's own words about this part ride to the cut list and the drawing the same way.
+  const note = component.note;
   // glass panes are never a board decor → don't stamp the override onto them (F1)
-  const stampMat = (ps: Part[]): Part[] => (mat ? ps.map((p) => (p.role === "glass" ? p : { ...p, materialId: mat })) : ps);
+  const stampMat = (ps: Part[]): Part[] => {
+    const withMat = mat ? ps.map((p) => (p.role === "glass" ? p : { ...p, materialId: mat })) : ps;
+    return note ? withMat.map((p) => ({ ...p, note })) : withMat;
+  };
   // A drawer is a whole box (its own multi-panel build), independent of a single-panel role.
   if (component.drawer) {
     const box = stampMat(drawerBoxParts(block, inst, section, t));
@@ -657,7 +662,8 @@ export function freePartToPart(block: Block, fp: FreePart): Part {
   // M4 — tag a non-box primitive so the CNC export, the cut list and the m² price can leave it out
   // (a cylinder leg or a hanging rail is bought/turned, never nested and milled from a sheet).
   const p = fp.shape && fp.shape !== "box" ? { ...p0, shape: fp.shape } : p0;
-  return fp.material ? { ...p, materialId: fp.material } : p;
+  const pm = fp.material ? { ...p, materialId: fp.material } : p;
+  return fp.note ? { ...pm, note: fp.note } : pm; // M7.3 — a note the workshop must read
 }
 
 export function solveStructure(model: StructuralModel, thickness: ThicknessSpec = {}): Part[] {

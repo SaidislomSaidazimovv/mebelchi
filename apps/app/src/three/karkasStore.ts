@@ -16,7 +16,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -280,6 +280,9 @@ interface KarkasState extends Derived {
   resizeFreeBoardTo: (fpId: string, dim: "w" | "h" | "d", mm: number, first: boolean) => { size: number; snapped: boolean };
   /** Rename a free board (M1.3a) — its `name` flows to the cut list + SWJ008. Blank → a default. */
   renameFreePart: (fpId: string, name: string) => void;
+  /** M7.3 — the usta's own note on the selected component / a free part. Empty string clears it. */
+  setPartNote: (text: string) => void;
+  setFreePartNote: (fpId: string, text: string) => void;
   /** M4 — switch a free board's primitive shape. "box" turns it back into a flat, cuttable panel. */
   setFreeBoardShape: (fpId: string, shape: PrimitiveShape) => void;
   rotateFreeBoard: (fpId: string) => void;
@@ -1055,6 +1058,34 @@ export const useKarkas = create<KarkasState>((set, get) => {
         })),
       };
       apply(model, true);
+    },
+    // M7.3 — a note on a free part. Trimmed-empty CLEARS the field (rather than storing ""), so a part
+    // with no note is byte-identical to one that never had one.
+    setFreePartNote: (fpId, text) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const note = text.trim();
+      const cur = block.freeParts.find((f) => f.id === fpId);
+      if (!cur || (cur.note ?? "") === note) return; // no-op → no dead undo step
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (f.id !== fpId) return f;
+            if (!note) { const { note: _drop, ...rest } = f; return rest; }
+            return { ...f, note };
+          }),
+        })),
+      };
+      apply(model, true);
+    },
+    // …and on whatever component is selected. Forks first, exactly like setMaterial/setLip, so a note
+    // lands on THIS shelf rather than on all three that share a component.
+    setPartNote: (text) => {
+      const f = forkSelected();
+      if (f) apply(setComponentNote(f.model, f.compId, text), true);
     },
     removeFreeBoard: (fpId) => {
       const s = get();

@@ -14,6 +14,13 @@ export interface DrawingMeta {
   readonly date: string;
   readonly materials?: string; // e.g. "ЛДСП Сонома 16мм · Кром 2мм" (title-block left cell)
   readonly legend?: readonly string[]; // material lines for the title-block legend cell (Korpus / Orqa / …)
+  /**
+   * M7.3 — the usta's per-part notes, already formatted as «Qism nomi — izoh». Printed as a band just
+   * above the title block, because a note that only exists on the phone is no use to the man at the saw.
+   * The band takes its height OUT of the drawing area (like the dimension strips), so it can never
+   * collide with the views.
+   */
+  readonly notes?: readonly string[];
 }
 
 // A4 landscape paper in mm, with a margin; the drawing area sits above the title block. Gaps/labels
@@ -181,11 +188,16 @@ function chainH(vals: readonly number[], yLine: number, ox: number, scale: numbe
 /** Full A4 sheet: three views + overall W/H/D dimensions + a title block. Returns an <svg> string. */
 export function drawingSheetSvg(d: BlockDrawing, meta: DrawingMeta): string {
   const tbY = PAPER_H - MARGIN - TITLE_H; // top of the title block — the drawing must stay above it
+  // M7.3 — notes band above the title block. Capped: six lines is a note sheet, not a drawing.
+  const noteLines = (meta.notes ?? []).slice(0, 6);
+  const extra = (meta.notes?.length ?? 0) - noteLines.length;
+  const NOTES_BAND = noteLines.length ? 5 + noteLines.length * 4 : 0;
+  const notesY = tbY - NOTES_BAND;
   const ox = MARGIN + DIM_PAD, oy = MARGIN + 3; // left pad for the height chain; small top pad
   // Usable area after margins, title block, gaps, view-title bands and the width-dim strip. GAP /
   // LABEL_H / WDIM_BAND are FIXED paper-mm (never scaled), so view titles + dims never collide.
   const availW = PAPER_W - ox - MARGIN - DIM_PAD - GAP; // front.w + side.w fit here (scaled); right pad = depth dim
-  const availH = (tbY - 4) - oy - 2 * LABEL_H - GAP - WDIM_BAND; // front.h + plan.h fit here (scaled)
+  const availH = (tbY - 4) - NOTES_BAND - oy - 2 * LABEL_H - GAP - WDIM_BAND; // front.h + plan.h fit here (scaled)
   const scale = Math.min(availW / Math.max(d.front.w + d.side.w, 1), availH / Math.max(d.front.h + d.plan.h, 1));
   const frontX = ox, frontY = oy;
   const planX = ox, planY = frontY + d.front.h * scale + LABEL_H + GAP; // below front + fixed gap
@@ -221,7 +233,15 @@ export function drawingSheetSvg(d: BlockDrawing, meta: DrawingMeta): string {
     `<text x="${c2 + 4}" y="${tbY + 9}" font-size="4.5" fill="#333" font-family="sans-serif">Sana: ${esc(meta.date)}</text>` +
     `<text x="${c2 + 4}" y="${tbY + 17}" font-size="4.5" fill="#333" font-family="sans-serif">Masshtab ~1:${Math.max(1, Math.round(1 / scale))}</text>`;
 
+  // M7.3 — «IZOHLAR»: the usta's notes, printed where the workshop reads them.
+  const notes = noteLines.length
+    ? `<text x="${MARGIN + 4}" y="${notesY + 3}" font-size="2.8" fill="#888" font-family="sans-serif">IZOHLAR</text>` +
+      noteLines.map((s, i) =>
+        `<text x="${MARGIN + 4}" y="${notesY + 7.5 + i * 4}" font-size="3.4" fill="#111" font-family="sans-serif">• ${esc(s)}</text>`).join("") +
+      (extra > 0 ? `<text x="${MARGIN + 4}" y="${notesY + 7.5 + noteLines.length * 4}" font-size="3" fill="#888" font-family="sans-serif">…+${extra}</text>` : "")
+    : "";
+
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAPER_W} ${PAPER_H}" width="100%" style="background:#fff">` +
     `<rect x="${MARGIN / 2}" y="${MARGIN / 2}" width="${PAPER_W - MARGIN}" height="${PAPER_H - MARGIN}" fill="none" stroke="#111" stroke-width="0.4"/>` +
-    views + dims + tb + `</svg>`;
+    views + dims + notes + tb + `</svg>`;
 }

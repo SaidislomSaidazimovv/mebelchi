@@ -360,6 +360,12 @@ export interface Component {
    */
   readonly material?: string;
   /**
+   * M7.3 — free text the usta wrote about this part («kromka faqat oldi», «mijozning taxtasi»). It
+   * reaches every Part this component emits, and from there the cut list and the printed drawing.
+   * Documentation only: it changes no size, no hole and no price. Optional/additive.
+   */
+  readonly note?: string;
+  /**
    * Inclined shelf tilt (imos AS_O_Angle · "qiya polka"): the front edge is raised by `angle_deg`
    * degrees about the shelf's width axis, so an internal shelf leans back like a display / shoe rack.
    * Applies to `internal_shelf` components only. The board itself is the SAME rectangle (the cut list,
@@ -584,6 +590,8 @@ export interface FreePart {
   readonly rotY_deg?: number;
   /** Optional per-part decor override (opaque catalog key), like a Component's `material`. */
   readonly material?: string;
+  /** M7.3 — free text about this part, carried to the cut list and the drawing. See Component.note. */
+  readonly note?: string;
   /**
    * How the board reflows when its block resizes (v5, the "table law" for free parts). Absent = the box
    * is static (a hand-placed board that stays put). Present = `box` is re-derived from the block's box on

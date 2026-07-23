@@ -189,6 +189,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const roomWallCount = useKarkas((s) => s.model.room?.walls.length ?? 0);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const renameFreePart = useKarkas((s) => s.renameFreePart);
+  const setFreePartNote = useKarkas((s) => s.setFreePartNote); // M7.3
+  const setPartNote = useKarkas((s) => s.setPartNote);
   const setFreeBoardShape = useKarkas((s) => s.setFreeBoardShape);
   const resizeFreeBoardTo = useKarkas((s) => s.resizeFreeBoardTo);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
@@ -584,6 +586,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         date: new Date().toISOString().slice(0, 10),
         materials: carcass,
         legend: [`Korpus: ${carcass}`, `Fasad: ${boardName(plan.facade)}`, `Orqa: ${boardName(plan.back)}`, `Kromka: ${edge}`],
+        // M7.3 — carry the usta's notes onto the printed sheet. Identical notes on several parts (a
+        // drawer's four sides share one) are said once.
+        notes: [...new Set(parts.filter((p) => p.note).map((p) => `${p.name} — ${p.note}`))],
       });
     } catch { return ""; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2145,6 +2150,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 </select>
               </label>
             )}
+            {/* M7.3 — the same note, for a carcass component (a shelf, a door, a drawer front). */}
+            {selComp && (
+              <label className="mob-props-f"><span>Izoh</span>
+                <input key={`note_${selComp.id}`} defaultValue={selComp.note ?? ""} placeholder="✎" title="Izoh — kesim ro'yxati va chizmaga tushadi"
+                  onBlur={(e) => setPartNote(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  style={{ ...mono, width: 96, border: "1px solid #cdd5df", borderRadius: 6, padding: "2px 6px", background: "#fff", color: "#7a6a4a" }} />
+              </label>
+            )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
                 be nudged by accident while dragging something else. */}
@@ -2215,6 +2229,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             onBlur={(e) => renameFreePart(selFreeBoard.id, e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
             style={{ ...mono, fontWeight: 700, color: "#1f5570", width: 100, border: "1px solid #cdd5df", borderRadius: 6, padding: "3px 7px", background: "#fff" }} />
+          {/* M7.3 — a note the workshop must read; it reaches the cut list and the printed drawing */}
+          <input key={`n${selFreeBoard.id}`} defaultValue={selFreeBoard.note ?? ""} title="Izoh — kesim ro'yxati va chizmaga tushadi" aria-label="Izoh" placeholder="✎ izoh"
+            onBlur={(e) => setFreePartNote(selFreeBoard.id, e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+            style={{ ...mono, color: "#7a6a4a", width: 120, border: "1px solid #cdd5df", borderRadius: 6, padding: "3px 7px", background: "#fff" }} />
           <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "w", mm)} units={units} />
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
@@ -3097,7 +3116,11 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
           <div key={p.id} style={specRow}>
             {/* panel silhouette — true L×W proportions, banded edges inked heavy */}
             <span className="mob-part-thumb" title="Panel shakli · qalin qirra = kromka" dangerouslySetInnerHTML={{ __html: panelThumbSvg(p.l_mm, p.w_mm, p.bands, 40) }} />
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
+            <span style={{ flex: 1, overflow: "hidden" }}>
+              <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
+              {/* M7.3 — the usta's own words about this part, right where the cut list is read */}
+              {p.note && <span style={{ display: "block", fontSize: 11, color: "#7a6a4a", fontStyle: "italic" }}>✎ {p.note}</span>}
+            </span>
             <span style={mono}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
             <span style={{ ...mono, color: "#8a6d1f", letterSpacing: 1 }} title="banded edges (1·2·3·4)">{p.bands.map((b) => (b ? "▪" : "·")).join("")}</span>
           </div>
