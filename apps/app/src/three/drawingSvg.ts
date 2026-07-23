@@ -50,9 +50,14 @@ function corners(r: DrawRect, scale: number, ox: number, oy: number, viewH: numb
     const pts = [P(r.x, r.y), P(r.x, r.y + r.h), P(r.x + r.w, r.y + r.h), P(r.x + r.w, r.y)];
     return pts.map((p) => p.map((n) => +n.toFixed(2)).join(",")).join(" ");
   }
-  // tilt about front-top (x, y+h), rotate CCW by θ in Y-up space so the back edge (x+w) rises
+  // M8.1b — the pivot must be the SAME one the 3-D viewport uses, or the sheet would disagree with the
+  // model the usta is looking at: a free part spins about its CENTRE, while an inclined carcass shelf
+  // pivots about its front-top edge (its reason is the shelf pins). Told apart by the `__free_` id, the
+  // same test the renderer, the store and the drilling use.
   const th = (r.rotDeg * Math.PI) / 180, c = Math.cos(th), s = Math.sin(th);
-  const cx = r.x, cy = r.y + r.h;
+  const free = r.id.includes("__free_");
+  const cx = free ? r.x + r.w / 2 : r.x;
+  const cy = free ? r.y + r.h / 2 : r.y + r.h;
   const rot = (px: number, py: number): [number, number] => {
     const dx = px - cx, dy = py - cy;
     return [cx + dx * c - dy * s, cy + dx * s + dy * c];
