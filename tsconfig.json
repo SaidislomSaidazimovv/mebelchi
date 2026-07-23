@@ -15,7 +15,7 @@
     "verbatimModuleSyntax": false,
     "noEmit": true
   },
-  "include": ["engine", "tests"],
+  "include": ["engine", "tests", "api"],
   "comment_exclude": "This test reaches the app's pricing/adapter layer (toProject → @mebelchi/* + store's import.meta.env), which only the app's Vite build types. It runs in vitest (aliases resolve there); root tsc can't type it, so keep it out of the root program.",
   "exclude": ["tests/rich_cell_characterization.test.ts"]
 }
