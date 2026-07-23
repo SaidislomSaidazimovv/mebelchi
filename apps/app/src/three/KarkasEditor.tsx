@@ -107,6 +107,7 @@ interface RT {
   raf: number;
   labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
   aabb: THREE.Box3 | null;
+  contactShadow: THREE.Mesh | null; // M9U.1 — soft baked contact shadow hugging the model's footprint
   framedKey: string; // F3 — last camera-framing signature; lives on rt so a remount reframes fresh
 }
 
@@ -676,6 +677,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // scene is a handful of boxes, so this stays cheap on mobile); PCFSoft for feathered edges.
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // M9U.1 — reflect the environment a touch more strongly so wood/gloss catch soft highlights; the value
+    // stays modest so pale ЛДСП does not blow out.
     renderer.setSize(mount.clientWidth || 320, mount.clientHeight || 480);
     renderer.domElement.style.display = "block";
     renderer.domElement.style.touchAction = "none";
@@ -697,6 +700,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     key.shadow.camera.near = 0.1; key.shadow.camera.far = 24;
     key.shadow.camera.left = -3; key.shadow.camera.right = 3; key.shadow.camera.top = 3.5; key.shadow.camera.bottom = -1;
     key.shadow.bias = -0.0005; key.shadow.normalBias = 0.02; // kill shadow acne on the thin boards
+    key.shadow.radius = 6; // M9U.1 — feather the cast shadow's edge for a softer, product-photo look (PCFSoft)
     scene3.add(key);
     const fill = new THREE.DirectionalLight(0xffffff, 0.25); fill.position.set(-3, 2, -2); scene3.add(fill);
     // C5 — three HTML dimension labels overlaid on the canvas (width / height / depth)
@@ -714,10 +718,30 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const grid = makeGrid("light"); scene3.add(grid); // U2.1b — Moblo floor grid (theme-swapped by the effect below)
     // M3.1 — an invisible shadow-catcher at the floor (model base sits at world y=0, see WY = v − minY). A
     // ShadowMaterial shows ONLY the shadow, so the furniture reads as standing on the ground, not floating.
-    const shadowGround = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.16 }));
+    const shadowGround = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.2 }));
     shadowGround.rotation.x = -Math.PI / 2; shadowGround.position.y = -0.002; shadowGround.receiveShadow = true;
     scene3.add(shadowGround);
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, roomGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, framedKey: "" };
+    // M9U.1 — a SOFT CONTACT SHADOW: a radial-gradient blob laid on the floor and scaled to the model's
+    // footprint each rebuild. Antigravity's call — no real-time SSAO/GTAO (it halves mobile FPS); a baked
+    // gradient plane costs ~nothing and gives the ambient-occlusion "grounded, sitting on the floor" feel
+    // the directional shadow alone can't. It reads as the darkening right where the piece meets the ground.
+    const contactCanvas = (globalThis as unknown as { document: Document }).document.createElement("canvas");
+    contactCanvas.width = contactCanvas.height = 256;
+    const cctx = contactCanvas.getContext("2d")!;
+    const cgrad = cctx.createRadialGradient(128, 128, 10, 128, 128, 128);
+    cgrad.addColorStop(0, "rgba(0,0,0,0.42)");
+    cgrad.addColorStop(0.5, "rgba(0,0,0,0.22)");
+    cgrad.addColorStop(1, "rgba(0,0,0,0)");
+    cctx.fillStyle = cgrad; cctx.fillRect(0, 0, 256, 256);
+    const contactTex = new THREE.CanvasTexture(contactCanvas as unknown as ConstructorParameters<typeof THREE.CanvasTexture>[0]);
+    const contactShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ map: contactTex, transparent: true, depthWrite: false, opacity: 0.9 }),
+    );
+    contactShadow.rotation.x = -Math.PI / 2; contactShadow.position.y = 0.0015; // just above the floor, under the piece
+    contactShadow.renderOrder = 1; contactShadow.visible = false; // shown once a model is built + sized
+    scene3.add(contactShadow);
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, roomGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, contactShadow, framedKey: "" };
     // dev-only: expose the three runtime so local tooling (puppeteer) can assert on the SCENE GRAPH — a
     // 3D overlay like the dimension line has no DOM to query. Stripped from prod builds, like __karkas.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
@@ -1147,6 +1171,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       labels.w.remove(); labels.h.remove(); labels.d.remove();
       scene3.environment?.dispose(); // M3.1 — free the PMREM env texture (three won't auto-dispose it on unmount)
       shadowGround.geometry.dispose(); (shadowGround.material as THREE.Material).dispose();
+      contactShadow.geometry.dispose(); contactTex.dispose(); (contactShadow.material as THREE.Material).dispose(); // M9U.1
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
       rt.current = null;
@@ -1270,6 +1295,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     highlightBoard(group, selectedId);
     // C5 — refresh the dimension overlay: bounding box + W/H/D text (mm)
     r.aabb = new THREE.Box3().setFromObject(group);
+    // M9U.1 — size the contact shadow to the model's footprint. Scaled ~1.4× so its soft fade spills a
+    // little past the base (that visible halo is the effect); centred on the footprint in X/Z.
+    if (r.contactShadow && !r.aabb.isEmpty()) {
+      const sz = r.aabb.getSize(new THREE.Vector3());
+      const ctr = r.aabb.getCenter(new THREE.Vector3());
+      r.contactShadow.scale.set(Math.max(0.2, sz.x * 1.42), Math.max(0.2, sz.z * 1.42), 1);
+      r.contactShadow.position.x = ctr.x; r.contactShadow.position.z = ctr.z;
+      r.contactShadow.visible = true;
+    }
     if (r.labels) {
       const d = sceneDimsMm(scene);
       r.labels.w.textContent = `${d.w}`;
