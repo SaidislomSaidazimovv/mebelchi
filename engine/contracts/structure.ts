@@ -360,6 +360,23 @@ export interface Component {
    */
   readonly material?: string;
   /**
+   * M7.3 — free text the usta wrote about this part («kromka faqat oldi», «mijozning taxtasi»). It
+   * reaches every Part this component emits, and from there the cut list and the printed drawing.
+   * Documentation only: it changes no size, no hole and no price. Optional/additive.
+   */
+  readonly note?: string;
+  /**
+   * M7.4 — VIEW state, deliberately stored on the model so it survives save/reload.
+   * `hidden` drops the part from the 3-D viewport ONLY: it is still cut, still drilled, still priced and
+   * still in the CNC file, because hiding a door to see the shelves behind it must never quietly delete
+   * it from the order. To remove a part, delete it.
+   * `locked` refuses moves, resizes and deletion in the editor — a table top the usta pinned so he can
+   * drag the legs underneath without shifting it by accident. Purely an interaction rule (the engine
+   * only carries the flag).
+   */
+  readonly hidden?: boolean;
+  readonly locked?: boolean;
+  /**
    * Inclined shelf tilt (imos AS_O_Angle · "qiya polka"): the front edge is raised by `angle_deg`
    * degrees about the shelf's width axis, so an internal shelf leans back like a display / shoe rack.
    * Applies to `internal_shelf` components only. The board itself is the SAME rectangle (the cut list,
@@ -522,8 +539,18 @@ export type FreePartRole = "top" | "leg" | "rail" | "stretcher" | "panel" | "she
  * support). The `box` stays the ENVELOPE — a cylinder's height is box.h and its radius min(box.w,box.d)/2
  * — so anchors, moving and resizing keep working unchanged. Because they cannot be cut from a sheet,
  * non-box parts are kept OUT of the panel cut list, the CNC export and the m² price (see solve/drilling).
+ *
+ * M7 widened the family to what a workshop actually shapes by hand or buys ready-made: an ARC (the
+ * curved fascia of a rounded worktop or a bowed door), a CONE (the tapered leg every Scandinavian-style
+ * table stands on), a HALF-CYLINDER (the rounded end of a worktop or a handrail), a HEXAGON post and a
+ * TORUS ring (a pull). None of them can be nested on a sheet either, so they inherit the same treatment
+ * — drawn in 3-D and in AR, listed under «Boshqa qismlar», never in the cut file. A curved door IS
+ * cuttable in the real world, but only by a contour the SWJ008 export does not speak; sending a guessed
+ * arc toolpath to a machine is not a risk worth taking, so the usta cuts that curve himself.
  */
-export type PrimitiveShape = "box" | "cylinder" | "sphere" | "tube" | "wedge";
+export type PrimitiveShape =
+  | "box" | "cylinder" | "sphere" | "tube" | "wedge"
+  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus";
 
 /** One edge of a free part on an axis, pinned to the block's LOW (`x=0`) or HIGH (`x=extent`) face at a
  *  fixed `offset_mm10` inside it. This is what makes the "table law" work for free parts: on a block
@@ -574,6 +601,11 @@ export interface FreePart {
   readonly rotY_deg?: number;
   /** Optional per-part decor override (opaque catalog key), like a Component's `material`. */
   readonly material?: string;
+  /** M7.3 — free text about this part, carried to the cut list and the drawing. See Component.note. */
+  readonly note?: string;
+  /** M7.4 — hidden in the viewport but still cut/priced; locked against editing. See Component.hidden. */
+  readonly hidden?: boolean;
+  readonly locked?: boolean;
   /**
    * How the board reflows when its block resizes (v5, the "table law" for free parts). Absent = the box
    * is static (a hand-placed board that stays put). Present = `box` is re-derived from the block's box on

@@ -32,6 +32,8 @@ export interface Board {
   kromka?: PanelFeatures["kromka"];
   /** M4 — draw this board as a primitive (cylinder / sphere / tube / wedge) inside `size`. Absent = a box. */
   shape?: PrimitiveShape;
+  /** M7.4 — hidden in the viewport only: still cut, still drilled, still priced. */
+  hidden?: boolean;
 }
 
 export interface Scene {
@@ -64,6 +66,7 @@ interface RawBox {
   rotYDeg?: number;
   /** M4 — primitive shape carried straight through from the placement to the Board. */
   shape?: PrimitiveShape;
+  hidden?: boolean; // M7.4
 }
 
 /**
@@ -105,6 +108,7 @@ export function boxesToScene(
       ...(f?.cutouts && f.cutouts.length > 0 ? { cutouts: f.cutouts } : {}),
       ...(f?.kromka && f.kromka.some((k) => k) ? { kromka: f.kromka } : {}),
       ...(b.shape && b.shape !== "box" ? { shape: b.shape } : {}), // M4 — non-box primitive
+      ...(b.hidden ? { hidden: true } : {}), // M7.4
     };
   });
   const w = M(maxX - minX), h = M(maxY - minY), d = M(maxZ - minZ);
@@ -163,6 +167,7 @@ export function layoutToScene(
       rot: p.rotX_deg,
       rotYDeg: p.rotY_deg,
       shape: p.shape, // M4
+      hidden: p.hidden, // M7.4 — the usta hid it in the viewport
     })),
     features,
     origin,

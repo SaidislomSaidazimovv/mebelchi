@@ -123,6 +123,13 @@ export interface Part {
    */
   shape?: string;
   /**
+   * M7.3 — a free-text note the usta wrote on this part («kromka faqat oldi», «mijozning taxtasi»).
+   * Optional/additive: absent = today's part, byte-identical. It is DOCUMENTATION, never geometry —
+   * it changes no size, no hole and no price, and only the cut list and the drawing read it. Stamped
+   * from the emitting Component/FreePart, so every part of a drawer carries the note written on it.
+   */
+  note?: string;
+  /**
    * Per-part material override (Phase F2): an OPAQUE app-catalog decor key, copied from the emitting
    * Component's `material`. Absent = priced/coloured by the part's role. The engine never interprets
    * it — the app resolves the key to a colour / price / name.

@@ -65,9 +65,60 @@ function addCutoutHole(shape: THREE.Shape, cut: NonNullable<Board["cutouts"]>[nu
  *  RAIL every wardrobe needs), a sphere (knob/foot), a tube (metal frame) or a wedge (angled support).
  *  The envelope stays the box, so a cylinder's height is size.y and its radius min(size.x, size.z)/2 —
  *  moving, anchoring and resizing keep working exactly as they do for a flat board. */
+/**
+ * Re-centre a geometry on its own bounds. Boards are positioned by the CENTRE of their box, so a shape
+ * built off-origin (an arc grows from its chord, half a cylinder sits to one side of the axis) would
+ * float away from where the usta dropped it.
+ */
+function centred(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  g.computeBoundingBox();
+  const c = g.boundingBox!.getCenter(new THREE.Vector3());
+  g.translate(-c.x, -c.y, -c.z);
+  return g;
+}
+
 function primitiveGeometry(shape: NonNullable<Board["shape"]>, w: number, h: number, d: number): THREE.BufferGeometry {
   if (shape === "sphere") return new THREE.SphereGeometry(Math.max(0.001, Math.min(w, h, d) / 2), 32, 20);
-  if (shape === "cylinder" || shape === "tube") {
+  if (shape === "torus") {
+    // A ring (a pull, a decorative hoop). It is FLAT, so its axis is the box's SHORTEST side — the same
+    // reasoning as the long primitives, mirrored: the thin dimension is the one it is thin along.
+    const thin: "x" | "y" | "z" = d <= w && d <= h ? "z" : w <= h ? "x" : "y";
+    const across = thin === "z" ? Math.min(w, h) : thin === "x" ? Math.min(h, d) : Math.min(w, d);
+    const tube = Math.max(0.001, Math.min(d, w, h) / 2);
+    const g = new THREE.TorusGeometry(Math.max(tube * 1.2, across / 2 - tube), tube, 14, 36);
+    if (thin === "x") g.rotateY(Math.PI / 2); // TorusGeometry is thin along Z by default
+    else if (thin === "y") g.rotateX(Math.PI / 2);
+    return g;
+  }
+  if (shape === "arc") {
+    // A curved fascia: a half-ring wall standing on its edge. The chord runs along the LONGER of the two
+    // horizontal sides, it bulges by the other, and `h` is how tall the panel is — so resizing the box
+    // bends and stretches the same curve instead of swapping which way it faces.
+    // A circular SEGMENT, not a half-circle: the box says how far it bows (the shallow side) and how wide
+    // it is (the long side), and the radius follows from those two — R = (c²/4 + b²) / 2b, the sagitta
+    // relation. A half-circle would ignore the box and bulge by half the width, so a 600 mm bowed door
+    // would stick out 300 mm instead of the 80 the usta asked for.
+    const chord = Math.max(w, d);
+    const span = Math.max(0.002, Math.min(Math.min(w, d), chord / 2)); // past a semicircle is not a door
+    const t = Math.min(span * 0.6, 0.018); // panel thickness — 18 mm stock, thinner on a shallow bow
+    // The shell's own thickness has to come OUT of the bow, or the inner face's ends hang below the chord
+    // and the part grows deeper than the box the usta sized (measured: an 80 mm box drew 96 mm).
+    const bulge = Math.max(0.001, span - t);
+    const R = (chord * chord / 4 + bulge * bulge) / (2 * bulge);
+    const half = Math.asin(Math.min(1, chord / 2 / R)); // half the angle the segment spans
+    const cy = bulge - R; // centre placed so the crown sits at y = bulge and the ends at y = 0
+    const ring = new THREE.Shape();
+    ring.absarc(0, cy, R, Math.PI / 2 - half, Math.PI / 2 + half, false);
+    ring.absarc(0, cy, R - t, Math.PI / 2 + half, Math.PI / 2 - half, true);
+    ring.closePath();
+    const tall = Math.max(0.001, h);
+    const g = new THREE.ExtrudeGeometry(ring, { depth: tall, bevelEnabled: false, curveSegments: 28 });
+    g.translate(0, 0, -tall / 2);
+    g.rotateX(-Math.PI / 2); // extrusion runs +Z → stand the panel up so `h` is its height
+    if (d > w) g.rotateY(Math.PI / 2); // the chord follows the longer horizontal side
+    return centred(g);
+  }
+  if (shape === "cylinder" || shape === "tube" || shape === "cone" || shape === "hexagon" || shape === "halfCylinder") {
     // The axis follows the LONGEST side, so ONE primitive serves a vertical round leg AND a horizontal
     // hanging rail (штанга) — the everyday wardrobe part that had no shape at all until now. (A fixed
     // Y axis would have drawn a 1.1 m rail as a stubby 30 mm-tall disc.)
@@ -77,6 +128,12 @@ function primitiveGeometry(shape: NonNullable<Board["shape"]>, w: number, h: num
     const r = Math.max(0.001, across / 2);
     let g: THREE.BufferGeometry;
     if (shape === "cylinder") g = new THREE.CylinderGeometry(r, r, len, 32);
+    // A leg tapers DOWNWARD — wide where it meets the top, narrow on the floor. The other way round
+    // reads as a funnel, not furniture.
+    else if (shape === "cone") g = new THREE.CylinderGeometry(r, r * 0.5, len, 28);
+    else if (shape === "hexagon") g = new THREE.CylinderGeometry(r, r, len, 6);
+    // Half a cylinder: round on one side, flat on the other — a worktop's rounded end, a handrail.
+    else if (shape === "halfCylinder") g = centred(new THREE.CylinderGeometry(r, r, len, 28, 1, false, 0, Math.PI));
     else {
       const inner = Math.max(r * 0.35, r - 0.004); // ≈4 mm wall
       const ring = new THREE.Shape();
@@ -213,6 +270,10 @@ export function materialForFinish(color: number, finish?: MaterialFinish, textur
 export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined, finishOf?: (id: string) => MaterialFinish | undefined, textureOf?: (id: string) => TextureKind | undefined): THREE.Group {
   const group = new THREE.Group();
   for (const b of scene.boards) {
+    // M7.4 — a hidden part is not drawn. It is NOT removed from anything else: the cut list, the holes,
+    // the price and the CNC file all still carry it, because hiding a door to look behind it must never
+    // quietly drop it from the order.
+    if (b.hidden) continue;
     const geom = boardGeometry(b);
     const mesh = new THREE.Mesh(geom, materialForFinish(colorOf?.(b.id) ?? WOOD, finishOf?.(b.id), textureOf?.(b.id), b.size));
     mesh.userData.baseColor = colorOf?.(b.id) ?? WOOD; // remembered so realistic/shaded can restore it

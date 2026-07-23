@@ -2340,3 +2340,62 @@ export function setComponentMaterial(
   });
   return changed ? { ...model, blocks } : model;
 }
+
+/**
+ * setComponentNote (M7.3) — attach (or clear with null) the usta's free-text note on a component. An
+ * exact mirror of setComponentMaterial, including the no-op early return: a note re-typed identically
+ * must not stack a dead undo step. The note is documentation — it reaches every Part the component
+ * emits and from there the cut list and the drawing, and changes no geometry, hole or price.
+ */
+export function setComponentNote(
+  model: StructuralModel,
+  componentId: ComponentId,
+  note: string | null,
+): StructuralModel {
+  const text = note?.trim() ? note.trim() : null;
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]!.note ?? null) === text) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (text === null) {
+        const { note: _drop, ...rest } = c;
+        return rest;
+      }
+      return { ...c, note: text };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}
+
+/**
+ * setComponentView (M7.4) — the viewport flags an usta sets on a part: `hidden` takes it out of the 3-D
+ * view ONLY (it is still cut, drilled, priced and exported), `locked` refuses edits so a pinned table
+ * top cannot be dragged while he moves the legs beneath it. Same no-op early return as its siblings.
+ * `false` REMOVES the flag rather than storing it, so an untouched model stays byte-identical.
+ */
+export function setComponentView(
+  model: StructuralModel,
+  componentId: ComponentId,
+  key: "hidden" | "locked",
+  on: boolean,
+): StructuralModel {
+  let changed = false;
+  const blocks = model.blocks.map((block) => {
+    const idx = block.components.findIndex((c) => c.id === componentId);
+    if (idx === -1) return block;
+    if ((block.components[idx]![key] ?? false) === on) return block; // no-op
+    changed = true;
+    const components = block.components.map((c, i) => {
+      if (i !== idx) return c;
+      if (!on) { const { [key]: _drop, ...rest } = c; return rest; }
+      return { ...c, [key]: true };
+    });
+    return { ...block, components };
+  });
+  return changed ? { ...model, blocks } : model;
+}

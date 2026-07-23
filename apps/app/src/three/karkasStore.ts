@@ -8,13 +8,15 @@ import { create } from "zustand";
 import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind, PanelShell, PrimitiveShape } from "../../../../engine/contracts/structure.js";
 
 /** The shapes furniture is actually made of — what the ＋ panel offers. */
-export type PrimitiveKind = "board" | "panel" | "post" | "box" | "cylinder" | "rail" | "sphere" | "tube" | "wedge";
+export type PrimitiveKind =
+  | "board" | "panel" | "post" | "box" | "cylinder" | "rail" | "sphere" | "tube" | "wedge"
+  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus"; // M7
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentView, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -278,6 +280,14 @@ interface KarkasState extends Derived {
   resizeFreeBoardTo: (fpId: string, dim: "w" | "h" | "d", mm: number, first: boolean) => { size: number; snapped: boolean };
   /** Rename a free board (M1.3a) — its `name` flows to the cut list + SWJ008. Blank → a default. */
   renameFreePart: (fpId: string, name: string) => void;
+  /** M7.3 — the usta's own note on the selected component / a free part. Empty string clears it. */
+  setPartNote: (text: string) => void;
+  setFreePartNote: (fpId: string, text: string) => void;
+  /** M7.4 — viewport flags: hide a part from the 3-D view (still cut/priced), or lock it against edits. */
+  setFreePartView: (fpId: string, key: "hidden" | "locked", on: boolean) => void;
+  setPartView: (key: "hidden" | "locked", on: boolean) => void;
+  /** M7.4 — is this free part locked against editing? Every mutating free-part action asks first. */
+  isFreePartLocked: (fpId: string) => boolean;
   /** M4 — switch a free board's primitive shape. "box" turns it back into a flat, cuttable panel. */
   setFreeBoardShape: (fpId: string, shape: PrimitiveShape) => void;
   rotateFreeBoard: (fpId: string) => void;
@@ -581,6 +591,14 @@ export const useKarkas = create<KarkasState>((set, get) => {
         sphere: { name: "Shar", role: "panel", axis: "y", w: 600, h: 600, d: 600, shape: "sphere" },
         tube: { name: "Quvur", role: "rail", axis: "x", w: 400, h: Math.min(7100, bx.h), d: 400, shape: "tube" },
         wedge: { name: "Pona", role: "panel", axis: "z", w: 2000, h: 2000, d: 300, shape: "wedge" },
+        // M7 — the shapes a workshop turns by hand or buys ready-made. Each arrives already the size and
+        // the way round it is normally used, so the first thing an usta sees is a believable part.
+        arc: { name: "Egri fasad", role: "panel", axis: "z", w: 6000, h: Math.min(7200, bx.h), d: 800, shape: "arc" },
+        cone: { name: "Torayuvchi oyoq", role: "leg", axis: "x", w: 700, h: Math.min(7100, bx.h), d: 700, shape: "cone" },
+        halfCylinder: { name: "Yumaloq uch", role: "panel", axis: "y", w: Math.min(4000, Math.round(bx.w * 0.55)), h: 400, d: 400, shape: "halfCylinder" },
+        hexagon: { name: "Olti qirrali ustun", role: "leg", axis: "x", w: 600, h: Math.min(7100, bx.h), d: 600, shape: "hexagon" },
+        // a ring is a pull — it belongs at handle height, not on the floor
+        torus: { name: "Halqa", role: "rail", axis: "z", w: 1200, h: 1200, d: 300, shape: "torus", y: Math.max(0, Math.round(bx.h * 0.45)) },
       };
       const spec = specs[kind];
       // Placed ON THE FLOOR and centred, nudged clear of what is already there — a new part that lands
@@ -666,7 +684,9 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     // gizmos «rotate» — turn a free board about the VERTICAL axis. Render-only (rotY_deg): the cut panel
     // is unchanged, so the spec/CNC never sees it. Normalised to 0..359; `first` opens ONE undo step.
+    isFreePartLocked: (fpId) => get().model.blocks[0]?.freeParts?.find((f) => f.id === fpId)?.locked === true,
     rotateFreePartTo: (fpId, deg, first) => {
+      if (get().isFreePartLocked(fpId)) return;
       const s = get();
       const block = s.model.blocks[0];
       if (!block?.freeParts) return;
@@ -882,6 +902,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       try { apply(fitCorner(asL, block.id)); } catch { /* engine guard — ignore a bad corner-fit */ }
     },
     moveFreePart: (fpId, delta, first) => {
+      if (get().isFreePartLocked(fpId)) return;
       const s = get();
       const block = s.model.blocks[0];
       if (!block || !block.freeParts) return;
@@ -898,6 +919,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
       else set((st) => ({ ...derive(model, st.plan, st.thickness) }));
     },
     moveFreePartTo: (fpId, axis, idealPos, first) => {
+      // refused: report where it already is, so the caller's drag maths stays consistent
+      if (get().isFreePartLocked(fpId)) {
+        const cur = get().model.blocks[0]?.freeParts?.find((f) => f.id === fpId);
+        return { pos: cur ? cur.box[axis] : 0, snapped: false };
+      }
       const s = get();
       const block = s.model.blocks[0];
       const fp = block?.freeParts?.find((f) => f.id === fpId);
@@ -914,6 +940,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     // U3.2c — on drop, snap the board flush to any nearby compartment face (magnet). Part of the same
     // drag undo step (a plain set, no new past entry), so one drag = one undo.
     snapFreePart: (fpId) => {
+      if (get().isFreePartLocked(fpId)) return;
       const s = get();
       const block = s.model.blocks[0];
       if (!block?.freeParts) return;
@@ -936,6 +963,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       set((st) => ({ ...derive(model, st.plan, st.thickness) }));
     },
     resizeFreeBoard: (fpId, dim, mm, pushHistory = true) => {
+      if (get().isFreePartLocked(fpId)) return;
       const s = get();
       const block = s.model.blocks[0];
       if (!block?.freeParts) return;
@@ -957,6 +985,12 @@ export const useKarkas = create<KarkasState>((set, get) => {
     // (same magnet as move-snap), the LOW edge (origin) holds. Also detaches (anchor dropped) so the size
     // sticks through a later block resize. Returns the applied size (mm) + whether it snapped.
     resizeFreeBoardTo: (fpId, dim, mm, first) => {
+      // refused: report the size it already is, so the caller's drag maths stays consistent
+      if (get().isFreePartLocked(fpId)) {
+        const cur = get().model.blocks[0]?.freeParts?.find((f) => f.id === fpId);
+        const side = dim === "w" ? cur?.box.w : dim === "h" ? cur?.box.h : cur?.box.d;
+        return { size: Math.round((side ?? 0) / 10), snapped: false };
+      }
       const s = get();
       const block = s.model.blocks[0];
       const fp = block?.freeParts?.find((f) => f.id === fpId);
@@ -980,6 +1014,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
     // U3.3b — rotate 90°: cycle the thin axis y→x→z→y and swap the two dims so the 16 mm thickness moves
     // with it (horizontal shelf → vertical side → front/back panel → …). One undo step, keeps selection.
     rotateFreeBoard: (fpId) => {
+      if (get().isFreePartLocked(fpId)) return;
       const s = get();
       const block = s.model.blocks[0];
       if (!block?.freeParts) return;
@@ -1014,6 +1049,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
       apply(model, true);
     },
     setFreeBoardShape: (fpId, shape) => {
+      if (get().isFreePartLocked(fpId)) return;
       const s = get();
       const block = s.model.blocks[0];
       if (!block?.freeParts) return;
@@ -1046,7 +1082,60 @@ export const useKarkas = create<KarkasState>((set, get) => {
       };
       apply(model, true);
     },
+    // M7.3 — a note on a free part. Trimmed-empty CLEARS the field (rather than storing ""), so a part
+    // with no note is byte-identical to one that never had one.
+    setFreePartNote: (fpId, text) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const note = text.trim();
+      const cur = block.freeParts.find((f) => f.id === fpId);
+      if (!cur || (cur.note ?? "") === note) return; // no-op → no dead undo step
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (f.id !== fpId) return f;
+            if (!note) { const { note: _drop, ...rest } = f; return rest; }
+            return { ...f, note };
+          }),
+        })),
+      };
+      apply(model, true);
+    },
+    // …and on whatever component is selected. Forks first, exactly like setMaterial/setLip, so a note
+    // lands on THIS shelf rather than on all three that share a component.
+    setPartNote: (text) => {
+      const f = forkSelected();
+      if (f) apply(setComponentNote(f.model, f.compId, text), true);
+    },
+    // M7.4 — the same two flags, for a free part and for the selected component.
+    setFreePartView: (fpId, key, on) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const cur = block.freeParts.find((f) => f.id === fpId);
+      if (!cur || (cur[key] ?? false) === on) return; // no-op → no dead undo step
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (f.id !== fpId) return f;
+            if (!on) { const { [key]: _drop, ...rest } = f; return rest; }
+            return { ...f, [key]: true };
+          }),
+        })),
+      };
+      apply(model, true);
+    },
+    setPartView: (key, on) => {
+      const f = forkSelected();
+      if (f) apply(setComponentView(f.model, f.compId, key, on), true);
+    },
     removeFreeBoard: (fpId) => {
+      if (get().isFreePartLocked(fpId)) return;
       const s = get();
       const block = s.model.blocks[0];
       if (block) apply(removeFreePartOp(s.model, block.id, fpId));

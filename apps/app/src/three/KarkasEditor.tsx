@@ -25,7 +25,7 @@ import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
 import { applianceFittings, withApplianceCutouts } from "./appliances";
-import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, isAndroid, sceneViewerUrl, startArSession, uploadGlbForAr, type ArSession, type ArSupport } from "./karkasAr";
+import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, exportObj, exportStl, isAndroid, sceneViewerUrl, startArSession, uploadGlbForAr, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
@@ -139,7 +139,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [tab, setTab] = useState<MobTab>("build");
   const [toolsOpen, setToolsOpen] = useState(false); // mobile: the «⋯ ko'proq» slide-up sheet
-  const [rpanel, setRpanel] = useState<"none" | "add" | "material">("none"); // U2.3 right panel
+  // U2.3 right panel. "room" joined it in M6-UX: the room presets used to live ONLY inside the ⋯ sheet,
+  // so on a phone the walls could not be set without knowing that menu. Riding the existing panel state
+  // (rather than a sheet of its own) means opening it closes the others and every «hide while a panel is
+  // up» rule already covers it.
+  const [rpanel, setRpanel] = useState<"none" | "add" | "material" | "room">("none");
   // #3 — tap-a-dimension math keypad: an usta-friendly calculator (600+18, 1200/2…) that opens on tapping
   // a W/H/D chip on mobile, so no fiddly native keyboard. `mm` is always in mm; the pad handles cm display.
   const [keypad, setKeypad] = useState<{ label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void; min?: number; suffix?: string } | null>(null);
@@ -185,6 +189,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const roomWallCount = useKarkas((s) => s.model.room?.walls.length ?? 0);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const renameFreePart = useKarkas((s) => s.renameFreePart);
+  const setFreePartNote = useKarkas((s) => s.setFreePartNote); // M7.3
+  const setPartNote = useKarkas((s) => s.setPartNote);
+  const setFreePartView = useKarkas((s) => s.setFreePartView); // M7.4
+  const setPartView = useKarkas((s) => s.setPartView);
   const setFreeBoardShape = useKarkas((s) => s.setFreeBoardShape);
   const resizeFreeBoardTo = useKarkas((s) => s.resizeFreeBoardTo);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
@@ -580,6 +588,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         date: new Date().toISOString().slice(0, 10),
         materials: carcass,
         legend: [`Korpus: ${carcass}`, `Fasad: ${boardName(plan.facade)}`, `Orqa: ${boardName(plan.back)}`, `Kromka: ${edge}`],
+        // M7.3 — carry the usta's notes onto the printed sheet. Identical notes on several parts (a
+        // drawer's four sides share one) are said once.
+        notes: [...new Set(parts.filter((p) => p.note).map((p) => `${p.name} — ${p.note}`))],
       });
     } catch { return ""; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1460,13 +1471,19 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       setArError(`AR ochilmadi: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
-  const downloadGlb = async () => {
+  /**
+   * M7.2 — hand the solved model to the outside world. `.glb` is for phones and AR, `.stl` for a 3-D
+   * printer or a machinist, `.obj` for any CAD. All three are the same model at 1 unit = 1 m, so a part
+   * measured in another program measures what the cut list says.
+   */
+  const download3d = async (kind: "glb" | "stl" | "obj") => {
     setArError(null);
     try {
-      const blob = await exportGlb(arGroup());
+      const group = arGroup();
+      const blob = kind === "glb" ? await exportGlb(group) : kind === "stl" ? await exportStl(group) : await exportObj(group);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "karkas.glb";
+      a.download = `karkas.${kind}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     } catch (err) {
@@ -1635,7 +1652,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {tab === "parts" && (
         <>
           <div style={{ position: "absolute", inset: "60px 0 0 0", background: "var(--mob-surface-2)", zIndex: 3 }} />
-          <SpecPanel variant="tab" onClose={() => setTab("build")} />
+          <SpecPanel variant="tab" onClose={() => setTab("build")} onExportCnc={exportCnc} />
         </>
       )}
       {/* ── Chizma tab = the technical drawing (print / PDF) ── */}
@@ -1694,7 +1711,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 >{arCopied ? "✓ Nusxa olindi" : "⧉ Nusxa olish"}</button>
               </details>
             )}
-            <button type="button" className="mob-ar-alt" onClick={downloadGlb}>⬇ 3D fayl (.glb) yuklab olish</button>
+            <button type="button" className="mob-ar-alt" onClick={() => void download3d("glb")}>⬇ 3D fayl (.glb) yuklab olish</button>
+            {/* M7.2 — the neutral formats: .stl for a 3-D printer or machinist, .obj for any CAD. */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="mob-ar-alt" style={{ flex: 1 }} onClick={() => void download3d("stl")} title="3D printer / stanok uchun">⬇ .stl</button>
+              <button type="button" className="mob-ar-alt" style={{ flex: 1 }} onClick={() => void download3d("obj")} title="Boshqa CAD dasturlar uchun">⬇ .obj</button>
+            </div>
             <span className="mob-ar-note">Model haqiqiy o'lchamda (1 m = 1 m) — mijozga yuborsa ham bo'ladi.</span>
           </div>
         </div>
@@ -1741,7 +1763,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {tab === "build" && rpanel !== "none" && (
         <aside className={"mob-panel" + (compact ? " is-sheet" : "")} style={compact ? undefined : { right: 72 }}>
           <div className="mob-panel-head">
-            <span>{rpanel === "add" ? "Qo'shish" : "Materiallar"}</span>
+            <span>{rpanel === "add" ? "Qo'shish" : rpanel === "room" ? "Xona" : "Materiallar"}</span>
             <button className="mob-x" type="button" onClick={() => setRpanel("none")} aria-label="Yopish">×</button>
           </div>
           <div className="mob-panel-body">
@@ -1794,6 +1816,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("tube"); setRpanel("none"); }}>◎ Quvur</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("sphere"); setRpanel("none"); }}>⬤ Shar</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("wedge"); setRpanel("none"); }}>◺ Pona</button>
+                  {/* M7 — the shapes a workshop turns by hand or buys: a bowed door, a tapered leg, a
+                      rounded worktop end, a hex post, a ring pull. */}
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("arc"); setRpanel("none"); }}>◠ Egri fasad</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("cone"); setRpanel("none"); }}>△ Torayuvchi oyoq</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("halfCylinder"); setRpanel("none"); }}>◗ Yumaloq uch</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("hexagon"); setRpanel("none"); }}>⬡ Olti qirrali</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("torus"); setRpanel("none"); }}>◯ Halqa</button>
                 </div>
                 {selectedId && !selectedId.includes("__div_") && (
                   <div className="mob-addgrid" style={{ marginTop: 10 }}>
@@ -1802,6 +1831,40 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     <button className={"mob-addbtn" + (showKromka ? " is-active" : "")} type="button" onClick={() => togglePanel("kromka")}>▤ Jiyak</button>
                   </div>
                 )}
+              </>
+            ) : rpanel === "room" ? (
+              /* M6-UX — the room: wall preset, then one length field per wall, then the auto-fitted corner
+                 cabinet. Same controls as the ⋯ sheet's row, but reachable in one tap and laid out down
+                 the sheet instead of scrolling sideways. */
+              <>
+                <div className="mob-addgrid">
+                  {([["none", "Yo'q"], ["I", "I — bitta devor"], ["L", "L — burchak"], ["U", "П — uch devor"]] as const).map(([p, label]) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className={"mob-addbtn" + (roomPreset === p ? " is-active" : "")}
+                      onClick={() => (p === "none" ? clearRoom() : setRoom(p, roomLens ? roomLens.split(",").map(Number) : []))}
+                    >{label}</button>
+                  ))}
+                </div>
+                {roomPreset !== "none" && (
+                  <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {roomLens.split(",").map((L, i) => (
+                      <label key={i} className="mob-props-f" style={{ justifyContent: "space-between" }}>
+                        <span>{i + 1}-devor</span>
+                        <DimField label="mm" value={Number(L)} min={500} units={units}
+                          onCommit={(v) => { const lens = roomLens.split(",").map(Number); lens[i] = v; setRoom(roomPreset as "I" | "L" | "U", lens); }} />
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {roomWallCount >= 2 && (
+                  <button className="mob-addbtn" type="button" style={{ width: "100%", marginTop: 12 }}
+                    onClick={() => { fitCorner(); setRpanel("none"); }}>⌐ Burchakka L-shkaf</button>
+                )}
+                <span style={{ ...mono, fontSize: 11, opacity: 0.6, display: "block", marginTop: 12 }}>
+                  Devorlar faqat ko'rinish uchun — kesim ro'yxatiga ham, narxga ham kirmaydi.
+                </span>
               </>
             ) : (
               <>
@@ -1826,6 +1889,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {tab === "build" && compact && !selFreeBoard && (
         <div className="mob-fabgroup">
           <button className="mob-fab-mini" type="button" title="Ko'proq" aria-label="Ko'proq" onClick={() => { commitActiveEdit(); setToolsOpen((o) => !o); }}>⋯</button>
+          {/* M6-UX — «Xona» had no home on a phone: its presets sat inside the ⋯ sheet, so the walls the
+              cabinet is measured against were the one thing an usta could not reach in a tap. */}
+          <button className={"mob-fab-mini" + (rpanel === "room" ? " is-active" : "")} type="button" title="Xona" aria-label="Xona"
+            onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "room" ? "none" : "room")); }}>⌂</button>
           <button className={"mob-fab-mini" + (rpanel === "material" ? " is-active" : "")} type="button" title="Materiallar" aria-label="Materiallar" onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "material" ? "none" : "material")); }}><MobPaint /></button>
           <button className="mob-fab" type="button" title="Qo'shish" aria-label="Qo'shish" onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "add" ? "none" : "add")); }}>{rpanel === "add" ? "×" : <MobPlus />}</button>
         </div>
@@ -2085,6 +2152,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 </select>
               </label>
             )}
+            {/* M7.3 — the same note, for a carcass component (a shelf, a door, a drawer front). */}
+            {selComp && (
+              <label className="mob-props-f"><span>Izoh</span>
+                <input key={`note_${selComp.id}`} defaultValue={selComp.note ?? ""} placeholder="✎" title="Izoh — kesim ro'yxati va chizmaga tushadi"
+                  onBlur={(e) => setPartNote(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  style={{ ...mono, width: 96, border: "1px solid #cdd5df", borderRadius: 6, padding: "2px 6px", background: "#fff", color: "#7a6a4a" }} />
+              </label>
+            )}
+            {/* M7.4 — hide / lock this component too (a door hidden to see the shelves is still cut). */}
+            {selComp && (
+              <>
+                <button type="button" className="mob-props-toggle" onClick={() => setPartView("hidden", !selComp.hidden)}
+                  title="Yashirish — kesim ro'yxatida va narxda qoladi">{selComp.hidden ? "🚫 Yashirilgan" : "👁 Ko'rinadi"}</button>
+                <button type="button" className="mob-props-toggle" onClick={() => setPartView("locked", !selComp.locked)}
+                  title="Qulflash — tasodifan o'zgartirilmasin">{selComp.locked ? "🔒 Qulflangan" : "🔓 Ochiq"}</button>
+              </>
+            )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
                 be nudged by accident while dragging something else. */}
@@ -2155,6 +2240,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             onBlur={(e) => renameFreePart(selFreeBoard.id, e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
             style={{ ...mono, fontWeight: 700, color: "#1f5570", width: 100, border: "1px solid #cdd5df", borderRadius: 6, padding: "3px 7px", background: "#fff" }} />
+          {/* M7.3 — a note the workshop must read; it reaches the cut list and the printed drawing */}
+          <input key={`n${selFreeBoard.id}`} defaultValue={selFreeBoard.note ?? ""} title="Izoh — kesim ro'yxati va chizmaga tushadi" aria-label="Izoh" placeholder="✎ izoh"
+            onBlur={(e) => setFreePartNote(selFreeBoard.id, e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+            style={{ ...mono, color: "#7a6a4a", width: 120, border: "1px solid #cdd5df", borderRadius: 6, padding: "3px 7px", background: "#fff" }} />
+          {/* M7.4 — hide it from the view (still cut and priced) · lock it against accidental drags */}
+          <button type="button" title={selFreeBoard.hidden ? "Ko'rsatish" : "Yashirish (kesim ro'yxatida qoladi)"} aria-label="Yashirish"
+            onClick={() => setFreePartView(selFreeBoard.id, "hidden", !selFreeBoard.hidden)}
+            style={{ ...act, minHeight: 34, padding: "6px 10px", ...(selFreeBoard.hidden ? { borderColor: "#8a6d1f", background: "#fdf6e3", color: "#8a6d1f" } : {}) }}>{selFreeBoard.hidden ? "🚫" : "👁"}</button>
+          <button type="button" title={selFreeBoard.locked ? "Qulfni ochish" : "Qulflash (tasodifan surilmasin)"} aria-label="Qulflash"
+            onClick={() => setFreePartView(selFreeBoard.id, "locked", !selFreeBoard.locked)}
+            style={{ ...act, minHeight: 34, padding: "6px 10px", ...(selFreeBoard.locked ? { borderColor: "#a01a2e", background: "#fdeaee", color: "#a01a2e" } : {}) }}>{selFreeBoard.locked ? "🔒" : "🔓"}</button>
           <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "w", mm)} units={units} />
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
@@ -2167,6 +2264,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <option value="tube">◎ Quvur</option>
             <option value="sphere">⬤ Shar</option>
             <option value="wedge">◺ Pona</option>
+            <option value="arc">◠ Egri fasad</option>
+            <option value="cone">△ Torayuvchi</option>
+            <option value="halfCylinder">◗ Yumaloq uch</option>
+            <option value="hexagon">⬡ Olti qirrali</option>
+            <option value="torus">◯ Halqa</option>
           </select>
           <button type="button" aria-haspopup="dialog" title="Material" onClick={() => setSwatchTarget({ kind: "free", id: selFreeBoard.id })} style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34, display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ ...swatch, background: BOARDS.find((bd) => bd.id === selFreeBoard.material)?.hex ?? "#e6e6e6" }} />
@@ -2622,7 +2724,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           </div>
         )}
         {showTree && <TreePanel onClose={() => setActivePanel(null)} />}
-        {showSpec && <SpecPanel onClose={() => setActivePanel(null)} />}
+        {showSpec && <SpecPanel onClose={() => setActivePanel(null)} onExportCnc={exportCnc} />}
       </div>
     </div>
     </SwatchCtx.Provider>
@@ -2888,7 +2990,13 @@ function MatSelect({ label, slot }: { label: string; slot: keyof Omit<MaterialPl
 }
 
 /** Right-hand «Спецификация» drawer — material picker + cut list + material-plan price totals. */
-function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant?: "side" | "tab" }) {
+/**
+ * M6-UX — `onExportCnc` is optional but always passed today. The CNC file is what the whole editor is
+ * FOR, and on a phone it lived only behind the ⋯ sheet: an usta reading the cut list had no way to send
+ * it to the machine from where he was standing. It sits in the head, not under the list, so it does not
+ * move as the list grows.
+ */
+function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => void; variant?: "side" | "tab"; onExportCnc?: () => void }) {
   const { compact } = useViewport();
   const parts = useKarkas((s) => s.parts);
   const plan = useKarkas((s) => s.plan);
@@ -2937,7 +3045,11 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
       : compact ? { ...specPanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : specPanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Спецификация</b>
-        <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
+        {onExportCnc && (
+          <button onClick={onExportCnc} type="button" title="Stanok uchun fayl (SWJ008)"
+            style={{ ...pill, marginLeft: "auto", borderColor: "#00a961", background: "#e6f6ee", color: "#006b3f", fontWeight: 700 }}>⬇ CNC</button>
+        )}
+        <button onClick={onClose} style={{ ...pill, ...(onExportCnc ? {} : { marginLeft: "auto" }) }} type="button">✕</button>
       </div>
 
       {/* Ortho views — Top / Front / Side, so the usta sees WHAT is being cut before reading the list */}
@@ -3022,7 +3134,11 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
           <div key={p.id} style={specRow}>
             {/* panel silhouette — true L×W proportions, banded edges inked heavy */}
             <span className="mob-part-thumb" title="Panel shakli · qalin qirra = kromka" dangerouslySetInnerHTML={{ __html: panelThumbSvg(p.l_mm, p.w_mm, p.bands, 40) }} />
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
+            <span style={{ flex: 1, overflow: "hidden" }}>
+              <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
+              {/* M7.3 — the usta's own words about this part, right where the cut list is read */}
+              {p.note && <span style={{ display: "block", fontSize: 11, color: "#7a6a4a", fontStyle: "italic" }}>✎ {p.note}</span>}
+            </span>
             <span style={mono}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
             <span style={{ ...mono, color: "#8a6d1f", letterSpacing: 1 }} title="banded edges (1·2·3·4)">{p.bands.map((b) => (b ? "▪" : "·")).join("")}</span>
           </div>
