@@ -5,10 +5,10 @@
 // call the engine's PURE immutable operations (divideSection / addInstance) and re-derive.
 
 import { create } from "zustand";
-import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind, PanelShell } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind, PanelShell, PrimitiveShape } from "../../../../engine/contracts/structure.js";
 
 /** The shapes furniture is actually made of — what the ＋ panel offers. */
-export type PrimitiveKind = "board" | "panel" | "post" | "box";
+export type PrimitiveKind = "board" | "panel" | "post" | "box" | "cylinder" | "rail" | "sphere" | "tube" | "wedge";
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
@@ -278,6 +278,8 @@ interface KarkasState extends Derived {
   resizeFreeBoardTo: (fpId: string, dim: "w" | "h" | "d", mm: number, first: boolean) => { size: number; snapped: boolean };
   /** Rename a free board (M1.3a) — its `name` flows to the cut list + SWJ008. Blank → a default. */
   renameFreePart: (fpId: string, name: string) => void;
+  /** M4 — switch a free board's primitive shape. "box" turns it back into a flat, cuttable panel. */
+  setFreeBoardShape: (fpId: string, shape: PrimitiveShape) => void;
   rotateFreeBoard: (fpId: string) => void;
   setFreeBoardMaterial: (fpId: string, matId: string) => void;
   removeFreeBoard: (fpId: string) => void;
@@ -564,12 +566,23 @@ export const useKarkas = create<KarkasState>((set, get) => {
       // One primitive was never enough: a leg had to be made by adding a flat shelf and then fighting it
       // through a rotate and three resizes. These are the shapes furniture is actually made of, each
       // already the right way round and already a sensible size.
-      const spec = {
-        board: { name: "Taxta", role: "shelf" as const, axis: "y" as const, w: Math.min(4000, Math.round(bx.w * 0.55)), h: T, d: Math.min(3000, Math.round(bx.d * 0.6)) },
-        panel: { name: "Yon panel", role: "panel" as const, axis: "x" as const, w: T, h: Math.min(7200, bx.h), d: Math.min(3000, Math.round(bx.d * 0.6)) },
-        post: { name: "Oyoq", role: "leg" as const, axis: "x" as const, w: 500, h: Math.min(7100, bx.h), d: 500 },
-        box: { name: "Quti", role: "panel" as const, axis: "y" as const, w: 3000, h: 3000, d: 3000 },
-      }[kind];
+      type FreeSpec = { name: string; role: FreePart["role"]; axis: FreePart["thicknessAxis"]; w: number; h: number; d: number; shape?: PrimitiveShape; y?: number };
+      const specs: Record<PrimitiveKind, FreeSpec> = {
+        board: { name: "Taxta", role: "shelf", axis: "y", w: Math.min(4000, Math.round(bx.w * 0.55)), h: T, d: Math.min(3000, Math.round(bx.d * 0.6)) },
+        panel: { name: "Yon panel", role: "panel", axis: "x", w: T, h: Math.min(7200, bx.h), d: Math.min(3000, Math.round(bx.d * 0.6)) },
+        post: { name: "Oyoq", role: "leg", axis: "x", w: 500, h: Math.min(7100, bx.h), d: 500 },
+        box: { name: "Quti", role: "panel", axis: "y", w: 3000, h: 3000, d: 3000 },
+        // M4 — non-box primitives. The RAIL is the one a wardrobe cannot do without: a horizontal round
+        // bar across the opening (штанга). Its box is long in X, and the renderer aligns the cylinder to
+        // the longest side, so it comes out lying down while a leg of the same primitive stands up.
+        cylinder: { name: "Yumaloq oyoq", role: "leg", axis: "x", w: 500, h: Math.min(7100, bx.h), d: 500, shape: "cylinder" },
+        // a rail belongs NEAR THE TOP of the opening, not on the floor like every other new part
+        rail: { name: "Ilgich quvuri", role: "rail", axis: "y", w: Math.max(1000, bx.w - 600), h: 300, d: 300, shape: "cylinder", y: Math.max(0, bx.h - 900) },
+        sphere: { name: "Shar", role: "panel", axis: "y", w: 600, h: 600, d: 600, shape: "sphere" },
+        tube: { name: "Quvur", role: "rail", axis: "x", w: 400, h: Math.min(7100, bx.h), d: 400, shape: "tube" },
+        wedge: { name: "Pona", role: "panel", axis: "z", w: 2000, h: 2000, d: 300, shape: "wedge" },
+      };
+      const spec = specs[kind];
       // Placed ON THE FLOOR and centred, nudged clear of what is already there — a new part that lands
       // inside an existing one looks like nothing happened.
       const n = (block.freeParts ?? []).length;
@@ -582,9 +595,10 @@ export const useKarkas = create<KarkasState>((set, get) => {
         name: spec.name,
         role: spec.role,
         thicknessAxis: spec.axis,
-        box: { x: Math.round((bx.w - spec.w) / 2) + n * 600, y: 0, z: Math.round((bx.d - spec.d) / 2), w: spec.w, h: spec.h, d: spec.d },
-        // a solid post takes no edge banding — see FreePart.edgeBands
-        ...(kind === "post" ? { edgeBands: [0, 0, 0, 0] as const } : {}),
+        box: { x: Math.round((bx.w - spec.w) / 2) + n * 600, y: spec.y ?? 0, z: Math.round((bx.d - spec.d) / 2), w: spec.w, h: spec.h, d: spec.d },
+        ...(spec.shape ? { shape: spec.shape } : {}), // M4 — non-box primitive
+        // a solid post — or any non-box primitive — takes no edge banding (see FreePart.edgeBands)
+        ...(kind === "post" || spec.shape ? { edgeBands: [0, 0, 0, 0] as const } : {}),
       };
       apply(addFreePartOp(s.model, block.id, fp));
       set({ selectedId: `${block.id}__free_${fp.id}` }); // select it so it highlights and can be dragged
@@ -995,6 +1009,25 @@ export const useKarkas = create<KarkasState>((set, get) => {
         blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
           ...b,
           freeParts: b.freeParts!.map((f) => (f.id !== fpId ? f : { ...f, material: matId || undefined })),
+        })),
+      };
+      apply(model, true);
+    },
+    setFreeBoardShape: (fpId, shape) => {
+      const s = get();
+      const block = s.model.blocks[0];
+      if (!block?.freeParts) return;
+      const model: StructuralModel = {
+        ...s.model,
+        blocks: s.model.blocks.map((b) => (b.id !== block.id ? b : {
+          ...b,
+          freeParts: b.freeParts!.map((f) => {
+            if (f.id !== fpId) return f;
+            // back to "box" = a flat cuttable panel again: drop the field entirely so the part is
+            // byte-identical to one that never carried a shape (and re-enters the cut list + CNC).
+            if (shape === "box") { const { shape: _drop, ...rest } = f; return rest; }
+            return { ...f, shape };
+          }),
         })),
       };
       apply(model, true);

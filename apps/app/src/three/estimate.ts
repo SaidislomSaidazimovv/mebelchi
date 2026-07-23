@@ -65,25 +65,34 @@ export interface Estimate {
   byThickness: ThicknessGroup[];
   byMaterial: MaterialGroup[];
   priceUzs: number;
+  /**
+   * M4 — the NON-BOX parts (a round leg, a wardrobe hanging rail, a knob). They are not sheet panels:
+   * they carry no area, no edge banding and no m² price, and they are deliberately absent from `parts`
+   * and from every total above. Listed on their own so the usta sees what to source or turn.
+   */
+  others: PartSpec[];
 }
 
 /** Build the cut list + totals + price for a solved model's parts under a material plan. */
 export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Estimate {
   const edgeRate = edgeById(plan.edge)?.pricePerM ?? 0;
 
-  const specs: PartSpec[] = parts.map((p) => {
+  // M4 — a cylinder / sphere / tube / wedge cannot be cut from a sheet, so it never enters the panel cut
+  // list, the area + edge totals or the m² price; it is listed separately (`others`) and priced by hand.
+  const isPanel = (p: Part): boolean => !p.shape || p.shape === "box";
+  const toSpec = (p: Part, panel: boolean): PartSpec => {
     const w = M(p.width_mm10);
     const l = M(p.length_mm10);
-    const areaM2 = w * l;
+    const areaM2 = panel ? w * l : 0;
     const bands: [boolean, boolean, boolean, boolean] = [p.edges[0] > 0, p.edges[1] > 0, p.edges[2] > 0, p.edges[3] > 0];
     // Banded-edge running length. The face→edge mapping comes from the engine's edgeLengths() so there
     // is ONE source of truth: SWJ008 order [front, back, side, side] — front/back run along the LENGTH,
     // the two sides along the WIDTH (grounded in solve.ts's factory face map: Face1 drills at Y=Width,
     // POL_3_1.XML Face1 @ Y=503, so Face1 is the top edge and spans the length). This file used to keep
     // its own, mirrored copy of the rule, which under-counted kromka — and kromka feeds the price.
-    const edgeM = edgeLengths(p.length_mm10, p.width_mm10).reduce((sum, len, i) => sum + (bands[i] ? M(len) : 0), 0);
+    const edgeM = panel ? edgeLengths(p.length_mm10, p.width_mm10).reduce((sum, len, i) => sum + (bands[i] ? M(len) : 0), 0) : 0;
     const board = partBoard(plan, p.role, p.materialId);
-    const priceUzs = areaM2 * (board?.pricePerM2 ?? 0) + edgeM * edgeRate;
+    const priceUzs = panel ? areaM2 * (board?.pricePerM2 ?? 0) + edgeM * edgeRate : 0;
     return {
       id: p.id,
       name: p.name,
@@ -97,7 +106,9 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
       materialName: board?.name ?? "—",
       priceUzs,
     };
-  });
+  };
+  const specs: PartSpec[] = parts.filter(isPanel).map((p) => toSpec(p, true));
+  const others: PartSpec[] = parts.filter((p) => !isPanel(p)).map((p) => toSpec(p, false));
 
   const byThickness = [...specs.reduce((m, s) => {
     const g = m.get(s.t_mm) ?? { t_mm: s.t_mm, count: 0, areaM2: 0 };
@@ -117,7 +128,7 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
   const areaM2 = sum(specs.map((s) => s.areaM2));
   const edgeM = sum(specs.map((s) => s.edgeM));
   const priceUzs = Math.round(sum(specs.map((s) => s.priceUzs)));
-  return { parts: specs, count: specs.length, areaM2, edgeM, byThickness, byMaterial, priceUzs };
+  return { parts: specs, count: specs.length, areaM2, edgeM, byThickness, byMaterial, priceUzs, others };
 }
 
 export interface HardwareLine {

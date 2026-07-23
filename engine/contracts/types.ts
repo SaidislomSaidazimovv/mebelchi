@@ -115,6 +115,14 @@ export interface Part {
    */
   role?: string;
   /**
+   * M4 — the primitive SHAPE this part is drawn as (a PrimitiveShape from structure.ts: "box" |
+   * "cylinder" | "sphere" | "tube" | "wedge"). Absent = a flat box panel. Typed as `string` for the
+   * same reason as `role` — this foundational contract carries no upward dependency on structure.ts.
+   * A non-box part CANNOT be cut from a sheet, so it is deliberately kept OUT of the CNC export, the
+   * panel cut list, the area/edge totals and the m² price (see exportSWJ008 / estimate / applyDrilling).
+   */
+  shape?: string;
+  /**
    * Per-part material override (Phase F2): an OPAQUE app-catalog decor key, copied from the emitting
    * Component's `material`. Absent = priced/coloured by the part's role. The engine never interprets
    * it — the app resolves the key to a colour / price / name.

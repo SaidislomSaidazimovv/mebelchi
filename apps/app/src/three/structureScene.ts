@@ -7,7 +7,7 @@
 // entirely parallel to the kitchen Cell 3D (kitchen3d.ts) — nothing here touches that path.
 
 import type { PanelPlacement } from "../../../../engine/structure/layout.js";
-import type { PanelFeatures, StructuralModel, Room } from "../../../../engine/contracts/structure.js";
+import type { PanelFeatures, StructuralModel, Room, PrimitiveShape } from "../../../../engine/contracts/structure.js";
 import { leafSections } from "../../../../engine/contracts/structure.js";
 import { roomWallSegments, WALL_HEIGHT_MM10, WALL_THICKNESS_MM10 } from "../../../../engine/structure/room.js";
 import { wallInteriorNormal } from "../../../../engine/structure/operations.js";
@@ -30,6 +30,8 @@ export interface Board {
   cutouts?: PanelFeatures["cutouts"];
   /** Step 8.2 — per-edge kromka K-variable ids [front,back,side,side] for colouring edges in Frame view. */
   kromka?: PanelFeatures["kromka"];
+  /** M4 — draw this board as a primitive (cylinder / sphere / tube / wedge) inside `size`. Absent = a box. */
+  shape?: PrimitiveShape;
 }
 
 export interface Scene {
@@ -60,6 +62,8 @@ interface RawBox {
   rot?: number;
   /** turn about the vertical Y axis in DEGREES (from rotY_deg); converted to radians on the Board. */
   rotYDeg?: number;
+  /** M4 — primitive shape carried straight through from the placement to the Board. */
+  shape?: PrimitiveShape;
 }
 
 /**
@@ -100,6 +104,7 @@ export function boxesToScene(
       ...(f?.corners && f.corners.some((r) => r > 0) ? { corners: f.corners } : {}),
       ...(f?.cutouts && f.cutouts.length > 0 ? { cutouts: f.cutouts } : {}),
       ...(f?.kromka && f.kromka.some((k) => k) ? { kromka: f.kromka } : {}),
+      ...(b.shape && b.shape !== "box" ? { shape: b.shape } : {}), // M4 — non-box primitive
     };
   });
   const w = M(maxX - minX), h = M(maxY - minY), d = M(maxZ - minZ);
@@ -157,6 +162,7 @@ export function layoutToScene(
       w: p.w_mm10, h: p.h_mm10, d: p.d_mm10,
       rot: p.rotX_deg,
       rotYDeg: p.rotY_deg,
+      shape: p.shape, // M4
     })),
     features,
     origin,

@@ -653,7 +653,10 @@ export function freePartToPart(block: Block, fp: FreePart): Part {
   // Banding defaults to every edge — right for a visible board (a table top), wrong for a solid post,
   // so a free part may declare its own. See FreePart.edgeBands.
   const bands = fp.edgeBands ? [...fp.edgeBands] as [mm10, mm10, mm10, mm10] : allBand();
-  const p = panel(`${block.id}__free_${fp.id}`, fp.name, length, width, bands, thickness);
+  const p0 = panel(`${block.id}__free_${fp.id}`, fp.name, length, width, bands, thickness);
+  // M4 — tag a non-box primitive so the CNC export, the cut list and the m² price can leave it out
+  // (a cylinder leg or a hanging rail is bought/turned, never nested and milled from a sheet).
+  const p = fp.shape && fp.shape !== "box" ? { ...p0, shape: fp.shape } : p0;
   return fp.material ? { ...p, materialId: fp.material } : p;
 }
 

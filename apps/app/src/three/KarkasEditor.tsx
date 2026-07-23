@@ -11,7 +11,7 @@ import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
-import type { Box3D, HandleType, LiftType, ApplianceKind, StructuralModel } from "../../../../engine/contracts/structure";
+import type { Box3D, HandleType, LiftType, ApplianceKind, StructuralModel, PrimitiveShape } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
@@ -182,6 +182,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const roomWallCount = useKarkas((s) => s.model.room?.walls.length ?? 0);
   const resizeFreeBoard = useKarkas((s) => s.resizeFreeBoard);
   const renameFreePart = useKarkas((s) => s.renameFreePart);
+  const setFreeBoardShape = useKarkas((s) => s.setFreeBoardShape);
   const resizeFreeBoardTo = useKarkas((s) => s.resizeFreeBoardTo);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
   const rotateBlockTo = useKarkas((s) => s.rotateBlockTo);
@@ -1743,6 +1744,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("panel"); setRpanel("none"); }}>▮ Yon panel</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("post"); setRpanel("none"); }}>┃ Oyoq</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("box"); setRpanel("none"); }}>◧ Quti</button>
+                  {/* M4 — round / curved primitives. They are NOT sheet panels, so they stay out of the
+                      cut list, the CNC file and the m² price (they appear under «Boshqa qismlar»). The
+                      RAIL is the one every wardrobe needs and had no shape at all until now. */}
+                  <span style={{ gridColumn: "1 / -1", ...mono, fontSize: 11, opacity: 0.6, marginTop: 4 }}>Yumaloq / egri — listdan kesilmaydi</span>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("rail"); setRpanel("none"); }}>▬◯ Ilgich quvuri</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("cylinder"); setRpanel("none"); }}>◯ Yumaloq oyoq</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("tube"); setRpanel("none"); }}>◎ Quvur</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("sphere"); setRpanel("none"); }}>⬤ Shar</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("wedge"); setRpanel("none"); }}>◺ Pona</button>
                 </div>
                 {selectedId && !selectedId.includes("__div_") && (
                   <div className="mob-addgrid" style={{ marginTop: 10 }}>
@@ -2109,6 +2119,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
           <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 34, padding: "6px 11px" }}>↻</button>
           <button type="button" title="Nusxalash" onClick={duplicateSelected} style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", minHeight: 34, padding: "6px 11px" }}>⧉</button>
+          {/* M4 — switch this part's primitive. Back to «Quti» makes it a flat, cuttable panel again. */}
+          <select value={selFreeBoard.shape ?? "box"} onChange={(e) => setFreeBoardShape(selFreeBoard.id, e.target.value as PrimitiveShape)} title="Shakl" style={{ ...matSel, flex: "0 0 auto", maxWidth: 112, minHeight: 34 }}>
+            <option value="box">▭ Quti</option>
+            <option value="cylinder">◯ Silindr</option>
+            <option value="tube">◎ Quvur</option>
+            <option value="sphere">⬤ Shar</option>
+            <option value="wedge">◺ Pona</option>
+          </select>
           <button type="button" aria-haspopup="dialog" title="Material" onClick={() => setSwatchTarget({ kind: "free", id: selFreeBoard.id })} style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34, display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ ...swatch, background: BOARDS.find((bd) => bd.id === selFreeBoard.material)?.hex ?? "#e6e6e6" }} />
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{BOARDS.find((bd) => bd.id === selFreeBoard.material)?.name ?? "Standart"}</span>
@@ -2969,6 +2987,26 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
           </div>
         ))}
       </div>
+      {/* M4 — non-box parts (a round leg, a wardrobe hanging rail, a knob) are not sheet panels: they carry
+          no area, no kromka and no m² price, and never reach the CNC file. Listed here so the usta can
+          source or turn them, and price them by hand. */}
+      {e.others.length > 0 && (
+        <>
+          <div style={{ ...mono, padding: "8px 14px 4px", fontSize: 11, borderTop: "1px solid #e6e1d4", color: "#8a6d1f", fontWeight: 700 }}>
+            ◯ Boshqa qismlar ({e.others.length}) — listdan kesilmaydi, narx qo'lda
+          </div>
+          <div style={specList}>
+            {e.others.map((p) => (
+              <div key={p.id} style={specRow}>
+                <span style={{ width: 40, textAlign: "center", fontSize: 17 }} aria-hidden="true">◯</span>
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
+                <span style={mono}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
+                <span style={{ ...mono, color: "#9a8a5f" }}>—</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       <div style={{ ...mono, padding: "8px 14px", fontSize: 11, borderTop: "1px solid #e6e1d4" }}>Narx tarifi katalogdan (materials.ts) — real feed keyin ulanadi</div>
     </div>
   );

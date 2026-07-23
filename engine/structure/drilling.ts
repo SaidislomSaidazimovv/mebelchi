@@ -501,6 +501,9 @@ export function applyDrilling(
   const drawerJoinery = drawerJoineryByPart(model, parts, spec.connectors[CONNECTOR_SKU]);
 
   const drilled = parts.map((part) => {
+    // M4 — a non-box primitive (round leg, hanging rail, knob) takes NO cabinet drilling: shelf pins,
+    // hinge cups and cam/dowel joinery are all flat-panel operations. Gate it before any plan lookup.
+    if (part.shape && part.shape !== "box") return part;
     // Shelf pins — a side OR a divider, only for the shelves that ACTUALLY bound it, on the correct
     // face(s). The plan already resolved which shelves and which face (a divider gets both faces).
     if (pin) {
