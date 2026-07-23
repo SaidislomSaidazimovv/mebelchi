@@ -25,6 +25,7 @@ import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
 import { applianceFittings, withApplianceCutouts } from "./appliances";
+import { specsToCsv } from "./specCsv";
 import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, exportObj, exportStl, isAndroid, sceneViewerUrl, startArSession, uploadGlbForAr, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
@@ -3021,6 +3022,15 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
   // are about panels, not rows.
   const [specSort, setSpecSort] = useState<SpecSort>("model");
   const rows = useMemo(() => sortSpecs(groupSpecs(e.parts), specSort), [e.parts, specSort]);
+  const exportCsv = () => {
+    const text = specsToCsv(rows, { title: `Karkas blok — kesim ro'yxati (${new Date().toISOString().slice(0, 10)})`, totalLabel: "so'm" });
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "karkas-detallar.csv";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
   const hw = hardwareEstimate(model);
   const ap = applianceEstimate(model); // Phase 3 — «Техника» (bought appliances)
   const total = e.priceUzs + hw.priceUzs + ap.priceUzs;
@@ -3059,9 +3069,12 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
       : compact ? { ...specPanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : specPanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Спецификация</b>
+        {/* M8.3 — the same list as a spreadsheet: for the board supplier, the client's quote, the books. */}
+        <button onClick={exportCsv} type="button" title="Kesim ro'yxati — Excel/Sheets uchun (.csv)"
+          style={{ ...pill, marginLeft: "auto", borderColor: "#4b74c9", background: "#e0e8f7", color: "#1f478a", fontWeight: 700 }}>⬇ CSV</button>
         {onExportCnc && (
           <button onClick={onExportCnc} type="button" title="Stanok uchun fayl (SWJ008)"
-            style={{ ...pill, marginLeft: "auto", borderColor: "#00a961", background: "#e6f6ee", color: "#006b3f", fontWeight: 700 }}>⬇ CNC</button>
+            style={{ ...pill, borderColor: "#00a961", background: "#e6f6ee", color: "#006b3f", fontWeight: 700 }}>⬇ CNC</button>
         )}
         <button onClick={onClose} style={{ ...pill, ...(onExportCnc ? {} : { marginLeft: "auto" }) }} type="button">✕</button>
       </div>
