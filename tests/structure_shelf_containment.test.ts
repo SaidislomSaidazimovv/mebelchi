@@ -10,13 +10,17 @@ import { leafSections } from "../engine/contracts/structure.js";
 import { layoutToScene } from "../apps/app/src/three/structureScene.js";
 import { buildStructureGroup } from "../apps/app/src/three/structureRenderer.js";
 
-// world AABB (mm) of a rendered box mesh, from its matrixWorld + BoxGeometry size — no `three` import.
+// world AABB (mm) of a rendered box mesh. M9U.2 rounded the plain-box geometry, which drops the
+// `geometry.parameters.{width,height,depth}` BoxGeometry used to expose — so measure the geometry's OWN
+// bounding box (works for a rounded box, a sharp box or an extruded panel alike) and transform its 8
+// corners by the mesh's world matrix. A rounded box's bounds are ≤ a sharp one's, so containment is if
+// anything stricter — this only makes the measurement geometry-agnostic.
 function meshAABB(mesh: any): { min: number[]; max: number[] } {
   const e = mesh.matrixWorld.elements as number[];
-  const p = mesh.geometry.parameters as { width: number; height: number; depth: number };
-  const hw = p.width / 2, hh = p.height / 2, hd = p.depth / 2;
+  mesh.geometry.computeBoundingBox();
+  const bb = mesh.geometry.boundingBox as { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } };
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-  for (const sx of [-hw, hw]) for (const sy of [-hh, hh]) for (const sz of [-hd, hd]) {
+  for (const sx of [bb.min.x, bb.max.x]) for (const sy of [bb.min.y, bb.max.y]) for (const sz of [bb.min.z, bb.max.z]) {
     const w = [e[0]! * sx + e[4]! * sy + e[8]! * sz + e[12]!, e[1]! * sx + e[5]! * sy + e[9]! * sz + e[13]!, e[2]! * sx + e[6]! * sy + e[10]! * sz + e[14]!];
     for (let a = 0; a < 3; a++) { min[a] = Math.min(min[a]!, w[a]! * 1000); max[a] = Math.max(max[a]!, w[a]! * 1000); }
   }

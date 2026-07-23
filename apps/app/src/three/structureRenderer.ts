@@ -4,6 +4,7 @@
 // userData for raycast selection, mirroring kitchen3d.ts's `userData.cabId` convention.
 
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"; // M9U.2 — soft edges
 import type { Scene, Board } from "./structureScene";
 import type { MaterialFinish, TextureKind } from "./materials";
 
@@ -156,11 +157,25 @@ function primitiveGeometry(shape: NonNullable<Board["shape"]>, w: number, h: num
   return g;
 }
 
+/**
+ * M9U.2 — the global soft edge (mm). Every plain board's edges are eased by this radius, which is the
+ * single biggest reason furniture reads as furniture and not a CAD box: a 1.3 mm rounded edge catches a
+ * thin highlight the way a real sanded panel does. A part may override it (`Board.bevel_mm`); 0 = sharp.
+ */
+const EDGE_BEVEL_MM = 1.3;
+
+/** A box with eased edges. The radius is clamped so it can never exceed a thin panel (a 3 mm back). */
+function roundedBox(w: number, h: number, d: number, mm: number): THREE.BufferGeometry {
+  const r = Math.min(mm / 1000, Math.min(w, h, d) * 0.45); // mm→scene units; never past the thin dimension
+  if (r < 0.0004) return new THREE.BoxGeometry(w, h, d); // too thin/too small to round → keep it sharp
+  return new RoundedBoxGeometry(w, h, d, 2, r);
+}
+
 function boardGeometry(b: Board): THREE.BufferGeometry {
   if (b.shape && b.shape !== "box") return primitiveGeometry(b.shape, b.size[0], b.size[1], b.size[2]); // M4
   const hasCorners = !!b.corners && b.corners.some((r) => r > 0);
   const hasCutouts = !!b.cutouts && b.cutouts.length > 0;
-  if (!hasCorners && !hasCutouts) return new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
+  if (!hasCorners && !hasCutouts) return roundedBox(b.size[0], b.size[1], b.size[2], b.bevel_mm ?? EDGE_BEVEL_MM); // M9U.2
 
   const [sx, sy, sz] = b.size;
   let tAxis: 0 | 1 | 2 = 0;

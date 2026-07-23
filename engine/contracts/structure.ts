@@ -624,6 +624,12 @@ export interface FreePart {
   readonly hidden?: boolean;
   readonly locked?: boolean;
   /**
+   * M9E.1 — soft edge radius (mm) for THIS part, overriding the renderer's global default. RENDER-ONLY,
+   * like `shape`: a rounded edge is a pardoz detail, not a cut — the panel size, holes, kromka and price
+   * are untouched. Absent = the global soft bevel; 0 = a deliberately sharp, industrial edge.
+   */
+  readonly bevel_mm?: number;
+  /**
    * How the board reflows when its block resizes (v5, the "table law" for free parts). Absent = the box
    * is static (a hand-placed board that stays put). Present = `box` is re-derived from the block's box on
    * resize, so a top spans and legs hold the corners. `box` and `anchor` must agree at build time.
