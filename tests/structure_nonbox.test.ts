@@ -10,6 +10,7 @@ import { solveStructure } from "../engine/structure/solve.js";
 import { solveModelToParts, exportModelToSWJ008 } from "../engine/cnc.js";
 import { buildCarcassModel } from "../engine/structure/demoModel.js";
 import { estimate } from "../apps/app/src/three/estimate.js";
+import { useKarkas } from "../apps/app/src/three/karkasStore.js";
 import { planThickness, DEFAULT_PLAN } from "../apps/app/src/three/materials.js";
 import type { FreePart, PrimitiveShape, StructuralModel } from "../engine/contracts/structure.js";
 
@@ -118,5 +119,77 @@ describe("M4.2 — the cut list, the CNC file and the price leave a non-box part
   it("drilling: a non-box part gets no holes at all", () => {
     const p = solveModelToParts(cabinetWithCylinder("cylinder")).find((x) => x.id === CYL_ID)!;
     expect(p.operations).toEqual([]);
+  });
+});
+
+// ── M4.3 — the palette + the shape switch ──────────────────────────────────────────────────────────
+
+const lastFree = () => useKarkas.getState().model.blocks[0]!.freeParts!.at(-1)!;
+
+describe("M4.3 — adding a primitive from the palette", () => {
+  it("the hanging RAIL comes out as a cylinder lying along the opening", () => {
+    useKarkas.getState().setModel(buildCarcassModel(600, 720, 560));
+    useKarkas.getState().addFreeBoard("rail");
+    const f = lastFree();
+    expect(f.shape).toBe("cylinder");
+    expect(f.box.w).toBeGreaterThan(f.box.h); // long in X → the renderer lays the cylinder down
+    expect(f.box.w).toBeGreaterThan(f.box.d);
+    expect(f.edgeBands).toEqual([0, 0, 0, 0]); // a round bar takes no edge banding
+  });
+
+  it("a round LEG comes out as a standing cylinder", () => {
+    useKarkas.getState().setModel(buildCarcassModel(600, 720, 560));
+    useKarkas.getState().addFreeBoard("cylinder");
+    const f = lastFree();
+    expect(f.shape).toBe("cylinder");
+    expect(f.box.h).toBeGreaterThan(f.box.w); // tall → the cylinder stands up
+  });
+
+  it("sphere / tube / wedge each carry their own shape", () => {
+    for (const [kind, shape] of [["sphere", "sphere"], ["tube", "tube"], ["wedge", "wedge"]] as const) {
+      useKarkas.getState().setModel(buildCarcassModel(600, 720, 560));
+      useKarkas.getState().addFreeBoard(kind);
+      expect(lastFree().shape, kind).toBe(shape);
+    }
+  });
+
+  it("the plain board / panel / post / box primitives stay flat (no shape)", () => {
+    for (const kind of ["board", "panel", "post", "box"] as const) {
+      useKarkas.getState().setModel(buildCarcassModel(600, 720, 560));
+      useKarkas.getState().addFreeBoard(kind);
+      expect(lastFree().shape, kind).toBeUndefined();
+    }
+  });
+});
+
+describe("M4.3 — setFreeBoardShape", () => {
+  it("switches a flat board into a primitive, and back to a cuttable panel", () => {
+    useKarkas.getState().setModel(buildCarcassModel(600, 720, 560));
+    useKarkas.getState().addFreeBoard("post");
+    const id = lastFree().id;
+    const partId = `blk_main__free_${id}`;
+
+    useKarkas.getState().setFreeBoardShape(id, "cylinder");
+    expect(lastFree().shape).toBe("cylinder");
+    // …and it leaves the panel cut list for «Boshqa qismlar»
+    let e = estimate(useKarkas.getState().parts, DEFAULT_PLAN);
+    expect(e.parts.some((s) => s.id === partId)).toBe(false);
+    expect(e.others.some((s) => s.id === partId)).toBe(true);
+
+    useKarkas.getState().setFreeBoardShape(id, "box");
+    expect(lastFree().shape).toBeUndefined(); // the field is dropped entirely — byte-identical again
+    e = estimate(useKarkas.getState().parts, DEFAULT_PLAN);
+    expect(e.parts.some((s) => s.id === partId)).toBe(true); // back in the cut list
+    expect(e.others).toEqual([]);
+  });
+
+  it("is undoable", () => {
+    useKarkas.getState().setModel(buildCarcassModel(600, 720, 560));
+    useKarkas.getState().addFreeBoard("post");
+    const id = lastFree().id;
+    useKarkas.getState().setFreeBoardShape(id, "sphere");
+    expect(lastFree().shape).toBe("sphere");
+    useKarkas.getState().undo();
+    expect(lastFree().shape).toBeUndefined();
   });
 });
