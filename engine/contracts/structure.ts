@@ -650,6 +650,29 @@ export interface PanelShell {
   readonly back?: boolean;
 }
 
+/**
+ * M8.5 — WHICH carcass board an override is about. The same slot names `PanelShell` masks with, plus the
+ * two boards that hang off the box: the plinth and the worktop.
+ */
+export type CarcassSlot = "sideL" | "sideR" | "top" | "bottom" | "back" | "plinth" | "worktop";
+
+/**
+ * M8.5 — the usta's own words and choices about ONE carcass board. Until now the cabinet's own sides,
+ * top, bottom and back were the only parts he could say nothing about: they are not Components, so they
+ * took no note, could not be hidden to look inside, and followed the plan's decor for their role with no
+ * way to make just this one different.
+ *
+ * Everything here is DOCUMENTATION or VIEW state — nothing moves a millimetre. Per-board THICKNESS is
+ * deliberately absent: it is structural (it changes the inner width, every shelf length and every hole
+ * position), so it is its own step. Nor is there a `locked`: a carcass board cannot be dragged or
+ * resized on its own, so there is nothing to lock.
+ */
+export interface CarcassPanel {
+  readonly note?: string;
+  readonly hidden?: boolean;
+  readonly material?: string;
+}
+
 export interface Block {
   readonly id: BlockId;
   readonly name: string;
@@ -683,6 +706,11 @@ export interface Block {
   readonly bare?: boolean;
   /** Which carcass shell panels this block keeps (M2). Absent = the full 5-panel carcass. See PanelShell. */
   readonly shell?: PanelShell;
+  /**
+   * M8.5 — per-board overrides, keyed exactly like `shell`. Absent = today's cabinet, byte-identical.
+   * On an L-corner block one entry covers BOTH legs, the same way `shell` does.
+   */
+  readonly panels?: Partial<Record<CarcassSlot, CarcassPanel>>;
   /**
    * Sokol / plinth height (mm10) — a recessed toe-kick UNDER the carcass. Absent = no plinth (every
    * existing model is unchanged). `box.h` stays the CARCASS height; the plinth is an EXTRA part below,

@@ -5,9 +5,25 @@
 // call the engine's PURE immutable operations (divideSection / addInstance) and re-derive.
 
 import { create } from "zustand";
-import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind, PanelShell, PrimitiveShape } from "../../../../engine/contracts/structure.js";
+import type { StructuralModel, Component, Block, Instance, FreePart, Box3D, HandleType, LiftType, ApplianceKind, PanelShell, PrimitiveShape, CarcassSlot, CarcassPanel } from "../../../../engine/contracts/structure.js";
 
 /** The shapes furniture is actually made of — what the ＋ panel offers. */
+/**
+ * M8.5 — WHICH carcass board a solved part id names, or null if it is not one. The ids come from
+ * solve.ts/layout.ts (`…__side_l`, `…__legB__top`, `…__worktop_a`), so an L-corner's two legs and the
+ * two halves of an L worktop resolve to the SAME slot — one override covers both, exactly like `shell`.
+ */
+export function carcassSlotOf(partId: string): CarcassSlot | null {
+  if (partId.endsWith("__side_l")) return "sideL";
+  if (partId.endsWith("__side_r")) return "sideR";
+  if (partId.endsWith("__top")) return "top";
+  if (partId.endsWith("__bottom")) return "bottom";
+  if (partId.endsWith("__back")) return "back";
+  if (/__plinth(_[ab])?$/.test(partId)) return "plinth";
+  if (/__worktop(_[ab])?$/.test(partId)) return "worktop";
+  return null;
+}
+
 export type PrimitiveKind =
   | "board" | "panel" | "post" | "box" | "cylinder" | "rail" | "sphere" | "tube" | "wedge"
   | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus"; // M7
@@ -299,6 +315,8 @@ interface KarkasState extends Derived {
   multiDelete: () => void;
   multiSetMaterial: (matId: string | null) => void;
   multiSetView: (key: "hidden" | "locked", on: boolean) => void;
+  /** M8.5 — the note / view / decor of ONE carcass board of the selected part's block. */
+  setCarcassPanel: (slot: CarcassSlot, patch: Partial<CarcassPanel>) => void;
   setPartView: (key: "hidden" | "locked", on: boolean) => void;
   /** M7.4 — is this free part locked against editing? Every mutating free-part action asks first. */
   isFreePartLocked: (fpId: string) => boolean;
@@ -1154,6 +1172,33 @@ export const useKarkas = create<KarkasState>((set, get) => {
     // leans, so nothing downstream of the cut list changes. 0 CLEARS the field (byte-identical again).
     // M8.4 — the multi-pick. One model transform per batch, so «delete 4 legs» is ONE undo step, not
     // four: an usta who taps undo expects his four legs back, not one of them.
+    // M8.5 — the cabinet's own boards were the only parts an usta could say nothing about. This writes
+    // the override onto the BLOCK (keyed like `shell`), never onto geometry: an empty value removes the
+    // key entirely, so a block nobody touched stays byte-identical.
+    setCarcassPanel: (slot, patch) => {
+      const s2 = get();
+      const blockId = (s2.selectedId ?? "").split("__")[0];
+      const block = s2.model.blocks.find((b) => b.id === blockId) ?? s2.model.blocks[0];
+      if (!block) return;
+      const cur = block.panels?.[slot] ?? {};
+      const next: Record<string, unknown> = { ...cur };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === "" || v === false || v === undefined || v === null) delete next[k];
+        else next[k] = typeof v === "string" ? v.trim() : v;
+      }
+      if (JSON.stringify(next) === JSON.stringify(cur)) return; // no-op → no dead undo step
+      const panels = { ...(block.panels ?? {}) } as Record<string, unknown>;
+      if (Object.keys(next).length === 0) delete panels[slot];
+      else panels[slot] = next;
+      apply({
+        ...s2.model,
+        blocks: s2.model.blocks.map((b) => {
+          if (b.id !== block.id) return b;
+          if (Object.keys(panels).length === 0) { const { panels: _drop, ...rest } = b; return rest; }
+          return { ...b, panels: panels as Block["panels"] };
+        }),
+      }, true);
+    },
     setMultiMode: (on) => set({ multiMode: on, multiIds: on ? get().multiIds : [] }),
     toggleMulti: (fpId) => set((s2) => ({
       multiIds: s2.multiIds.includes(fpId) ? s2.multiIds.filter((x) => x !== fpId) : [...s2.multiIds, fpId],

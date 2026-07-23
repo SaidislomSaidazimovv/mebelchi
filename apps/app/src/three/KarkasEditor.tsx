@@ -7,11 +7,11 @@ import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useSta
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
+import { carcassSlotOf, useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
-import type { Box3D, HandleType, LiftType, ApplianceKind, StructuralModel, PrimitiveShape } from "../../../../engine/contracts/structure";
+import type { Box3D, HandleType, LiftType, ApplianceKind, StructuralModel, PrimitiveShape, CarcassSlot } from "../../../../engine/contracts/structure";
 import { lineNeighbours, extentAlong } from "../../../../engine/structure/operations.js";
 import { useStore } from "../store";
 import { useMoney } from "../useMoney";
@@ -195,6 +195,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setFreePartView = useKarkas((s) => s.setFreePartView); // M7.4
   const setPartView = useKarkas((s) => s.setPartView);
   const setFreePartTilt = useKarkas((s) => s.setFreePartTilt); // M8.1
+  const setCarcassPanel = useKarkas((s) => s.setCarcassPanel); // M8.5
   // M8.4 — multi-pick
   const multiMode = useKarkas((s) => s.multiMode);
   const multiIds = useKarkas((s) => s.multiIds);
@@ -1515,6 +1516,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // U3.3 fix — the readout / resize reflects a CARCASS block, not the scene bounds (which would balloon
   // when a free board floats far away). B (multi-block) — it follows the ACTIVE cabinet: the selected
   // part's block, else block-0. So selecting a part in the 2nd cabinet shows + edits that cabinet's size.
+  // M8.5 — which carcass board is selected (null for a component, a free part or nothing)
+  const carcassSlot = selectedId ? carcassSlotOf(selectedId) : null;
   const activeBlock = blockOfPart(model, selectedId);
   const dims = activeBlock ? { w: Math.round(activeBlock.box.w / 10), h: Math.round(activeBlock.box.h / 10), d: Math.round(activeBlock.box.d / 10) } : sceneDimsMm(scene);
   return (
@@ -2176,6 +2179,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 </select>
               </label>
             )}
+            {/* M8.5 — the CABINET'S OWN boards (side / top / bottom / back / plinth / worktop). They are
+                not Components, so until now they took no note, could not be hidden and followed their
+                role's decor with no way to make just this one different. */}
+            {carcassSlot && (() => {
+              const cur = model.blocks.find((b) => b.id === (selectedId ?? "").split("__")[0])?.panels?.[carcassSlot]
+                ?? model.blocks[0]?.panels?.[carcassSlot];
+              return (
+                <>
+                  <label className="mob-props-f"><span>Izoh</span>
+                    <input key={`cn_${carcassSlot}_${selectedId}`} defaultValue={cur?.note ?? ""} placeholder="✎" title="Izoh — kesim ro'yxati va chizmaga tushadi"
+                      onBlur={(e) => setCarcassPanel(carcassSlot, { note: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                      style={{ ...mono, width: 96, border: "1px solid #cdd5df", borderRadius: 6, padding: "2px 6px", background: "#fff", color: "#7a6a4a" }} />
+                  </label>
+                  <button type="button" className="mob-props-toggle" title="Yashirish — kesim ro'yxatida va narxda qoladi"
+                    onClick={() => setCarcassPanel(carcassSlot, { hidden: !cur?.hidden })}>{cur?.hidden ? "🚫 Yashirilgan" : "👁 Ko'rinadi"}</button>
+                  <button type="button" className="mob-props-toggle" title="Shu taxtaning materiali"
+                    onClick={() => setSwatchTarget({ kind: "carcass", slot: carcassSlot })}>▦ {BOARDS.find((b) => b.id === cur?.material)?.name ?? "Standart"}</button>
+                </>
+              );
+            })()}
             {/* M7.3 — the same note, for a carcass component (a shelf, a door, a drawer front). */}
             {selComp && (
               <label className="mob-props-f"><span>Izoh</span>
@@ -2977,7 +3001,8 @@ function TreePanel({ onClose }: { onClose: () => void }) {
 /** Board-decor <select> for one plan slot, with a colour swatch of the current pick. */
 // M3.4 — one material target the swatch picker acts on: a plan slot, or a specific free board.
 type SwatchTarget = { kind: "plan"; slot: keyof Omit<MaterialPlan, "edge"> } | { kind: "free"; id: string }
-  | { kind: "multi" }; // M8.4 — one decor onto every ticked part
+  | { kind: "multi" } // M8.4 — one decor onto every ticked part
+  | { kind: "carcass"; slot: CarcassSlot }; // M8.5 — one decor onto ONE carcass board
 /** M3.4 — a MatSelect (used in the mobile panel AND the deep SpecPanel) opens the ONE swatch overlay via
  *  this context, so neither has to prop-drill the setter (Antigravity's single-overlay pattern). */
 const SwatchCtx = createContext<null | ((t: SwatchTarget) => void)>(null);
@@ -2991,12 +3016,15 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
   const setPlanMaterial = useKarkas((s) => s.setPlanMaterial);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
   const multiSetMaterial = useKarkas((s) => s.multiSetMaterial); // M8.4
+  const setCarcassPanelMat = useKarkas((s) => s.setCarcassPanel); // M8.5
   const current = useKarkas((s) => (target.kind === "plan" ? s.plan[target.slot]
     : target.kind === "free" ? s.model.blocks[0]?.freeParts?.find((f) => f.id === target.id)?.material ?? ""
-      : "")); // a multi-pick has no single «current» — several parts may differ
+      : target.kind === "carcass" ? s.model.blocks[0]?.panels?.[target.slot]?.material ?? ""
+        : "")); // a multi-pick has no single «current» — several parts may differ
   const pick = (id: string): void => {
     if (target.kind === "plan") setPlanMaterial(target.slot, id);
     else if (target.kind === "free") setFreeBoardMaterial(target.id, id);
+    else if (target.kind === "carcass") setCarcassPanelMat(target.slot, { material: id }); // M8.5
     else multiSetMaterial(id || null); // M8.4 — "" clears back to the role's decor
     onClose();
   };
