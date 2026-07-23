@@ -2969,6 +2969,26 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
           </div>
         ))}
       </div>
+      {/* M4 — non-box parts (a round leg, a wardrobe hanging rail, a knob) are not sheet panels: they carry
+          no area, no kromka and no m² price, and never reach the CNC file. Listed here so the usta can
+          source or turn them, and price them by hand. */}
+      {e.others.length > 0 && (
+        <>
+          <div style={{ ...mono, padding: "8px 14px 4px", fontSize: 11, borderTop: "1px solid #e6e1d4", color: "#8a6d1f", fontWeight: 700 }}>
+            ◯ Boshqa qismlar ({e.others.length}) — listdan kesilmaydi, narx qo'lda
+          </div>
+          <div style={specList}>
+            {e.others.map((p) => (
+              <div key={p.id} style={specRow}>
+                <span style={{ width: 40, textAlign: "center", fontSize: 17 }} aria-hidden="true">◯</span>
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}<span style={{ ...mono, color: "#9a8a5f", marginLeft: 6 }}>{p.materialName}</span></span>
+                <span style={mono}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
+                <span style={{ ...mono, color: "#9a8a5f" }}>—</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       <div style={{ ...mono, padding: "8px 14px", fontSize: 11, borderTop: "1px solid #e6e1d4" }}>Narx tarifi katalogdan (materials.ts) — real feed keyin ulanadi</div>
     </div>
   );

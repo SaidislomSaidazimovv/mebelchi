@@ -119,7 +119,9 @@ export function exportSWJ008(project: Project): string {
   lines.push(`<Root>`);
   lines.push(`${T}<Project Name="" Flag="SWJ008">`);
   lines.push(`${T.repeat(2)}<Panels>`);
-  for (const part of project.parts) {
+  // M4 — only flat box panels are nested + milled from a sheet. A cylinder / sphere / tube / wedge is
+  // sourced or turned, so it must never reach the machine file (the router has no idea what to do with it).
+  for (const part of project.parts.filter((p) => !p.shape || p.shape === "box")) {
     lines.push(...panelBlock(part));
   }
   lines.push(`${T.repeat(2)}</Panels>`);
