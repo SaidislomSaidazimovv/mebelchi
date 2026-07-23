@@ -166,6 +166,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // as a floating callout so the usta sees the measurement change in real time. Cleared on pointer-up.
   const [measure, setMeasure] = useState<{ dim: "w" | "h" | "d"; mm: number; move?: boolean; snapped?: boolean; rot?: boolean } | null>(null);
   const measureRef = useRef(setMeasure); // stable handle for the once-mounted pointer effect
+  // M8.6 — the «O'lchash» tape: tap two points on the model, read the distance. Moblo has it; an usta
+  // checks a gap a hundred times a day. State drives the button + hint; refs feed the mounted pointer
+  // handler (which never re-binds), and a dedicated dim line draws the span.
+  const [measureMode, setMeasureMode] = useState(false);
+  const [measureMm, setMeasureMm] = useState<number | null>(null);
+  const measureModeRef = useRef(false);
+  const measureFirstRef = useRef<THREE.Vector3 | null>(null);
+  const measureLineRef = useRef<DimLine | null>(null);
   measureRef.current = setMeasure;
   // Commit a pending DimField edit before a control hides/unmounts the editor: blur the focused input so
   // its onBlur commit fires FIRST (synchronously). Mobile taps on the sheet's ✕ / ⋯ / FABs don't reliably
@@ -524,6 +532,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // U3.1 — the mount-effect raycast is a stable closure, so it reads the live select-mode via this ref.
   const selModeRef = useRef(selMode);
   useEffect(() => { selModeRef.current = selMode; }, [selMode]);
+  // M8.6 — mirror the measure mode into the pointer handler, and wipe a half-finished measurement when
+  // it is switched off so a stale first point can never pair with the next session's tap.
+  useEffect(() => {
+    measureModeRef.current = measureMode;
+    if (!measureMode) {
+      measureFirstRef.current = null;
+      setMeasureMm(null);
+      if (measureLineRef.current && rt.current) { rt.current.scene.remove(measureLineRef.current.group); measureLineRef.current.dispose(); measureLineRef.current = null; }
+    }
+  }, [measureMode]);
   // U2.4 — the RAF loop reads the active tab via this ref, to hide the 3D dim labels off the «Yig'ish» tab.
   const tabRef = useRef(tab);
   useEffect(() => { tabRef.current = tab; }, [tab]);
@@ -775,6 +793,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     };
     const onDown = (e: PointerEvent) => {
       down.x = e.clientX; down.y = e.clientY;
+      if (measureModeRef.current) return; // M8.6 — no drag arms while measuring; the tap is handled on up
       const g = rt.current?.group; if (!g) return;
       raycaster.setFromCamera(ndc(e), camera);
       const st = useKarkas.getState();
@@ -1018,6 +1037,22 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (drag) { if (drag.kind === "freemove") useKarkas.getState().snapFreePart(drag.fpId); drag = null; controls.enabled = true; measureRef.current(null); hideDim(); return; } // finished a move / resize (free board snaps to a face)
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return; // a camera orbit, not a tap
       raycaster.setFromCamera(ndc(e), camera);
+      // M8.6 — measure mode owns the tap: hit the model, drop a point; the second point draws the span
+      // and prints the distance. A third tap starts over from the new point.
+      if (measureModeRef.current) {
+        const mg = rt.current?.group;
+        const mHit = mg ? raycaster.intersectObjects(mg.children, false)[0] : undefined;
+        if (!mHit) return;
+        const pt = mHit.point.clone();
+        const first = measureFirstRef.current;
+        if (!first) { measureFirstRef.current = pt; setMeasureMm(0); return; }
+        const mm = Math.round(first.distanceTo(pt) * 1000); // scene unit = M(mm10)=mm10/10000, so ×1000 = mm
+        if (!measureLineRef.current && rt.current) { measureLineRef.current = createDimLine(0x2f9e44); rt.current.scene.add(measureLineRef.current.group); }
+        measureLineRef.current?.update([first.x, first.y, first.z], [pt.x, pt.y, pt.z], `${mm} mm`);
+        setMeasureMm(mm);
+        measureFirstRef.current = pt; // chain: the next tap measures from here
+        return;
+      }
       // Step 7c — a tap on a drill marker selects that individual hole (markers sit proud of the face)
       const hg = rt.current?.holeGroup;
       if (hg) {
@@ -1745,6 +1780,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           </div>
         </div>
       )}
+      {/* M8.6 — measure hint / readout: what to do, then the running distance */}
+      {tab === "build" && measureMode && (
+        <div style={{ position: "fixed", top: 96, left: "50%", transform: "translateX(-50%)", zIndex: 64, background: "rgba(20,40,25,0.92)", color: "#eafff0", borderRadius: 10, padding: "7px 14px", ...mono, fontSize: 13, display: "flex", gap: 10, alignItems: "center", whiteSpace: "nowrap" }}>
+          <span>📏 {measureMm == null ? "birinchi nuqtani bosing" : measureMm === 0 ? "ikkinchi nuqtani bosing" : `${measureMm} mm`}</span>
+          <button type="button" onClick={() => setMeasureMode(false)} style={{ border: "none", background: "transparent", color: "#eafff0", fontSize: 18, lineHeight: 1, cursor: "pointer" }}>✕</button>
+        </div>
+      )}
       {/* dom-overlay root — the browser paints this over the camera feed during an AR session */}
       <div ref={arOverlayRef} className="mob-ar-overlay" style={{ display: arActive ? "flex" : "none" }}>
         <span className="mob-ar-hint">
@@ -1776,6 +1818,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           {/* M8.4 — pick several free parts and act on them at once (Moblo's selection tool, by tap) */}
           <button className={"mob-round" + (multiMode ? " is-active" : "")} title="Ko'p tanlash" aria-label="Ko'p tanlash" type="button"
             onClick={() => setMultiMode(!multiMode)}>☑</button>
+          {/* M8.6 — the measuring tape: tap two points, read the gap */}
+          <button className={"mob-round" + (measureMode ? " is-active" : "")} title="O'lchash" aria-label="O'lchash" type="button"
+            onClick={() => { setMeasureMode((v) => !v); if (multiMode) setMultiMode(false); }}>📏</button>
         </div>
       )}
 
