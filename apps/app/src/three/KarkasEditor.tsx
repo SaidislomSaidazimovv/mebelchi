@@ -3051,8 +3051,8 @@ type SwatchTarget = { kind: "plan"; slot: keyof Omit<MaterialPlan, "edge"> } | {
 /** M3.4 — a MatSelect (used in the mobile panel AND the deep SpecPanel) opens the ONE swatch overlay via
  *  this context, so neither has to prop-drill the setter (Antigravity's single-overlay pattern). */
 const SwatchCtx = createContext<null | ((t: SwatchTarget) => void)>(null);
-const SWATCH_ORDER = ["Laminat", "Yog'och", "Shisha", "Metall", "Marmar", "Mato"] as const;
-const SWATCH_BADGE: Record<string, string> = { "Laminat": "▤", "Yog'och": "🪵", "Shisha": "🧊", "Metall": "✨", "Marmar": "◈", "Mato": "🧵" };
+const SWATCH_ORDER = ["Massiv", "Laminat", "Yog'och", "Shisha", "Metall", "Marmar", "Mato"] as const; // M8.7 — Massiv first
+const SWATCH_BADGE: Record<string, string> = { "Massiv": "🌳", "Laminat": "▤", "Yog'och": "🪵", "Shisha": "🧊", "Metall": "✨", "Marmar": "◈", "Mato": "🧵" };
 
 /** M3.4 — ONE centralised material swatch picker (Antigravity's single-overlay pattern). Opened from any
  *  MatSelect slot or the free-board bar; picks a board (or «Standart» for a free board) and closes. Boards
