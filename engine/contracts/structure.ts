@@ -366,6 +366,17 @@ export interface Component {
    */
   readonly note?: string;
   /**
+   * M7.4 — VIEW state, deliberately stored on the model so it survives save/reload.
+   * `hidden` drops the part from the 3-D viewport ONLY: it is still cut, still drilled, still priced and
+   * still in the CNC file, because hiding a door to see the shelves behind it must never quietly delete
+   * it from the order. To remove a part, delete it.
+   * `locked` refuses moves, resizes and deletion in the editor — a table top the usta pinned so he can
+   * drag the legs underneath without shifting it by accident. Purely an interaction rule (the engine
+   * only carries the flag).
+   */
+  readonly hidden?: boolean;
+  readonly locked?: boolean;
+  /**
    * Inclined shelf tilt (imos AS_O_Angle · "qiya polka"): the front edge is raised by `angle_deg`
    * degrees about the shelf's width axis, so an internal shelf leans back like a display / shoe rack.
    * Applies to `internal_shelf` components only. The board itself is the SAME rectangle (the cut list,
@@ -592,6 +603,9 @@ export interface FreePart {
   readonly material?: string;
   /** M7.3 — free text about this part, carried to the cut list and the drawing. See Component.note. */
   readonly note?: string;
+  /** M7.4 — hidden in the viewport but still cut/priced; locked against editing. See Component.hidden. */
+  readonly hidden?: boolean;
+  readonly locked?: boolean;
   /**
    * How the board reflows when its block resizes (v5, the "table law" for free parts). Absent = the box
    * is static (a hand-placed board that stays put). Present = `box` is re-derived from the block's box on

@@ -73,6 +73,8 @@ export interface PanelPlacement {
    * the viewport draws something other than a cuboid. Absent = "box" — every existing placement unchanged.
    */
   readonly shape?: PrimitiveShape;
+  /** M7.4 — the usta hid this part in the viewport. Render-only: it is still cut, drilled and priced. */
+  readonly hidden?: boolean;
 }
 
 const B = BOARD_MM10;
@@ -583,7 +585,8 @@ function freePartPlacement(block: Block, fp: FreePart): PanelPlacement {
   const b = fp.box;
   const p = place(`${block.id}__free_${fp.id}`, fp.name, block.box.x + b.x, block.box.y + b.y, block.box.z + b.z, b.w, b.h, b.d);
   const turned = fp.rotY_deg ? { ...p, rotY_deg: fp.rotY_deg } : p; // render-only turn about the vertical axis
-  return fp.shape && fp.shape !== "box" ? { ...turned, shape: fp.shape } : turned; // M4 — render-only shape
+  const shaped = fp.shape && fp.shape !== "box" ? { ...turned, shape: fp.shape } : turned; // M4 — render-only shape
+  return fp.hidden ? { ...shaped, hidden: true } : shaped; // M7.4 — hidden in the viewport only
 }
 
 /**
@@ -604,7 +607,12 @@ export function solveLayout(model: StructuralModel, thickness: ThicknessSpec = {
         .filter((p): p is PanelPlacement => p !== null);
       // Display-shelf front lip (null unless the shelf has one) — an extra board at the front edge.
       const lip = shelfLipPlacement(block, inst, t);
-      for (const p of lip ? [...placements, lip] : placements) out.push(inst.junction ? applyJunction(p, inst.junction) : p);
+      // M7.4 — a hidden component hides every panel it draws (a drawer is five of them).
+      const hide = componentById(block, inst.componentId)?.hidden === true;
+      for (const p0 of lip ? [...placements, lip] : placements) {
+        const p = inst.junction ? applyJunction(p0, inst.junction) : p0;
+        out.push(hide ? { ...p, hidden: true } : p);
+      }
     }
     for (const fp of block.freeParts ?? []) out.push(freePartPlacement(block, fp)); // v5 — free assembly boards
   }

@@ -270,6 +270,10 @@ export function materialForFinish(color: number, finish?: MaterialFinish, textur
 export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined, finishOf?: (id: string) => MaterialFinish | undefined, textureOf?: (id: string) => TextureKind | undefined): THREE.Group {
   const group = new THREE.Group();
   for (const b of scene.boards) {
+    // M7.4 — a hidden part is not drawn. It is NOT removed from anything else: the cut list, the holes,
+    // the price and the CNC file all still carry it, because hiding a door to look behind it must never
+    // quietly drop it from the order.
+    if (b.hidden) continue;
     const geom = boardGeometry(b);
     const mesh = new THREE.Mesh(geom, materialForFinish(colorOf?.(b.id) ?? WOOD, finishOf?.(b.id), textureOf?.(b.id), b.size));
     mesh.userData.baseColor = colorOf?.(b.id) ?? WOOD; // remembered so realistic/shaded can restore it

@@ -191,6 +191,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const renameFreePart = useKarkas((s) => s.renameFreePart);
   const setFreePartNote = useKarkas((s) => s.setFreePartNote); // M7.3
   const setPartNote = useKarkas((s) => s.setPartNote);
+  const setFreePartView = useKarkas((s) => s.setFreePartView); // M7.4
+  const setPartView = useKarkas((s) => s.setPartView);
   const setFreeBoardShape = useKarkas((s) => s.setFreeBoardShape);
   const resizeFreeBoardTo = useKarkas((s) => s.resizeFreeBoardTo);
   const rotateFreeBoard = useKarkas((s) => s.rotateFreeBoard);
@@ -2159,6 +2161,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   style={{ ...mono, width: 96, border: "1px solid #cdd5df", borderRadius: 6, padding: "2px 6px", background: "#fff", color: "#7a6a4a" }} />
               </label>
             )}
+            {/* M7.4 — hide / lock this component too (a door hidden to see the shelves is still cut). */}
+            {selComp && (
+              <>
+                <button type="button" className="mob-props-toggle" onClick={() => setPartView("hidden", !selComp.hidden)}
+                  title="Yashirish — kesim ro'yxatida va narxda qoladi">{selComp.hidden ? "🚫 Yashirilgan" : "👁 Ko'rinadi"}</button>
+                <button type="button" className="mob-props-toggle" onClick={() => setPartView("locked", !selComp.locked)}
+                  title="Qulflash — tasodifan o'zgartirilmasin">{selComp.locked ? "🔒 Qulflangan" : "🔓 Ochiq"}</button>
+              </>
+            )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
                 be nudged by accident while dragging something else. */}
@@ -2234,6 +2245,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             onBlur={(e) => setFreePartNote(selFreeBoard.id, e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
             style={{ ...mono, color: "#7a6a4a", width: 120, border: "1px solid #cdd5df", borderRadius: 6, padding: "3px 7px", background: "#fff" }} />
+          {/* M7.4 — hide it from the view (still cut and priced) · lock it against accidental drags */}
+          <button type="button" title={selFreeBoard.hidden ? "Ko'rsatish" : "Yashirish (kesim ro'yxatida qoladi)"} aria-label="Yashirish"
+            onClick={() => setFreePartView(selFreeBoard.id, "hidden", !selFreeBoard.hidden)}
+            style={{ ...act, minHeight: 34, padding: "6px 10px", ...(selFreeBoard.hidden ? { borderColor: "#8a6d1f", background: "#fdf6e3", color: "#8a6d1f" } : {}) }}>{selFreeBoard.hidden ? "🚫" : "👁"}</button>
+          <button type="button" title={selFreeBoard.locked ? "Qulfni ochish" : "Qulflash (tasodifan surilmasin)"} aria-label="Qulflash"
+            onClick={() => setFreePartView(selFreeBoard.id, "locked", !selFreeBoard.locked)}
+            style={{ ...act, minHeight: 34, padding: "6px 10px", ...(selFreeBoard.locked ? { borderColor: "#a01a2e", background: "#fdeaee", color: "#a01a2e" } : {}) }}>{selFreeBoard.locked ? "🔒" : "🔓"}</button>
           <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "w", mm)} units={units} />
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
