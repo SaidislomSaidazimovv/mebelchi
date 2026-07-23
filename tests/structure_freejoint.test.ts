@@ -7,7 +7,8 @@
 import { describe, it, expect } from "vitest";
 
 import { solveModelToParts } from "../engine/cnc.js";
-import { buildTable, buildCarcassModel } from "../engine/structure/demoModel.js";
+import { checkJointConstraints } from "../engine/structure/jointConstraints.js";
+import { buildTable, buildCarcassModel, buildStool, buildBench, buildBedFrame } from "../engine/structure/demoModel.js";
 import type { FreePart, PrimitiveShape, StructuralModel } from "../engine/contracts/structure.js";
 
 const ops = (m: StructuralModel, idEnd: string) =>
@@ -107,6 +108,18 @@ describe("M5 — a ROUND leg is dowelled too, but still takes no panel drilling"
     const p = solveModelToParts(m).find((x) => x.id.endsWith("__free_a"))!;
     expect(p.operations).toEqual([]);
   });
+});
+
+describe("M5.2 — the new dowels pass the joint check (they must not block the CNC export)", () => {
+  // «Birikma» reads checkJointConstraints over solveModelToParts, so every dowel this phase adds is now
+  // graded by the same rule as the carcass holes. A dowel too near an edge would raise a warning and gate
+  // the export — so the ¼ / ¾ spread has to clear the 10 mm margin on the REAL templates, not in theory.
+  for (const [name, make] of [["stol", () => buildTable(1200, 750, 700)], ["taburetka", () => buildStool()], ["skameyka", () => buildBench()], ["karavot", () => buildBedFrame()]] as const) {
+    it(`${name}: no free-dowel raises a joint warning`, () => {
+      const bad = checkJointConstraints(solveModelToParts(make()), 100).filter((f) => f.opId.startsWith("fdowel_"));
+      expect(bad).toEqual([]);
+    });
+  }
 });
 
 describe("M5 — byte-identical where there is no free assembly", () => {
