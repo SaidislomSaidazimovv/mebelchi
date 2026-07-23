@@ -76,6 +76,24 @@ describe("M8.4 — one batch, one step", () => {
   });
 });
 
+describe("M8.4 — a pick belongs to ONE project", () => {
+  it("loading another model clears it", () => {
+    st().toggleMulti("leg_fl");
+    st().setModel(buildTable(900, 750, 600));
+    expect(st().multiIds).toEqual([]);
+  });
+
+  // Found by Antigravity's review of M8.4: importProject swaps the model too, and its ids mean something
+  // else in the new file — a batch action would have landed on a part the usta never chose.
+  it("IMPORTING another project clears it (and the block tick with it)", () => {
+    st().toggleMulti("leg_fl");
+    st().toggleBlockSel("tbl");
+    st().importProject(JSON.stringify({ model: buildTable(900, 750, 600) }));
+    expect(st().multiIds).toEqual([]);
+    expect(st().selectedBlockIds).toEqual([]);
+  });
+});
+
 describe("M8.4 — the lock still means «leave this one alone»", () => {
   it("a locked part survives a batch delete, the rest go", () => {
     st().setFreePartView("leg_fl", "locked", true);

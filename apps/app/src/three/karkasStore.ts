@@ -1705,7 +1705,9 @@ export const useKarkas = create<KarkasState>((set, get) => {
       const foreign = foreignDecors(get().materialPool, data.model, plan);
       // reset the FULL edit context on load (Step 12 audit fix): future[] (else redo restores the previous
       // project), and the manufacturing exportOverride / selectedHole (else block A's override leaks to B).
-      set({ ...derive(data.model, plan, get().thickness), plan, selectedId: null, past: [], future: [], exportOverride: false, selectedHole: null, open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null, lockedQuote: data.lockedQuote ?? null });
+      // M8.4 — the PICKS go with the project too: a multi-pick or a block tick from the old file names
+      // ids that mean something else here, and a batch action would land on a part the usta never chose.
+      set({ ...derive(data.model, plan, get().thickness), plan, selectedId: null, selectedBlockIds: [], multiIds: [], past: [], future: [], exportOverride: false, selectedHole: null, open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null, lockedQuote: data.lockedQuote ?? null });
     },
     resolveBinding: (mapping) => {
       const s = get();
