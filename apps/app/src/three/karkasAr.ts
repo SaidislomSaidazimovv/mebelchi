@@ -3,28 +3,54 @@
 // canvas instead of borrowing the editor's, so nothing here can disturb the main viewport (its render
 // loop, its camera framing, its OrbitControls) — and a failed/cancelled session leaves no trace.
 //
-// PLATFORM REALITY (why the UI has two paths): immersive AR on the web is WebXR, which Android Chrome
-// supports and iOS Safari does not. So this module reports what the device can actually do and the tab
-// offers the .glb download as the universal fallback (any phone/desktop can open it in a 3D viewer, and
-// it doubles as a way to send the cabinet to a client).
+// PLATFORM REALITY (why the UI has three paths): immersive AR on the web is WebXR, and WebXR turned out
+// to be a promise Android does not always keep — the founder's own phone reports `immersive-ar`
+// supported and then refuses every session (Google's own WebXR sample fails there too). What DOES work
+// on that phone is Google's Scene Viewer, the viewer behind "view in 3D" in Search. So the chain is:
+//   WebXR  →  (on refusal, not just on "unsupported")  Scene Viewer  →  .glb download.
+// Scene Viewer is an Android intent that fetches the model over HTTPS, which is why the middle path
+// needs `uploadGlbForAr` — a browser-made blob: URL is invisible to it.
 
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 
-/** What this device can do with the model. */
-export type ArSupport = "checking" | "webxr" | "unsupported";
+import { isAndroid, sceneViewerUrl } from "./arLink";
+
+// The link builder lives in its own three-free module so it can be tested in plain Node; callers still
+// reach it through this one AR entry point.
+export { isAndroid, sceneViewerUrl, SCENE_VIEWER_PACKAGE } from "./arLink";
+
+/** What this device can do with the model, best path first. */
+export type ArSupport = "checking" | "webxr" | "sceneviewer" | "download";
 
 interface XrNavigator { xr?: { isSessionSupported(mode: string): Promise<boolean> } }
 
 /** Does this browser/device actually offer immersive AR? Never throws — a missing API is just "no". */
 export async function detectArSupport(): Promise<ArSupport> {
+  const fallback: ArSupport = isAndroid() ? "sceneviewer" : "download";
   const xr = (navigator as unknown as XrNavigator).xr;
-  if (!xr?.isSessionSupported) return "unsupported";
+  if (!xr?.isSessionSupported) return fallback;
   try {
-    return (await xr.isSessionSupported("immersive-ar")) ? "webxr" : "unsupported";
+    return (await xr.isSessionSupported("immersive-ar")) ? "webxr" : fallback;
   } catch {
-    return "unsupported";
+    return fallback;
   }
+}
+
+/**
+ * Put the model where Scene Viewer can reach it: POST the .glb to our own function, which stores it in
+ * Vercel Blob and returns a public https:// address. Rejects with the server's own words — "Blob
+ * saqlagichi ulanmagan" is a setup problem, not something to hide behind a generic failure.
+ */
+export async function uploadGlbForAr(blob: Blob): Promise<string> {
+  const res = await fetch("/api/ar-upload", {
+    method: "POST",
+    headers: { "content-type": "model/gltf-binary" },
+    body: blob,
+  });
+  const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+  if (!res.ok || !data.url) throw new Error(data.error ?? `Yuklashda xato (${res.status})`);
+  return data.url;
 }
 
 /** One refused `requestSession` attempt, kept so a failure can explain itself instead of guessing. */
@@ -57,6 +83,9 @@ export async function arDiagnostics(): Promise<Record<string, string>> {
   out["HTTPS"] = window.isSecureContext ? "ha" : "YO'Q — AR faqat HTTPS da ishlaydi";
   out["Asosiy oyna"] = window.top === window.self ? "ha" : "YO'Q — ilova ichidagi brauzer (Telegram/Instagram)";
   out["navigator.xr"] = xr ? "bor" : "yo'q — brauzerda WebXR yo'q";
+  // The zaxira path matters more than WebXR on the phones that brought us here, so it is reported too.
+  out["Android"] = isAndroid() ? "ha" : "yo'q";
+  out["Scene Viewer"] = isAndroid() ? "mumkin (Google ilovasi orqali)" : "yo'q — faqat Android'da";
   if (xr?.isSessionSupported) {
     for (const mode of ["immersive-ar", "immersive-vr", "inline"]) {
       try { out[mode] = (await xr.isSessionSupported(mode)) ? "ha" : "yo'q"; }

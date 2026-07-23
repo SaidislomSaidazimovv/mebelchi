@@ -25,7 +25,7 @@ import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
 import { handleFittings } from "./handles";
 import { applianceFittings, withApplianceCutouts } from "./appliances";
-import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, startArSession, type ArSession, type ArSupport } from "./karkasAr";
+import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, isAndroid, sceneViewerUrl, startArSession, uploadGlbForAr, type ArSession, type ArSupport } from "./karkasAr";
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate, applianceEstimate } from "./estimate";
@@ -152,6 +152,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [arNoFloor, setArNoFloor] = useState(false); // session granted, but without floor hit-test
   const [arDiag, setArDiag] = useState<string | null>(null); // device's own WebXR report, on failure
   const [arCopied, setArCopied] = useState(false);
+  // M6.2 — the Scene Viewer path leaves the browser, so the wait (build + upload) must be visible or the
+  // usta taps again thinking nothing happened.
+  const [arBusy, setArBusy] = useState<string | null>(null);
   const arOverlayRef = useRef<HTMLDivElement | null>(null);
   const arSessionRef = useRef<ArSession | null>(null);
   // #4 — live measure readout while dragging a face to resize: the active dim + its current size (mm), shown
@@ -1416,17 +1419,45 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     } catch (err) {
       if (arOverlayRef.current) arOverlayRef.current.style.display = "none";
       setArActive(false);
+      void recordArDiag(err); // keep the device report either way — it is how we diagnose a phone we lack
+      // M6.2 — THE FIX. A refused WebXR session is not the end of AR on Android: Scene Viewer does not
+      // use WebXR at all, and it is the path that works on the very phones that refuse here (the
+      // founder's included — Google's own WebXR sample fails there, Scene Viewer does not). Falling
+      // straight through beats an error message the usta can do nothing about.
+      if (isAndroid()) { void openInSceneViewer(); return; }
       setArError(`AR ochilmadi. ${arAdvice(err)}`);
-      // Collect what the device ACTUALLY reports, so a failure can be diagnosed from facts instead of
-      // guesses — the master can copy this block and send it to us.
-      const diag = await arDiagnostics();
-      const lines = Object.entries(diag).map(([k, v]) => `${k}: ${v}`);
-      if (err instanceof ArSessionError) {
-        lines.push("", "So'rovlar:");
-        err.attempts.forEach((a, i) =>
-          lines.push(`${i + 1}) majburiy=[${a.required.join(",")}] ixtiyoriy=[${a.optional.join(",")}] → ${a.error}`));
-      }
-      setArDiag(lines.join("\n"));
+    }
+  };
+  /** Collect what the device ACTUALLY reports, so a failure is diagnosed from facts instead of guesses. */
+  const recordArDiag = async (err: unknown) => {
+    const diag = await arDiagnostics();
+    const lines = Object.entries(diag).map(([k, v]) => `${k}: ${v}`);
+    if (err instanceof ArSessionError) {
+      lines.push("", "So'rovlar:");
+      err.attempts.forEach((a, i) =>
+        lines.push(`${i + 1}) majburiy=[${a.required.join(",")}] ixtiyoriy=[${a.optional.join(",")}] → ${a.error}`));
+    }
+    setArDiag(lines.join("\n"));
+  };
+  /**
+   * M6.2 — the Scene Viewer path: export the model, hand it to our own upload function for an https
+   * address, then let Google's viewer stand it in the room. It leaves the browser, so each step says
+   * what it is doing — otherwise the usta taps again while the .glb is still uploading.
+   */
+  const openInSceneViewer = async () => {
+    setArError(null);
+    try {
+      setArBusy("3D model tayyorlanmoqda…");
+      const blob = await exportGlb(arGroup());
+      setArBusy("Model yuklanmoqda…");
+      const url = await uploadGlbForAr(blob);
+      setArBusy("AR ochilmoqda…");
+      // The page stays alive behind Scene Viewer, so clear the notice for when the usta comes back.
+      window.setTimeout(() => setArBusy(null), 5000);
+      window.location.href = sceneViewerUrl(url, "Karkas blok", window.location.href);
+    } catch (err) {
+      setArBusy(null);
+      setArError(`AR ochilmadi: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
   const downloadGlb = async () => {
@@ -1632,15 +1663,25 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             {arSupport === "webxr" && (
               <>
                 <span className="mob-ar-text">Kamerani polga qarating — ko'k halqa chiqadi, bosing va shkaf o'sha joyga qo'yiladi. Qayta bosib ko'chirasiz.</span>
-                <button type="button" className="mob-ar-go" onClick={startAr}>Kamerani ochish</button>
+                <button type="button" className="mob-ar-go" disabled={!!arBusy} onClick={startAr}>Kamerani ochish</button>
               </>
             )}
-            {arSupport === "unsupported" && (
+            {/* M6.2 — the phone has no working WebXR but is Android, so Google's own viewer does the job. */}
+            {arSupport === "sceneviewer" && (
+              <>
+                <span className="mob-ar-text">
+                  Kamerani polga qarating va mebelni joyiga qo'ying. <b>Google ilovasi</b> orqali ochiladi — brauzerdan chiqib, keyin qaytadi.
+                </span>
+                <button type="button" className="mob-ar-go" disabled={!!arBusy} onClick={() => void openInSceneViewer()}>Kamerani ochish</button>
+              </>
+            )}
+            {arSupport === "download" && (
               <span className="mob-ar-text">
-                Bu qurilma brauzerida kamerali AR yo'q. <b>Android + Chrome</b> da ishlaydi; iPhone Safari uni hali qo'llamaydi.
+                Bu qurilmada kamerali AR yo'q. <b>Android</b> telefonda ishlaydi; iPhone uni hali qo'llamaydi.
                 Quyidagi <b>.glb</b> faylni yuklab olib, istalgan 3D ko'ruvchida (yoki iPhone'da «Файлы» orqali) ocha olasiz.
               </span>
             )}
+            {arBusy && <span className="mob-ar-text">⏳ {arBusy}</span>}
             {arError && <span className="mob-ar-err">{arError}</span>}
             {arDiag && (
               <details className="mob-ar-diag">
