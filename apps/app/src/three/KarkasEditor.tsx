@@ -139,7 +139,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [tab, setTab] = useState<MobTab>("build");
   const [toolsOpen, setToolsOpen] = useState(false); // mobile: the «⋯ ko'proq» slide-up sheet
-  const [rpanel, setRpanel] = useState<"none" | "add" | "material">("none"); // U2.3 right panel
+  // U2.3 right panel. "room" joined it in M6-UX: the room presets used to live ONLY inside the ⋯ sheet,
+  // so on a phone the walls could not be set without knowing that menu. Riding the existing panel state
+  // (rather than a sheet of its own) means opening it closes the others and every «hide while a panel is
+  // up» rule already covers it.
+  const [rpanel, setRpanel] = useState<"none" | "add" | "material" | "room">("none");
   // #3 — tap-a-dimension math keypad: an usta-friendly calculator (600+18, 1200/2…) that opens on tapping
   // a W/H/D chip on mobile, so no fiddly native keyboard. `mm` is always in mm; the pad handles cm display.
   const [keypad, setKeypad] = useState<{ label: string; value: number; units: "mm" | "cm"; onCommit: (mm: number) => void; min?: number; suffix?: string } | null>(null);
@@ -1635,7 +1639,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {tab === "parts" && (
         <>
           <div style={{ position: "absolute", inset: "60px 0 0 0", background: "var(--mob-surface-2)", zIndex: 3 }} />
-          <SpecPanel variant="tab" onClose={() => setTab("build")} />
+          <SpecPanel variant="tab" onClose={() => setTab("build")} onExportCnc={exportCnc} />
         </>
       )}
       {/* ── Chizma tab = the technical drawing (print / PDF) ── */}
@@ -1741,7 +1745,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {tab === "build" && rpanel !== "none" && (
         <aside className={"mob-panel" + (compact ? " is-sheet" : "")} style={compact ? undefined : { right: 72 }}>
           <div className="mob-panel-head">
-            <span>{rpanel === "add" ? "Qo'shish" : "Materiallar"}</span>
+            <span>{rpanel === "add" ? "Qo'shish" : rpanel === "room" ? "Xona" : "Materiallar"}</span>
             <button className="mob-x" type="button" onClick={() => setRpanel("none")} aria-label="Yopish">×</button>
           </div>
           <div className="mob-panel-body">
@@ -1803,6 +1807,40 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   </div>
                 )}
               </>
+            ) : rpanel === "room" ? (
+              /* M6-UX — the room: wall preset, then one length field per wall, then the auto-fitted corner
+                 cabinet. Same controls as the ⋯ sheet's row, but reachable in one tap and laid out down
+                 the sheet instead of scrolling sideways. */
+              <>
+                <div className="mob-addgrid">
+                  {([["none", "Yo'q"], ["I", "I — bitta devor"], ["L", "L — burchak"], ["U", "П — uch devor"]] as const).map(([p, label]) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className={"mob-addbtn" + (roomPreset === p ? " is-active" : "")}
+                      onClick={() => (p === "none" ? clearRoom() : setRoom(p, roomLens ? roomLens.split(",").map(Number) : []))}
+                    >{label}</button>
+                  ))}
+                </div>
+                {roomPreset !== "none" && (
+                  <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {roomLens.split(",").map((L, i) => (
+                      <label key={i} className="mob-props-f" style={{ justifyContent: "space-between" }}>
+                        <span>{i + 1}-devor</span>
+                        <DimField label="mm" value={Number(L)} min={500} units={units}
+                          onCommit={(v) => { const lens = roomLens.split(",").map(Number); lens[i] = v; setRoom(roomPreset as "I" | "L" | "U", lens); }} />
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {roomWallCount >= 2 && (
+                  <button className="mob-addbtn" type="button" style={{ width: "100%", marginTop: 12 }}
+                    onClick={() => { fitCorner(); setRpanel("none"); }}>⌐ Burchakka L-shkaf</button>
+                )}
+                <span style={{ ...mono, fontSize: 11, opacity: 0.6, display: "block", marginTop: 12 }}>
+                  Devorlar faqat ko'rinish uchun — kesim ro'yxatiga ham, narxga ham kirmaydi.
+                </span>
+              </>
             ) : (
               <>
                 <MatSelect label="Korpus" slot="carcass" />
@@ -1826,6 +1864,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {tab === "build" && compact && !selFreeBoard && (
         <div className="mob-fabgroup">
           <button className="mob-fab-mini" type="button" title="Ko'proq" aria-label="Ko'proq" onClick={() => { commitActiveEdit(); setToolsOpen((o) => !o); }}>⋯</button>
+          {/* M6-UX — «Xona» had no home on a phone: its presets sat inside the ⋯ sheet, so the walls the
+              cabinet is measured against were the one thing an usta could not reach in a tap. */}
+          <button className={"mob-fab-mini" + (rpanel === "room" ? " is-active" : "")} type="button" title="Xona" aria-label="Xona"
+            onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "room" ? "none" : "room")); }}>⌂</button>
           <button className={"mob-fab-mini" + (rpanel === "material" ? " is-active" : "")} type="button" title="Materiallar" aria-label="Materiallar" onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "material" ? "none" : "material")); }}><MobPaint /></button>
           <button className="mob-fab" type="button" title="Qo'shish" aria-label="Qo'shish" onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "add" ? "none" : "add")); }}>{rpanel === "add" ? "×" : <MobPlus />}</button>
         </div>
@@ -2622,7 +2664,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           </div>
         )}
         {showTree && <TreePanel onClose={() => setActivePanel(null)} />}
-        {showSpec && <SpecPanel onClose={() => setActivePanel(null)} />}
+        {showSpec && <SpecPanel onClose={() => setActivePanel(null)} onExportCnc={exportCnc} />}
       </div>
     </div>
     </SwatchCtx.Provider>
@@ -2888,7 +2930,13 @@ function MatSelect({ label, slot }: { label: string; slot: keyof Omit<MaterialPl
 }
 
 /** Right-hand «Спецификация» drawer — material picker + cut list + material-plan price totals. */
-function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant?: "side" | "tab" }) {
+/**
+ * M6-UX — `onExportCnc` is optional but always passed today. The CNC file is what the whole editor is
+ * FOR, and on a phone it lived only behind the ⋯ sheet: an usta reading the cut list had no way to send
+ * it to the machine from where he was standing. It sits in the head, not under the list, so it does not
+ * move as the list grows.
+ */
+function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => void; variant?: "side" | "tab"; onExportCnc?: () => void }) {
   const { compact } = useViewport();
   const parts = useKarkas((s) => s.parts);
   const plan = useKarkas((s) => s.plan);
@@ -2937,7 +2985,11 @@ function SpecPanel({ onClose, variant = "side" }: { onClose: () => void; variant
       : compact ? { ...specPanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : specPanel}>
       <div style={specHead}>
         <b style={{ fontSize: 15 }}>Спецификация</b>
-        <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
+        {onExportCnc && (
+          <button onClick={onExportCnc} type="button" title="Stanok uchun fayl (SWJ008)"
+            style={{ ...pill, marginLeft: "auto", borderColor: "#00a961", background: "#e6f6ee", color: "#006b3f", fontWeight: 700 }}>⬇ CNC</button>
+        )}
+        <button onClick={onClose} style={{ ...pill, ...(onExportCnc ? {} : { marginLeft: "auto" }) }} type="button">✕</button>
       </div>
 
       {/* Ortho views — Top / Front / Side, so the usta sees WHAT is being cut before reading the list */}
