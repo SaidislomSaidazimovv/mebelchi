@@ -61,7 +61,46 @@ function addCutoutHole(shape: THREE.Shape, cut: NonNullable<Board["cutouts"]>[nu
  *  rounded-rect (with holes) extruded through the panel's thickness. The thickness axis is the smallest
  *  of the three dims; the other two form the face. `makeBasis` re-orients the XY-extruded shape onto the
  *  board's real axes (kept right-handed so face normals point outward). */
+/** M4 — a NON-BOX primitive drawn inside the board's envelope: a cylinder (a round leg, or the hanging
+ *  RAIL every wardrobe needs), a sphere (knob/foot), a tube (metal frame) or a wedge (angled support).
+ *  The envelope stays the box, so a cylinder's height is size.y and its radius min(size.x, size.z)/2 —
+ *  moving, anchoring and resizing keep working exactly as they do for a flat board. */
+function primitiveGeometry(shape: NonNullable<Board["shape"]>, w: number, h: number, d: number): THREE.BufferGeometry {
+  if (shape === "sphere") return new THREE.SphereGeometry(Math.max(0.001, Math.min(w, h, d) / 2), 32, 20);
+  if (shape === "cylinder" || shape === "tube") {
+    // The axis follows the LONGEST side, so ONE primitive serves a vertical round leg AND a horizontal
+    // hanging rail (штанга) — the everyday wardrobe part that had no shape at all until now. (A fixed
+    // Y axis would have drawn a 1.1 m rail as a stubby 30 mm-tall disc.)
+    const axis: "x" | "y" | "z" = h >= w && h >= d ? "y" : w >= d ? "x" : "z";
+    const len = Math.max(0.001, axis === "y" ? h : axis === "x" ? w : d);
+    const across = axis === "y" ? Math.min(w, d) : axis === "x" ? Math.min(h, d) : Math.min(w, h);
+    const r = Math.max(0.001, across / 2);
+    let g: THREE.BufferGeometry;
+    if (shape === "cylinder") g = new THREE.CylinderGeometry(r, r, len, 32);
+    else {
+      const inner = Math.max(r * 0.35, r - 0.004); // ≈4 mm wall
+      const ring = new THREE.Shape();
+      ring.absarc(0, 0, r, 0, Math.PI * 2, false);
+      const hole = new THREE.Path();
+      hole.absarc(0, 0, inner, 0, Math.PI * 2, true);
+      ring.holes.push(hole);
+      g = new THREE.ExtrudeGeometry(ring, { depth: len, bevelEnabled: false, curveSegments: 24 });
+      g.translate(0, 0, -len / 2); g.rotateX(-Math.PI / 2); // Extrude runs +Z → make it Y-aligned first
+    }
+    if (axis === "x") g.rotateZ(Math.PI / 2); // lay the Y-aligned cylinder along X …
+    else if (axis === "z") g.rotateX(Math.PI / 2); // … or along Z
+    return g;
+  }
+  // wedge — a right-triangle prism (full at one edge, tapering to the other): an angled support / filler
+  const tri = new THREE.Shape();
+  tri.moveTo(-w / 2, -h / 2); tri.lineTo(w / 2, -h / 2); tri.lineTo(-w / 2, h / 2); tri.closePath();
+  const g = new THREE.ExtrudeGeometry(tri, { depth: Math.max(0.001, d), bevelEnabled: false });
+  g.translate(0, 0, -Math.max(0.001, d) / 2);
+  return g;
+}
+
 function boardGeometry(b: Board): THREE.BufferGeometry {
+  if (b.shape && b.shape !== "box") return primitiveGeometry(b.shape, b.size[0], b.size[1], b.size[2]); // M4
   const hasCorners = !!b.corners && b.corners.some((r) => r > 0);
   const hasCutouts = !!b.cutouts && b.cutouts.length > 0;
   if (!hasCorners && !hasCutouts) return new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);

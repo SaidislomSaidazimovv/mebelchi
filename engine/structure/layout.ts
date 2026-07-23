@@ -19,6 +19,7 @@ import type {
   Junction3D,
   Line,
   PanelShell,
+  PrimitiveShape,
   Section,
   StructuralModel,
 } from "../contracts/structure.js";
@@ -66,6 +67,12 @@ export interface PanelPlacement {
    * FreePart.rotY_deg). Render-only, like rotX_deg; the panel's cut size is unchanged. Absent = square-on.
    */
   readonly rotY_deg?: number;
+  /**
+   * M4 — the primitive SHAPE drawn inside this box (a cylinder leg / hanging rail, a sphere knob, a tube,
+   * a wedge). Render-only, exactly like rotY_deg: the box (and so every layout figure) is unchanged, only
+   * the viewport draws something other than a cuboid. Absent = "box" — every existing placement unchanged.
+   */
+  readonly shape?: PrimitiveShape;
 }
 
 const B = BOARD_MM10;
@@ -575,7 +582,8 @@ function applyJunction(p: PanelPlacement, j: Junction3D): PanelPlacement {
 function freePartPlacement(block: Block, fp: FreePart): PanelPlacement {
   const b = fp.box;
   const p = place(`${block.id}__free_${fp.id}`, fp.name, block.box.x + b.x, block.box.y + b.y, block.box.z + b.z, b.w, b.h, b.d);
-  return fp.rotY_deg ? { ...p, rotY_deg: fp.rotY_deg } : p; // render-only turn about the vertical axis
+  const turned = fp.rotY_deg ? { ...p, rotY_deg: fp.rotY_deg } : p; // render-only turn about the vertical axis
+  return fp.shape && fp.shape !== "box" ? { ...turned, shape: fp.shape } : turned; // M4 — render-only shape
 }
 
 /**

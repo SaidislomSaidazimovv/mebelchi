@@ -515,6 +515,16 @@ export interface LCornerFootprint {
  *  free assembly (a table top, a leg-panel, an apron rail, a stretcher, a generic panel). */
 export type FreePartRole = "top" | "leg" | "rail" | "stretcher" | "panel" | "shelf" | "back";
 
+/**
+ * The SHAPE a free part is drawn as (M4). Absent/"box" = the flat board every free part has been until
+ * now — byte-identical. The others are NOT flat sheet panels: a cylinder (a round leg, or the hanging
+ * RAIL every wardrobe needs), a sphere (a knob/foot), a tube (a metal frame), a wedge (an angled
+ * support). The `box` stays the ENVELOPE — a cylinder's height is box.h and its radius min(box.w,box.d)/2
+ * — so anchors, moving and resizing keep working unchanged. Because they cannot be cut from a sheet,
+ * non-box parts are kept OUT of the panel cut list, the CNC export and the m² price (see solve/drilling).
+ */
+export type PrimitiveShape = "box" | "cylinder" | "sphere" | "tube" | "wedge";
+
 /** One edge of a free part on an axis, pinned to the block's LOW (`x=0`) or HIGH (`x=extent`) face at a
  *  fixed `offset_mm10` inside it. This is what makes the "table law" work for free parts: on a block
  *  resize the edge re-resolves against the new extent — a leg pinned `hi` stays inset from the right. */
@@ -553,6 +563,8 @@ export interface FreePart {
   readonly box: Box3D;
   /** Which box dimension is the board's thickness (the face = the other two). */
   readonly thicknessAxis: Axis;
+  /** M4 — the shape drawn inside `box`. Absent = "box" (a flat board; byte-identical). See PrimitiveShape. */
+  readonly shape?: PrimitiveShape;
   /**
    * Rotation about the VERTICAL (Y) axis, in DEGREES — turning a board to face another way (an angled
    * panel, the return of an L-shaped run). RENDER-ONLY, exactly like a tilted shelf's `rotX_deg`: a
