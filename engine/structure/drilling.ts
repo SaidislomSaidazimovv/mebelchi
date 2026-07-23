@@ -32,7 +32,7 @@
 
 import type { Part, mm10, DrillOp, PanelFace, SawGrooveOp } from "../contracts/types.js";
 import type { HardwareSpec, ConnectorSpec } from "../primitives/types.js";
-import type { StructuralModel, HandleType } from "../contracts/structure.js";
+import type { StructuralModel, HandleType, FreePart, Box3D } from "../contracts/structure.js";
 import { mmToMm10 } from "../core/units.js";
 import { shelfPinPattern } from "../primitives/shelfPinPattern.js";
 import { hingeCupPattern } from "../primitives/hingeCupPattern.js";
@@ -476,6 +476,134 @@ function drawerJoineryByPart(model: StructuralModel, parts: Part[], conn: Connec
  * Returns a NEW array; parts that gain no operations are returned unchanged, machined parts are
  * copies with extended `operations`.
  */
+// ── M5 — free-part joinery (leg ↔ apron): plain 2×Ø8 dowels ────────────────────────────────────
+// The carcass has had cam+dowel joinery all along; a FREE assembly (a table's legs + aprons, a bench,
+// a bed frame) had none — the parts simply stood next to each other and the usta was handed no holes to
+// assemble them with. Two free parts that meet face-to-face now get the joint an Uzbek workshop actually
+// uses: two Ø8 dowels and glue, no cam (founder's call). A round leg takes them too — see applyDrilling.
+const FREE_JOINT_TOL: mm10 = 20; // ±2 mm — closer than this counts as touching
+const FREE_JOINT_MIN_OVERLAP: mm10 = 150; // 15 mm — under this it is a corner graze, not a joint
+const FREE_DOWEL_INSET = 0.25; // the two dowels sit at ¼ and ¾ across the joint
+
+type Ax = "x" | "y" | "z";
+const AXES: readonly Ax[] = ["x", "y", "z"];
+const boxLo = (b: Box3D, a: Ax): mm10 => (a === "x" ? b.x : a === "y" ? b.y : b.z);
+const boxExt = (b: Box3D, a: Ax): mm10 => (a === "x" ? b.w : a === "y" ? b.h : b.d);
+const boxHi = (b: Box3D, a: Ax): mm10 => boxLo(b, a) + boxExt(b, a);
+
+/** Which box axis carries a free part's LENGTH / WIDTH / THICKNESS — mirrors freePartToPart exactly, so
+ *  a hole computed here lands on the same face the cut list describes. */
+function freeAxes(fp: FreePart): { len: Ax; wid: Ax; thk: Ax } {
+  const { w, h, d } = fp.box;
+  const smallest = Math.min(w, h, d);
+  const thk: Ax = fp.thicknessAxis === "x" && w === smallest ? "x"
+    : fp.thicknessAxis === "y" && h === smallest ? "y"
+      : fp.thicknessAxis === "z" && d === smallest ? "z"
+        : w === smallest ? "x" : h === smallest ? "y" : "z";
+  return thk === "x" ? { len: "y", wid: "z", thk: "x" }
+    : thk === "y" ? { len: "x", wid: "z", thk: "y" }
+      : { len: "x", wid: "y", thk: "z" };
+}
+
+/** Do two free-part boxes meet face-to-face? Returns the contact axis and whether A is the low side. */
+function freeContact(a: Box3D, b: Box3D): { axis: Ax; aIsLow: boolean } | null {
+  for (const axis of AXES) {
+    const aLow = Math.abs(boxHi(a, axis) - boxLo(b, axis)) <= FREE_JOINT_TOL; // A ends where B starts
+    const bLow = Math.abs(boxHi(b, axis) - boxLo(a, axis)) <= FREE_JOINT_TOL;
+    if (!aLow && !bLow) continue;
+    // …and they must genuinely overlap on the other two axes, or it is a corner graze, not a joint
+    const enough = AXES.filter((x) => x !== axis).every(
+      (x) => Math.min(boxHi(a, x), boxHi(b, x)) - Math.max(boxLo(a, x), boxLo(b, x)) >= FREE_JOINT_MIN_OVERLAP,
+    );
+    if (enough) return { axis, aIsLow: aLow };
+  }
+  return null;
+}
+
+/**
+ * Plain dowel joinery between touching free parts, keyed by part id → ops to append (M5).
+ * The part whose LENGTH runs into the joint butts with its END (an apron, a rail); the other receives it
+ * on a face (a leg, a post). Two ends meeting, or two faces stacked, are ambiguous and get no joint.
+ * Coordinates follow the engine's convention (06_CONVENTIONS §1): a face drill is (x along length,
+ * y along width) on Face A; an edge drill carries the same (x, y) plus z INTO the thickness, and the low
+ * end of a part is edge4 while its high end is edge3 (see camDowelJoint).
+ */
+function freePartJoineryByPart(model: StructuralModel, parts: Part[], conn: ConnectorSpec | undefined): Map<string, DrillOp[]> {
+  const out = new Map<string, DrillOp[]>();
+  if (!conn) return out;
+  const byId = new Map(parts.map((p) => [p.id, p]));
+  const add = (id: string, ops: DrillOp[]): void => { if (!ops.length) return; const a = out.get(id) ?? []; a.push(...ops); out.set(id, a); };
+  const dia = mmToMm10(conn.dowelHole.diameter);
+  const depth = mmToMm10(conn.dowelHole.depth);
+  for (const block of model.blocks) {
+    const fps = block.freeParts ?? [];
+    for (let i = 0; i < fps.length; i++) {
+      for (let j = i + 1; j < fps.length; j++) {
+        const A = fps[i]!, B = fps[j]!;
+        const c = freeContact(A.box, B.box);
+        if (!c) continue;
+        const axA = freeAxes(A), axB = freeAxes(B);
+        const aButts = axA.len === c.axis, bButts = axB.len === c.axis;
+        if (aButts === bButts) continue; // both ends, or both faces — no simple two-dowel joint
+        const butt = aButts ? A : B, recv = aButts ? B : A;
+        const axButt = aButts ? axA : axB, axRecv = aButts ? axB : axA;
+        const buttPart = byId.get(`${block.id}__free_${butt.id}`);
+        const recvPart = byId.get(`${block.id}__free_${recv.id}`);
+        if (!buttPart || !recvPart) continue;
+        // the butting part's HIGH end touches when it sits on the LOW side of the contact
+        const buttIsLow = butt === A ? c.aIsLow : !c.aIsLow;
+        // spread the two dowels across the shared overlap on the BUTT's width, centred in its thickness
+        const sLo = Math.max(boxLo(butt.box, axButt.wid), boxLo(recv.box, axButt.wid));
+        const sHi = Math.min(boxHi(butt.box, axButt.wid), boxHi(recv.box, axButt.wid));
+        const span = sHi - sLo;
+        if (span < FREE_JOINT_MIN_OVERLAP) continue;
+        const at: mm10[] = [sLo + Math.round(span * FREE_DOWEL_INSET), sLo + Math.round(span * (1 - FREE_DOWEL_INSET))];
+        const buttMid = boxLo(butt.box, axButt.thk) + Math.round(boxExt(butt.box, axButt.thk) / 2);
+        const buttOps: DrillOp[] = [];
+        const recvOps: DrillOp[] = [];
+        at.forEach((p, k) => {
+          // BUTT — into its end edge (high end = edge3 at x=length, low end = edge4 at x=0)
+          buttOps.push({
+            op: "drill", id: `fdowel_${buttPart.id}_${k}`,
+            face: (buttIsLow ? "edge3" : "edge4") as PanelFace,
+            x_mm10: buttIsLow ? buttPart.length_mm10 : 0,
+            y_mm10: p - boxLo(butt.box, axButt.wid),
+            z_mm10: Math.round(buttPart.thickness_mm10 / 2),
+            diameter_mm10: dia, depth_mm10: depth, source: "auto",
+          });
+          // RECEIVER — on the surface the contact actually lands on: its FACE when the contact runs along
+          // its thickness, otherwise its long EDGE. (A round leg is drilled on the matching face of its
+          // bounding box — the usta clamps it and bores from that reference, see M4.)
+          const world: Record<Ax, mm10> = { x: 0, y: 0, z: 0 };
+          world[axButt.wid] = p;
+          world[axButt.thk] = buttMid;
+          if (c.axis === axRecv.thk) {
+            recvOps.push({
+              op: "drill", id: `fdowel_${recvPart.id}_${buttPart.id}_${k}`, face: "A",
+              x_mm10: world[axRecv.len] - boxLo(recv.box, axRecv.len),
+              y_mm10: world[axRecv.wid] - boxLo(recv.box, axRecv.wid),
+              diameter_mm10: dia, depth_mm10: depth, source: "auto",
+            });
+          } else if (c.axis === axRecv.wid) {
+            const recvIsLow = recv === A ? c.aIsLow : !c.aIsLow;
+            recvOps.push({
+              op: "drill", id: `fdowel_${recvPart.id}_${buttPart.id}_${k}`,
+              face: (recvIsLow ? "edge2" : "edge1") as PanelFace, // high width edge = edge2, low = edge1
+              x_mm10: world[axRecv.len] - boxLo(recv.box, axRecv.len),
+              y_mm10: recvIsLow ? recvPart.width_mm10 : 0,
+              z_mm10: world[axRecv.thk] - boxLo(recv.box, axRecv.thk),
+              diameter_mm10: dia, depth_mm10: depth, source: "auto",
+            });
+          }
+        });
+        add(buttPart.id, buttOps);
+        add(recvPart.id, recvOps);
+      }
+    }
+  }
+  return out;
+}
+
 export function applyDrilling(
   parts: Part[],
   model: StructuralModel,
@@ -499,6 +627,10 @@ export function applyDrilling(
   // final additive pass that leaves the shelf-pin / hinge / glazed logic byte-for-byte untouched.
   const joinery = carcassJoineryByPart(model, parts, spec.connectors[CONNECTOR_SKU]);
   const drawerJoinery = drawerJoineryByPart(model, parts, spec.connectors[CONNECTOR_SKU]);
+  // M5 — dowels between touching FREE parts (leg ↔ apron). Merged in the same final pass, which is what
+  // lets a ROUND leg carry them: the M4 gate below hands non-box parts straight through untouched (so
+  // they still take no shelf pins / hinges / System-32), and the merge then adds just this joinery.
+  const freeJoinery = freePartJoineryByPart(model, parts, spec.connectors[CONNECTOR_SKU]);
 
   const drilled = parts.map((part) => {
     // M4 — a non-box primitive (round leg, hanging rail, knob) takes NO cabinet drilling: shelf pins,
@@ -579,10 +711,11 @@ export function applyDrilling(
 
   // Final pass: append carcass joinery (cams onto sides, dowels onto top/bottom) + drawer-box back
   // joinery (cams onto drawer sides, dowels into the drawer back). Non-joinery parts pass through.
-  if (joinery.size === 0 && drawerJoinery.size === 0) return drilled;
+  if (joinery.size === 0 && drawerJoinery.size === 0 && freeJoinery.size === 0) return drilled;
   return drilled.map((part) => {
     const c = joinery.get(part.id) ?? [];
     const d = drawerJoinery.get(part.id) ?? [];
-    return c.length || d.length ? { ...part, operations: [...part.operations, ...c, ...d] } : part;
+    const f = freeJoinery.get(part.id) ?? []; // M5 — free-part dowels (also the only ops a round leg gets)
+    return c.length || d.length || f.length ? { ...part, operations: [...part.operations, ...c, ...d, ...f] } : part;
   });
 }
