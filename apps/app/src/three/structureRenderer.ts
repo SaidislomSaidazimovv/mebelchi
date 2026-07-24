@@ -852,7 +852,7 @@ export function buildGizmo(
   size: [number, number, number],
   // `axes` limits which arrows appear: a shelf spans its bay, so only its HEIGHT is really its own and
   // offering X/Z arrows would promise a move the solver would immediately undo.
-  opts: { resize?: boolean; rotate?: boolean; axes?: readonly ("x" | "y" | "z")[]; biDir?: boolean } = {},
+  opts: { resize?: boolean; rotate?: boolean; axes?: readonly ("x" | "y" | "z")[]; biDir?: boolean; rotateAxes?: readonly ("x" | "y" | "z")[] } = {},
 ): THREE.Group {
   const withResize = opts.resize !== false; // a whole cabinet is move-only — it already resizes by face-drag
   const withRotate = opts.rotate !== false; // only a free board turns from its own gizmo (see KarkasEditor)
@@ -912,18 +912,30 @@ export function buildGizmo(
       g.add(shaft, cone, arrowHit);
     }
   }
-  // ROTATE ring — a horizontal hoop around the object; dragging it turns it about the vertical axis
-  // (FreePart.rotY_deg for a board, Block.rotY_deg for a whole cabinet — both placement-only).
+  // ROTATE rings (M9U.4) — a hoop per turnable axis; dragging one turns the object about THAT axis. A whole
+  // cabinet turns only about the vertical (Block.rotY_deg); a free board turns on all three (rotX/Y/Z_deg,
+  // render-only). X red · Y green · Z blue, matching the move arrows. Radii are offset (1.05 / 1.0 / 0.95×)
+  // so the three hoops don't overlap into one un-pickable knot on a phone. A default Torus lies in XY (hole
+  // along Z), so Z needs no turn, Y turns about X, X turns about Y.
   if (withRotate) {
-    const rr = Math.max(size[0], size[2]) / 2 + hs * 2.4; // hugs the footprint, clear of the face handles
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.003, rr * 0.022), 8, 48), new THREE.MeshBasicMaterial({ color: 0x7a5cc9, depthTest: false }));
-    ring.rotation.x = Math.PI / 2; // lay the hoop flat in the XZ plane so it spins about Y
-    ring.userData.rotateAxis = "y";
-    ring.renderOrder = 1000;
-    const ringHit = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.012, rr * 0.09), 6, 32), hitMat());
-    ringHit.rotation.x = Math.PI / 2;
-    ringHit.userData.rotateAxis = "y";
-    g.add(ring, ringHit);
+    const baseR = Math.max(size[0], size[1], size[2]) / 2 + hs * 2.4;
+    const RING = {
+      x: { color: 0xe5484d, rot: [0, Math.PI / 2, 0] as const, scale: 1.05 },
+      y: { color: 0x30a46c, rot: [Math.PI / 2, 0, 0] as const, scale: 1.0 },
+      z: { color: 0x2f6bff, rot: [0, 0, 0] as const, scale: 0.95 },
+    } as const;
+    for (const ax of opts.rotateAxes ?? ["y"]) {
+      const s = RING[ax];
+      const rr = baseR * s.scale;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.003, rr * 0.022), 8, 48), new THREE.MeshBasicMaterial({ color: s.color, depthTest: false }));
+      ring.rotation.set(s.rot[0], s.rot[1], s.rot[2]);
+      ring.userData.rotateAxis = ax;
+      ring.renderOrder = 1000;
+      const ringHit = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.012, rr * 0.09), 6, 32), hitMat());
+      ringHit.rotation.set(s.rot[0], s.rot[1], s.rot[2]);
+      ringHit.userData.rotateAxis = ax;
+      g.add(ring, ringHit);
+    }
   }
   return g;
 }

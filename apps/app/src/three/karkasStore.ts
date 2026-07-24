@@ -301,8 +301,9 @@ interface KarkasState extends Derived {
   setFreePartNote: (fpId: string, text: string) => void;
   /** M7.4 — viewport flags: hide a part from the 3-D view (still cut/priced), or lock it against edits. */
   setFreePartView: (fpId: string, key: "hidden" | "locked", on: boolean) => void;
-  /** M8.1 — tilt a free part about X or Z (degrees, 0-359). Y keeps its own rotate action. */
-  setFreePartTilt: (fpId: string, axis: "x" | "z", deg: number) => void;
+  /** M8.1 — tilt a free part about X or Z (degrees, 0-359). Y keeps its own rotate action. `first` (M9U.4)
+   *  opens ONE undo step for a whole gizmo drag; absent/true = a single committed edit (a keypad entry). */
+  setFreePartTilt: (fpId: string, axis: "x" | "z", deg: number, first?: boolean) => void;
   /**
    * M8.4 — pick SEVERAL free parts and act on them at once. Four legs get one decor, three offcuts go
    * in one tap. Ids here are FREE-PART ids (not part ids), because that is what every free-part action
@@ -1254,7 +1255,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
         })),
       }, true);
     },
-    setFreePartTilt: (fpId, axis, deg) => {
+    setFreePartTilt: (fpId, axis, deg, first = true) => {
       const s = get();
       const block = s.model.blocks[0];
       if (!block?.freeParts || get().isFreePartLocked(fpId)) return;
@@ -1273,7 +1274,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
           }),
         })),
       };
-      apply(model, true);
+      if (first) apply(model, true); // M9U.4 — one undo step per gizmo drag (else live-update, like rotateFreePartTo)
+      else set((st) => ({ ...derive(model, st.plan, st.thickness), selectedId: st.selectedId }));
     },
     removeFreeBoard: (fpId) => {
       if (get().isFreePartLocked(fpId)) return;

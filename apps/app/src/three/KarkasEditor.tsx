@@ -773,7 +773,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       | { kind: "gizmoresize"; fpId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startSize: number; first: boolean }
       | { kind: "blockmove"; blockId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
       | { kind: "shelfmove"; instId: string; axis: "x" | "y" | "z"; plane: THREE.Plane; start: number; startPos: number; first: boolean }
-      | { kind: "gizmorotate"; target: "free" | "block"; id: string; centre: THREE.Vector3; plane: THREE.Plane; startAng: number; startDeg: number; first: boolean }
+      | { kind: "gizmorotate"; target: "free" | "block"; id: string; axis: "x" | "y" | "z"; centre: THREE.Vector3; plane: THREE.Plane; startAng: number; startDeg: number; lastDeg: number; first: boolean }
       | null = null;
     // ── live 3D dimension line ──────────────────────────────────────────────────────────────────────
     // Where the figure hangs: alongside the axis being measured, pushed just OUTSIDE the box (front and
@@ -841,24 +841,32 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         // targets on the gizmo, so they outrank everything.
         const gHits = raycaster.intersectObjects(gz.children, false);
         const gHit = gHits.find((h) => h.object.userData.resizeAxis)
-          ?? gHits.find((h) => h.object.userData.rotateAxis === "y")
+          ?? gHits.find((h) => h.object.userData.rotateAxis)
           ?? gHits[0];
         const rAxis = gHit?.object.userData.resizeAxis as "x" | "y" | "z" | undefined; // handle cube → resize
         const mAxis = gHit?.object.userData.gizmoAxis as "x" | "y" | "z" | undefined; // arrow → move
-        // ring → rotate about the vertical axis: track the pointer's bearing around the gizmo centre
-        // A shelf never rotates; a cabinet only does so in Blok mode (the ring is not built otherwise),
-        // which is what stopped ordinary panel editing from spinning the whole cabinet by accident.
-        if (gHit && gHit.object.userData.rotateAxis === "y" && gTarget.kind !== "shelf") {
+        const rotAx = gHit?.object.userData.rotateAxis as "x" | "y" | "z" | undefined; // M9U.4 — ring → rotate about that axis
+        // ring → rotate about ITS axis: track the pointer's bearing in the ring's plane. A shelf never
+        // rotates; a cabinet only turns in Blok mode (only its Y ring is built), so ordinary panel editing
+        // never spins the whole cabinet by accident. A free board turns on all three (X/Z tilt, Y turn).
+        if (gHit && rotAx && gTarget.kind !== "shelf") {
           const centre = gz.position.clone();
-          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -centre.y); // horizontal plane at the object
+          const plane = rotAx === "x" ? new THREE.Plane(new THREE.Vector3(1, 0, 0), -centre.x)
+            : rotAx === "z" ? new THREE.Plane(new THREE.Vector3(0, 0, 1), -centre.z)
+            : new THREE.Plane(new THREE.Vector3(0, 1, 0), -centre.y);
           const pt = new THREE.Vector3();
           if (raycaster.ray.intersectPlane(plane, pt)) {
-            const startDeg = gTarget.kind === "block"
-              ? st.model.blocks.find((bb) => bb.id === gTarget.id)?.rotY_deg ?? 0
-              : blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === gTarget.id)?.rotY_deg ?? 0;
+            const fp = blockOfPart(st.model, st.selectedId)?.freeParts?.find((f) => f.id === gTarget.id);
+            const startDeg = gTarget.kind === "block" ? (st.model.blocks.find((bb) => bb.id === gTarget.id)?.rotY_deg ?? 0)
+              : rotAx === "x" ? (fp?.rotX_deg ?? 0)
+                : rotAx === "z" ? (fp?.rotZ_deg ?? 0)
+                  : (fp?.rotY_deg ?? 0);
+            const startAng = rotAx === "x" ? Math.atan2(pt.z - centre.z, pt.y - centre.y)
+              : rotAx === "z" ? Math.atan2(pt.y - centre.y, pt.x - centre.x)
+                : Math.atan2(pt.x - centre.x, pt.z - centre.z);
             drag = {
-              kind: "gizmorotate", target: gTarget.kind === "block" ? "block" : "free", id: gTarget.id, centre, plane,
-              startAng: Math.atan2(pt.x - centre.x, pt.z - centre.z), startDeg, first: true,
+              kind: "gizmorotate", target: gTarget.kind === "block" ? "block" : "free", id: gTarget.id, axis: rotAx, centre, plane,
+              startAng, startDeg, lastDeg: startDeg, first: true,
             };
             controls.enabled = false;
             return;
@@ -952,15 +960,24 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         raycaster.setFromCamera(ndc(e), camera);
         const pt = new THREE.Vector3();
         if (!raycaster.ray.intersectPlane(drag.plane, pt)) return;
-        const ang = Math.atan2(pt.x - drag.centre.x, pt.z - drag.centre.z);
-        const step = e.shiftKey ? 1 : 15; // degrees
+        const c = drag.centre;
+        // bearing WITHIN the ring's plane (M9U.4 — the same two-coord pairing the ring was built with)
+        const ang = drag.axis === "x" ? Math.atan2(pt.z - c.z, pt.y - c.y)
+          : drag.axis === "z" ? Math.atan2(pt.y - c.y, pt.x - c.x)
+            : Math.atan2(pt.x - c.x, pt.z - c.z);
+        const step = e.shiftKey ? 1 : 5; // M9U.4 — 5° clicks (Shift = fine 1°)
         const raw = drag.startDeg - ((ang - drag.startAng) * 180) / Math.PI; // −: screen-CW reads as CW
         const deg = Math.round(raw / step) * step;
-        const st2 = useKarkas.getState();
-        if (drag.target === "block") st2.rotateBlockTo(drag.id, deg, drag.first);
-        else st2.rotateFreePartTo(drag.id, deg, drag.first);
-        drag.first = false;
-        measureRef.current({ dim: "h", mm: ((deg % 360) + 360) % 360, rot: true });
+        if (deg !== drag.lastDeg) { // only mutate on a real change → one clean undo step opens on the FIRST turn
+          const st2 = useKarkas.getState();
+          if (drag.target === "block") st2.rotateBlockTo(drag.id, deg, drag.first);
+          else if (drag.axis === "x") st2.setFreePartTilt(drag.id, "x", deg, drag.first);
+          else if (drag.axis === "z") st2.setFreePartTilt(drag.id, "z", deg, drag.first);
+          else st2.rotateFreePartTo(drag.id, deg, drag.first);
+          drag.first = false;
+          drag.lastDeg = deg;
+          measureRef.current({ dim: "h", mm: ((deg % 360) + 360) % 360, rot: true });
+        }
         return;
       }
       // gizmos — axis-CONSTRAINED move with a live MAGNETIC snap: the board clicks flush to a nearby
@@ -1231,7 +1248,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       // a FREE board — move arrows + a resize handle per axis, sized to the board
       const bd = scene.boards.find((b) => b.id === selectedId);
       if (bd) {
-        r.gizmoGroup = buildGizmo(bd.pos, bd.size);
+        r.gizmoGroup = buildGizmo(bd.pos, bd.size, { rotateAxes: ["x", "y", "z"] }); // M9U.4 — the full 3-axis RGB rings
         r.gizmoGroup.userData.target = { kind: "free", id: selectedId.slice(selectedId.indexOf("__free_") + "__free_".length) };
       }
     } else if (selectedId && !selectedId.includes("__div_")) {
