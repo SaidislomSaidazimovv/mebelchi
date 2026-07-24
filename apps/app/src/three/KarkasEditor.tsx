@@ -7,7 +7,7 @@ import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useSta
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { carcassSlotOf, useKarkas, blockOfPart, type ZoneRow } from "./karkasStore";
+import { carcassSlotOf, useKarkas, blockOfPart, type ZoneRow, type PrimitiveKind } from "./karkasStore";
 import type { DivisionRule, JointProfile } from "../../../../engine/contracts/variables";
 import type { PanelCutout as PanelCutoutT } from "../../../../engine/contracts/structure";
 import { leafSections } from "../../../../engine/contracts/structure";
@@ -23,6 +23,8 @@ import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
 import { buildStructureGroup, highlightBoard, highlightBlocks, highlightParts, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
+import { setSwatchHost, swatchDataUrl, swatchKey, type SwatchShape, type SwatchSpec } from "./swatchRender";
+import { PrimIcon, type PrimKind } from "./PrimIcons";
 import { handleFittings } from "./handles";
 import { applianceFittings, withApplianceCutouts } from "./appliances";
 import { specsToCsv } from "./specCsv";
@@ -40,6 +42,10 @@ import "./moblo/moblo.css";
  * near-white — white text on a white card. Declared here, above every style constant that uses it.
  */
 const PAPER_INK = "#1f2430";
+// M10.7 — the whole piece's envelope reads BLUE, like Moblo's. The dim line's orange default stays the
+// colour of a live drag and the measuring tape, so «this is the model» never reads as «this is happening
+// right now».
+const MODEL_DIM_COLOR = 0x2a6df0;
 
 /** The Moblo shell's tabs (U2). U2.1 wires «build»; the rest arrive in U2.4. */
 type MobTab = "build" | "parts" | "drawing" | "notes" | "ar";
@@ -176,6 +182,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // checks a gap a hundred times a day. State drives the button + hint; refs feed the mounted pointer
   // handler (which never re-binds), and a dedicated dim line draws the span.
   const [measureMode, setMeasureMode] = useState(false);
+  // M10.4 — is the left rail's second half unfolded? `null` = «follow the screen»: open where there is
+  // room (desktop), folded on a phone. Once the master touches it, their choice sticks for the session.
+  // (`compact` is read further down, so the resolved value is computed there, next to the rail.)
+  const [railOpenPref, setRailOpenPref] = useState<boolean | null>(null);
   const [measureMm, setMeasureMm] = useState<number | null>(null);
   const measureModeRef = useRef(false);
   const measureFirstRef = useRef<THREE.Vector3 | null>(null);
@@ -210,6 +220,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setPartView = useKarkas((s) => s.setPartView);
   const setFreePartTilt = useKarkas((s) => s.setFreePartTilt); // M8.1
   const putFreePartOnGround = useKarkas((s) => s.putFreePartOnGround); // M9U.5 — «⇩ Yerga»
+  const moveFreePartAbs = useKarkas((s) => s.moveFreePart); // M10.9 — typed height above the floor
   const setProjectNotes = useKarkas((s) => s.setProjectNotes); // M9U.6 — the project-level note
   const detachCarcassPanel = useKarkas((s) => s.detachCarcassPanel); // M9E.5 — «⛓ Ajratish»
   const setCarcassPanel = useKarkas((s) => s.setCarcassPanel); // M8.5
@@ -228,6 +239,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setWorktop = useKarkas((s) => s.setWorktop);
   const setBlockShell = useKarkas((s) => s.setBlockShell);
   const duplicateSelected = useKarkas((s) => s.duplicateSelected);
+  const arraySelected = useKarkas((s) => s.arraySelected); // M10.10 — «⧉ N×»
   const applyToAllIdentical = useKarkas((s) => s.applyToAllIdentical);
   const setFreeBoardMaterial = useKarkas((s) => s.setFreeBoardMaterial);
   const removeFreeBoard = useKarkas((s) => s.removeFreeBoard);
@@ -354,6 +366,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // Only ONE tool/panel is open at a time (mobile fix): a single active-panel state, toggled per button,
   // replaces the old independent booleans so panels never stack/overlap.
   const { compact } = useViewport();
+  const railOpen = railOpenPref ?? !compact; // M10.4 — folded on a phone, open where there is room
   // On compact screens a floating panel becomes a near-full-screen sheet (never overlaps the 3D / another
   // panel); a big ✕ closes it. Spread AFTER the panel's desktop style to override its corner + width.
   // Mobile: float these panels as a CONTENT-HEIGHT card just ABOVE the bottom bar (not a full-height box),
@@ -472,6 +485,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const divideBy = useKarkas((s) => s.divideBy);
   const addShelves = useKarkas((s) => s.addShelves);
   const [chainCorners, setChainCorners] = useState(true);
+  const [linkDims, setLinkDims] = useState(false); // M10.9 — Moblo's 🔗 proportion lock on the dims bar
+  // M10.10 — the array form's own state: axis, how many copies, how far apart (mm). Defaults suit the
+  // commonest case by far — a row of slats marching sideways.
+  const [arrAxis, setArrAxis] = useState<"x" | "y" | "z">("x");
+  const [arrCount, setArrCount] = useState(4);
+  const [arrStep, setArrStep] = useState(200);
   const [activeKromka, setActiveKromka] = useState<string | null>(EDGES[0]?.id ?? null); // the K-pill in hand
   const [edgeBalls, setEdgeBalls] = useState<{ i: number; x: number; y: number; k: string | null; vis: boolean }[]>([]);
   const [units, setUnits] = useState<"mm" | "cm">("mm"); // Step 4b — length-field display unit (mm ⇄ cm)
@@ -541,7 +560,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     }
   };
   // compact toolbar: which dropdown (add-variants / overflow) is open
-  const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel" | "tools">(null);
+  const [menu, setMenu] = useState<null | "polka" | "eshik" | "more" | "mode" | "sel" | "tools" | "array">(null);
   const [showTemplates, setShowTemplates] = useState(false); // M1.2 — template gallery overlay
   // Step 3.2 (v4 §5) — the two permanent selection modes: ◇ Part-select (edit) / ▢ Space-select (add).
   const [selMode, setSelMode] = useState<"part" | "space" | "block">("part");
@@ -561,6 +580,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // U2.4 — the RAF loop reads the active tab via this ref, to hide the 3D dim labels off the «Yig'ish» tab.
   const tabRef = useRef(tab);
   useEffect(() => { tabRef.current = tab; }, [tab]);
+  // M10.7 — the HTML W/H/D chips and the new 3D envelope lines carry the SAME three numbers, so exactly
+  // one of them may be on screen. The chips step aside while nothing is selected (the lines have it), and
+  // come back the moment a part is picked, when the lines stand down. Read from the animation loop.
+  const anySelRef = useRef(false);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -709,6 +732,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene3.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     pmrem.dispose();
+    // M10.2 — let the material swatches draw through THIS renderer and THIS environment: a second WebGL
+    // context on a phone can evict the first (and with it the actual 3D view), and a swatch lit by a
+    // different environment would be a promise the scene doesn't keep.
+    setSwatchHost(renderer, scene3.environment);
     const camera = new THREE.PerspectiveCamera(42, (mount.clientWidth || 320) / (mount.clientHeight || 480), 0.02, 40);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.12; controls.minDistance = 0.4; controls.maxDistance = 12;
@@ -1164,7 +1191,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       const r = rt.current;
       if (!r?.labels) return;
       // Off the «Yig'ish» tab the 3D stage is covered — hide the W/H/D dim labels so they don't linger.
-      if (tabRef.current !== "build" || !r.aabb || r.aabb.isEmpty()) {
+      if (tabRef.current !== "build" || !r.aabb || r.aabb.isEmpty() || !anySelRef.current) {
         r.labels.w.style.display = "none"; r.labels.h.style.display = "none"; r.labels.d.style.display = "none";
         return;
       }
@@ -1206,6 +1233,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.roomGroup) disposeStructureGroup(rt.current.roomGroup);
       if (rt.current?.ghostGroup) disposeStructureGroup(rt.current.ghostGroup);
       labels.w.remove(); labels.h.remove(); labels.d.remove();
+      setSwatchHost(null); // M10.2 — the swatch rig's render target belongs to this context; let it go first
       scene3.environment?.dispose(); // M3.1 — free the PMREM env texture (three won't auto-dispose it on unmount)
       shadowGround.geometry.dispose(); (shadowGround.material as THREE.Material).dispose();
       contactShadow.geometry.dispose(); contactTex.dispose(); (contactShadow.material as THREE.Material).dispose(); // M9U.1
@@ -1308,6 +1336,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       r.selDims = [];
     };
     clear();
+    anySelRef.current = !!selectedId; // M10.7 — tells the label loop which of the two dim systems is on
     const bd = selectedId?.includes("__free_") ? scene.boards.find((b) => b.id === selectedId) : undefined;
     if (bd) {
       const [cx, cy, cz] = bd.pos; // pos is the board's CENTRE, size its full extents (metres)
@@ -1321,6 +1350,36 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       for (const s of specs) {
         const dl = createDimLine();
         dl.update(s.from, s.to, String(Math.round(s.m * 1000))); // metres → the mm an usta reads
+        r.scene.add(dl.group);
+        r.selDims.push(dl);
+      }
+    } else if (!selectedId && scene.boards.length > 0) {
+      // M10.7 — nothing picked: draw the WHOLE PIECE's width / height / depth, the way Moblo keeps a
+      // model's outer size on screen at rest. Two run along the floor footprint and one up the near
+      // right edge, so they read as the piece's envelope and never cross the furniture itself. They
+      // vanish the moment a part is picked — that part's own dimensions take the stage.
+      // The envelope is measured from the BOARDS, not from `r.aabb`: this effect is declared before the
+      // one that rebuilds the group, so on a fresh scene the cached box is still the previous model's.
+      const min = { x: Infinity, y: Infinity, z: Infinity };
+      const max = { x: -Infinity, y: -Infinity, z: -Infinity };
+      for (const bb of scene.boards) {
+        for (const [i, k] of (["x", "y", "z"] as const).entries()) {
+          min[k] = Math.min(min[k], bb.pos[i]! - bb.size[i]! / 2);
+          max[k] = Math.max(max[k], bb.pos[i]! + bb.size[i]! / 2);
+        }
+      }
+      const span = Math.max(max.x - min.x, max.y - min.y, max.z - min.z);
+      const g = Math.max(0.012, span * 0.05); // stand the lines clear of the piece
+      // The engine's FRONT is −Z and the camera frames from there, so the width line and the height line
+      // sit at `min.z − g`: in front of the piece, facing the master, never buried behind it.
+      const specs: { from: [number, number, number]; to: [number, number, number]; m: number }[] = [
+        { from: [min.x, min.y, min.z - g], to: [max.x, min.y, min.z - g], m: max.x - min.x }, // width, along the floor
+        { from: [max.x + g, min.y, min.z], to: [max.x + g, min.y, max.z], m: max.z - min.z }, // depth, along the floor
+        { from: [max.x + g, min.y, min.z - g], to: [max.x + g, max.y, min.z - g], m: max.y - min.y }, // height, up the near corner
+      ];
+      for (const s of specs) {
+        const dl = createDimLine(MODEL_DIM_COLOR);
+        dl.update(s.from, s.to, String(Math.round(s.m * 1000)));
         r.scene.add(dl.group);
         r.selDims.push(dl);
       }
@@ -1661,6 +1720,23 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const carcassSlot = selectedId ? carcassSlotOf(selectedId) : null;
   const activeBlock = blockOfPart(model, selectedId);
   const dims = activeBlock ? { w: Math.round(activeBlock.box.w / 10), h: Math.round(activeBlock.box.h / 10), d: Math.round(activeBlock.box.d / 10) } : sceneDimsMm(scene);
+  /**
+   * M10.9 — one dimension, or all three. With the 🔗 open this is `resize`. With it closed the other two
+   * axes follow by the SAME ratio, so a cabinet scaled to fit a niche keeps its shape. Each axis is a
+   * separate store call, so an undo steps back one axis at a time — the honest account of what happened,
+   * and the same thing three taps on the fields would have produced.
+   */
+  const resizeLinked = (axis: "w" | "h" | "d", mm: number): void => {
+    const was = axis === "w" ? dims.w : axis === "h" ? dims.h : dims.d;
+    resize(axis, mm);
+    if (!linkDims || was <= 0 || mm === was) return;
+    const k = mm / was;
+    for (const other of (["w", "h", "d"] as const).filter((a) => a !== axis)) {
+      const v = other === "w" ? dims.w : other === "h" ? dims.h : dims.d;
+      const scaled = Math.max(1, Math.round(v * k));
+      if (scaled !== v) resize(other, scaled);
+    }
+  };
   return (
     <KeypadCtx.Provider value={compact ? (o) => setKeypad(o) : null}>
     <SwatchCtx.Provider value={setSwatchTarget}>
@@ -1738,9 +1814,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {tab === "build" && selMode !== "block" && (
         <div className="mob-bottombar">
           <div className="mob-dims" title="Butun mebel — eni × bo'y × chuqurlik">
-            <MobDim axis="x" value={dims.w} units={units} locked={!!selFreeBoard} onCommit={(mm) => resize("w", mm)} onKeypad={compact ? () => setKeypad({ label: "Eni", value: dims.w, units, onCommit: (mm) => resize("w", mm) }) : undefined} />
-            <MobDim axis="y" value={dims.h} units={units} locked={!!selFreeBoard} onCommit={(mm) => resize("h", mm)} onKeypad={compact ? () => setKeypad({ label: "Bo'yi", value: dims.h, units, onCommit: (mm) => resize("h", mm) }) : undefined} />
-            <MobDim axis="z" value={dims.d} units={units} locked={!!selFreeBoard} onCommit={(mm) => resize("d", mm)} onKeypad={compact ? () => setKeypad({ label: "Chuqurligi", value: dims.d, units, onCommit: (mm) => resize("d", mm) }) : undefined} />
+            <MobDim axis="x" value={dims.w} units={units} locked={!!selFreeBoard} onCommit={(mm) => resizeLinked("w", mm)} onKeypad={compact ? () => setKeypad({ label: "Eni", value: dims.w, units, onCommit: (mm) => resizeLinked("w", mm) }) : undefined} />
+            <MobDim axis="y" value={dims.h} units={units} locked={!!selFreeBoard} onCommit={(mm) => resizeLinked("h", mm)} onKeypad={compact ? () => setKeypad({ label: "Bo'yi", value: dims.h, units, onCommit: (mm) => resizeLinked("h", mm) }) : undefined} />
+            <MobDim axis="z" value={dims.d} units={units} locked={!!selFreeBoard} onCommit={(mm) => resizeLinked("d", mm)} onKeypad={compact ? () => setKeypad({ label: "Chuqurligi", value: dims.d, units, onCommit: (mm) => resizeLinked("d", mm) }) : undefined} />
+            {/* M10.9 — Moblo's 🔗: with the link closed, one dimension carries the other two with it, so
+                scaling a cabinet to fit a niche keeps its proportions instead of squashing it. */}
+            <button type="button" className={"mob-unit" + (linkDims ? " is-active" : "")} aria-pressed={linkDims}
+              title={linkDims ? "Nisbat qulflangan — bittasi qolganini ham o'zgartiradi" : "Nisbatni qulflash"}
+              style={linkDims ? { borderColor: "#1f5570", background: "#dce9f0", color: "#1f5570", fontWeight: 800 } : undefined}
+              onClick={() => setLinkDims((v) => !v)}>{linkDims ? "🔗" : "⛓️‍💥"}</button>
             <button type="button" className="mob-unit" title="mm ⇄ cm" onClick={() => setUnits((u) => (u === "mm" ? "cm" : "mm"))}>{units}</button>
           </div>
           <div className="mob-divider" />
@@ -1929,6 +2011,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         <div className="mob-lefttools">
           <button className="mob-round" title="Ortga (undo)" aria-label="Ortga" type="button" disabled={!canUndo} onClick={() => undo()}><MobUndo /></button>
           <button className="mob-round" title="Oldinga (redo)" aria-label="Oldinga" type="button" disabled={!canRedo} onClick={() => redo()}><MobRedo /></button>
+          <button className="mob-round" title="Markazga qaytar" aria-label="Markazga qaytar" type="button" onClick={recenter}><MobTarget /></button>
+          {/* M10.4 — Moblo keeps THREE icons on this edge; we had nine, and they ran the whole left side of
+              a phone screen and collided with the selected-part chip. The three that steer the view stay
+              out; the seven that change what you SEE fold behind this one, open by default on a desktop
+              where there is room for them. Nothing was removed. */}
+          <button className={"mob-round" + (railOpen ? " is-active" : "")} title={railOpen ? "Asboblarni yig'ish" : "Ko'proq asboblar"}
+            aria-label="Ko'proq asboblar" aria-expanded={railOpen} type="button" onClick={() => setRailOpenPref(!railOpen)}>{railOpen ? "⌃" : "⋯"}</button>
+          {railOpen && <>
           <div style={popWrap}>
             <button className={"mob-round" + (renderMode !== "realistic" ? " is-active" : "")} title="Ko'rinish rejimi" aria-label="Ko'rinish rejimi" type="button" onClick={(e) => { e.stopPropagation(); setMenu(menu === "mode" ? null : "mode"); }}><MobCube /></button>
             {menu === "mode" && (
@@ -1943,13 +2033,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button className={"mob-round" + (noFacade ? " is-active" : "")} title="Fasadsiz" aria-label="Fasadsiz" type="button" onClick={() => setNoFacade((v) => !v)}><MobFacade /></button>
           <button className={"mob-round" + (showHoles ? " is-active" : "")} title="Teshiklar" aria-label="Teshiklar" type="button" onClick={() => setShowHoles((v) => !v)}><MobHoles /></button>
           <button className="mob-round" title="Skrinshot" aria-label="Skrinshot" type="button" onClick={screenshot}><MobCamera /></button>
-          <button className="mob-round" title="Markazga qaytar" aria-label="Markazga qaytar" type="button" onClick={recenter}><MobTarget /></button>
           {/* M8.4 — pick several free parts and act on them at once (Moblo's selection tool, by tap) */}
           <button className={"mob-round" + (multiMode ? " is-active" : "")} title="Ko'p tanlash" aria-label="Ko'p tanlash" type="button"
             onClick={() => setMultiMode(!multiMode)}>☑</button>
           {/* M8.6 — the measuring tape: tap two points, read the gap */}
           <button className={"mob-round" + (measureMode ? " is-active" : "")} title="O'lchash" aria-label="O'lchash" type="button"
             onClick={() => { setMeasureMode((v) => !v); if (multiMode) setMultiMode(false); }}>📏</button>
+          </>}
         </div>
       )}
 
@@ -2004,33 +2094,35 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     resizes. Each of these arrives already the right way round and already sized. */}
                 <div className="mob-addgrid" style={{ marginTop: 10 }}>
                   <span style={{ gridColumn: "1 / -1", ...mono, fontSize: 11, opacity: 0.6 }}>Erkin qismlar — istalgan joyga</span>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("board"); setRpanel("none"); }}>▬ Taxta</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("panel"); setRpanel("none"); }}>▮ Yon panel</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("post"); setRpanel("none"); }}>┃ Oyoq</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("box"); setRpanel("none"); }}>◧ Quti</button>
+                  {/* M10.5 — each primitive draws its own shape (PrimIcons) instead of the nearest unicode
+                      glyph: ▬ ▮ ┃ ◧ read almost the same at button size and tofu'd on some Androids. */}
+                  <AddPrim kind="board" label="Taxta" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="panel" label="Yon panel" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="post" label="Oyoq" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="box" label="Quti" onAdd={addFreeBoard} close={() => setRpanel("none")} />
                   {/* M4 — round / curved primitives. They are NOT sheet panels, so they stay out of the
                       cut list, the CNC file and the m² price (they appear under «Boshqa qismlar»). The
                       RAIL is the one every wardrobe needs and had no shape at all until now. */}
                   <span style={{ gridColumn: "1 / -1", ...mono, fontSize: 11, opacity: 0.6, marginTop: 4 }}>Yumaloq / egri — listdan kesilmaydi</span>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("rail"); setRpanel("none"); }}>▬◯ Ilgich quvuri</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("cylinder"); setRpanel("none"); }}>◯ Yumaloq oyoq</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("tube"); setRpanel("none"); }}>◎ Quvur</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("sphere"); setRpanel("none"); }}>⬤ Shar</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("wedge"); setRpanel("none"); }}>◺ Pona</button>
+                  <AddPrim kind="rail" label="Ilgich quvuri" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="cylinder" label="Yumaloq oyoq" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="tube" label="Quvur" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="sphere" label="Shar" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="wedge" label="Pona" onAdd={addFreeBoard} close={() => setRpanel("none")} />
                   {/* M7 — the shapes a workshop turns by hand or buys: a bowed door, a tapered leg, a
                       rounded worktop end, a hex post, a ring pull. */}
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("arc"); setRpanel("none"); }}>◠ Egri fasad</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("cone"); setRpanel("none"); }}>△ Torayuvchi oyoq</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("halfCylinder"); setRpanel("none"); }}>◗ Yumaloq uch</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("hexagon"); setRpanel("none"); }}>⬡ Olti qirrali</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("torus"); setRpanel("none"); }}>◯ Halqa</button>
-                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("hairpin"); setRpanel("none"); }}>⋀ Hairpin oyoq</button>
+                  <AddPrim kind="arc" label="Egri fasad" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="cone" label="Torayuvchi oyoq" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="halfCylinder" label="Yumaloq uch" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="hexagon" label="Olti qirrali" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="torus" label="Halqa" onAdd={addFreeBoard} close={() => setRpanel("none")} />
+                  <AddPrim kind="hairpin" label="Hairpin oyoq" onAdd={addFreeBoard} close={() => setRpanel("none")} />
                 </div>
                 {selectedId && !selectedId.includes("__div_") && (
                   <div className="mob-addgrid" style={{ marginTop: 10 }}>
-                    <button className={"mob-addbtn" + (showCorners ? " is-active" : "")} type="button" onClick={() => togglePanel("corners")}>⌜ Burchak</button>
-                    <button className={"mob-addbtn" + (showCutout ? " is-active" : "")} type="button" onClick={() => togglePanel("cutout")}>▢ O'yiq</button>
-                    <button className={"mob-addbtn" + (showKromka ? " is-active" : "")} type="button" onClick={() => togglePanel("kromka")}>▤ Jiyak</button>
+                    <button className={"mob-addbtn" + (showCorners ? " is-active" : "")} type="button" onClick={() => togglePanel("corners")}><PrimIcon kind="corner" size={17} /> Burchak</button>
+                    <button className={"mob-addbtn" + (showCutout ? " is-active" : "")} type="button" onClick={() => togglePanel("cutout")}><PrimIcon kind="cutout" size={17} /> O'yiq</button>
+                    <button className={"mob-addbtn" + (showKromka ? " is-active" : "")} type="button" onClick={() => togglePanel("kromka")}><PrimIcon kind="kromka" size={17} /> Jiyak</button>
                   </div>
                 )}
               </>
@@ -2093,6 +2185,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button className="mob-fab-mini" type="button" title="Ko'proq" aria-label="Ko'proq" onClick={() => { commitActiveEdit(); setToolsOpen((o) => !o); }}>⋯</button>
           {/* M6-UX — «Xona» had no home on a phone: its presets sat inside the ⋯ sheet, so the walls the
               cabinet is measured against were the one thing an usta could not reach in a tap. */}
+          {/* M10.8 — the structure list, where Moblo keeps it: a FAB on this rail, one tap from the model.
+              It was reachable only through ⋯ → Asboblar → «☰ Detallar», three taps deep, so on a piece with
+              sixty parts the only practical way to reach a board was to hunt for it in the 3D. */}
+          <button className={"mob-fab-mini" + (showTree ? " is-active" : "")} type="button" title="Detallar ro'yxati" aria-label="Detallar ro'yxati"
+            onClick={() => { commitActiveEdit(); togglePanel("tree"); }}>☰</button>
           <button className={"mob-fab-mini" + (rpanel === "room" ? " is-active" : "")} type="button" title="Xona" aria-label="Xona"
             onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "room" ? "none" : "room")); }}>⌂</button>
           <button className={"mob-fab-mini" + (rpanel === "material" ? " is-active" : "")} type="button" title="Materiallar" aria-label="Materiallar" onClick={() => { commitActiveEdit(); setRpanel((p) => (p === "material" ? "none" : "material")); }}><MobPaint /></button>
@@ -2225,7 +2322,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <p style={{ fontSize: 12.5, color: "#555", margin: "6px 0 12px" }}>Bu blok loyihada yo'q dekor ishlatadi. Har birini mavjud materialga bog'lang, yoki yangi material sifatida saqlang.</p>
             {pendingBinding.foreign.map((d) => (
               <div key={d} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span style={{ width: 18, height: 18, borderRadius: 4, background: boardById(d)?.hex ?? "#ccc", border: "1px solid rgba(0,0,0,0.15)", flex: "0 0 auto" }} />
+                <MatBall m={boardById(d)} size={18} />
                 <span style={{ flex: 1, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardById(d)?.name ?? d}</span>
                 <span style={{ opacity: 0.5, fontSize: 16 }}>→</span>
                 <select value={bindChoices[d] ?? "__new"} onChange={(e) => setBindChoices((c) => ({ ...c, [d]: e.target.value === "__new" ? null : e.target.value }))} style={{ flex: "0 0 auto", maxWidth: 180, padding: "4px 6px", borderRadius: 7, border: "1px solid #d8d2c4", background: "#fff", color: PAPER_INK, cursor: "pointer" }}>
@@ -2512,6 +2609,41 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button type="button" title="Yerga qo'yish (polga tushirish)" aria-label="Yerga qo'yish"
             onClick={() => putFreePartOnGround(selFreeBoard.id)}
             style={{ ...act, borderColor: "#1f8a4c", background: "#e3f5ea", color: "#146c3a", minHeight: 34, padding: "6px 11px" }}>⇩ Yerga</button>
+          {/* M10.10 — repeat this part along an axis. Twenty pergola rafters, a slatted bed base or a row
+              of shelf pins used to be twenty rounds of ⧉ + drag; this is one action and one undo. */}
+          <div style={popWrap}>
+            <button type="button" title="Massiv — bir necha marta takrorlash" aria-label="Massiv"
+              onClick={(e) => { e.stopPropagation(); setMenu(menu === "array" ? null : "array"); }}
+              style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", minHeight: 34, padding: "6px 11px" }}>⧉ N×</button>
+            {menu === "array" && (
+              <div style={{ ...popover, bottom: "calc(100% + 8px)", top: "auto", left: 0, minWidth: 208, padding: 10 }}>
+                <div style={{ ...mono, fontSize: 11, opacity: 0.65, marginBottom: 7 }}>Nechta qo'shilsin va qanday qadam bilan</div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                  {(["x", "y", "z"] as const).map((a) => (
+                    <button key={a} type="button" onClick={() => setArrAxis(a)}
+                      style={{ ...act, flex: 1, minHeight: 30, padding: "4px 0", ...(arrAxis === a ? { borderColor: "#1f5570", background: "#dce9f0", color: "#1f5570", fontWeight: 800 } : {}) }}>
+                      {a === "x" ? "↔ eni" : a === "y" ? "↕ bo'y" : "⤡ chuq."}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 9 }}>
+                  <DimField label="soni" value={arrCount} onCommit={(n) => setArrCount(Math.max(1, Math.min(200, Math.round(n))))} min={1} />
+                  <DimField label="qadam" value={arrStep} onCommit={setArrStep} units={units} min={1} />
+                </div>
+                <button type="button" onClick={() => { arraySelected(arrAxis, arrStep, arrCount); setMenu(null); }}
+                  style={{ width: "100%", padding: "8px", borderRadius: 8, border: "none", background: "#1f5570", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                  ＋ {arrCount} ta qo'shish
+                </button>
+              </div>
+            )}
+          </div>
+          {/* M10.9 — Moblo puts a typed HEIGHT ABOVE THE FLOOR next to its «Put on ground». A shelf at
+              «exactly 400 from the floor» was only reachable by dragging until the measure line agreed;
+              now it is a number. 0 = standing on the floor, which is what the button next door sets. */}
+          <label className="mob-props-f" title="Yerdan balandlik (0 = polda)"><span>⇧</span>
+            <DimField label="⇧" value={Math.round(selFreeBoard.box.y / 10)} units={units} min={0}
+              onCommit={(mm) => moveFreePartAbs(selFreeBoard.id, { x: 0, y: mm * 10 - selFreeBoard.box.y, z: 0 }, true)} />
+          </label>
           {/* M8.1 — the two tilts. Y already has the ↻ button (90° at a time, the everyday turn); X and Z
               are typed, because a slanted part is set to an angle («30°»), not nudged to one. */}
           <label className="mob-props-f" title="Oldinga/orqaga qiyalik (X o'qi)"><span>↕°</span>
@@ -2536,8 +2668,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <option value="hairpin">⋀ Hairpin oyoq</option>
           </select>
           <button type="button" aria-haspopup="dialog" title="Material" onClick={() => setSwatchTarget({ kind: "free", id: selFreeBoard.id })} style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ ...swatch, background: BOARDS.find((bd) => bd.id === selFreeBoard.material)?.hex ?? "#e6e6e6" }} />
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{BOARDS.find((bd) => bd.id === selFreeBoard.material)?.name ?? "Standart"}</span>
+            <MatBall m={boardById(selFreeBoard.material ?? "")} size={20} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardById(selFreeBoard.material ?? "")?.name ?? "Standart"}</span>
           </button>
           <button type="button" title="O'chirish" onClick={() => removeFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#d1495b", background: "#fbe4e8", color: "#a01a2e", minHeight: 34, padding: "6px 11px" }}>🗑</button>
         </div>
@@ -3165,29 +3297,65 @@ function ZonePill({ zone, onValue, onCycle }: { zone: ZoneRow["zones"][number]; 
 
 /** Left «Detallar» drawer (C1) — every solved part listed; click a row to select it (syncs both
  *  ways with the 3D highlight), like imos's Article-Designer component tree. */
+/**
+ * M10.8 — the structure list (Moblo's ☰). It was a flat run of every part in the document, which on a
+ * multi-cabinet run or a sixty-part pergola told you nothing about WHERE a board lives. Now it groups by
+ * BLOCK — the cabinet — with the free parts of each block gathered under their own heading, because a
+ * free part is the one thing a tap in the 3D can be genuinely hard to land on. A row selects its part.
+ */
 function TreePanel({ onClose }: { onClose: () => void }) {
   const { compact } = useViewport();
   const parts = useKarkas((s) => s.parts);
   const plan = useKarkas((s) => s.plan);
   const selectedId = useKarkas((s) => s.selectedId);
   const tapPart = useKarkas((s) => s.tapPart);
-  const rows = estimate(parts, plan).parts;
+  const model = useKarkas((s) => s.model);
+  // `parts` is the cut list; `others` is everything the saw never sees — a turned leg, a rail, a handle.
+  // The list has to carry BOTH: a shaped free part is exactly the thing that is hardest to tap in the 3D,
+  // so a structure list that quietly dropped it would fail at its one job. (It listed only the cut list
+  // before, so a four-legged table showed a single row.)
+  const est = estimate(parts, plan);
+  const rows = useMemo(() => [...est.parts, ...est.others], [est.parts, est.others]);
+  // A part id is `${blockId}__…` (and a free one `${blockId}__free_${fpId}`), so the block is the slice
+  // before the first `__` — the same rule highlightBlocks uses. Unknown prefixes fall into «Boshqa».
+  const groups = useMemo(() => {
+    const name = new Map(model.blocks.map((b, i) => [b.id, b.name?.trim() || `Shkaf ${i + 1}`]));
+    const out = new Map<string, { label: string; carcass: typeof rows; free: typeof rows }>();
+    for (const p of rows) {
+      const sep = p.id.indexOf("__");
+      const bid = sep < 0 ? "—" : p.id.slice(0, sep);
+      let g = out.get(bid);
+      if (!g) { g = { label: name.get(bid) ?? "Boshqa", carcass: [], free: [] }; out.set(bid, g); }
+      (p.id.includes("__free_") ? g.free : g.carcass).push(p);
+    }
+    return [...out.values()];
+  }, [rows, model]);
+  const row = (p: (typeof rows)[number]) => {
+    const on = p.id === selectedId;
+    return (
+      <div key={p.id} onClick={() => tapPart(on ? null : p.id)} style={{ ...treeRow, ...(on ? treeRowOn : {}) }}>
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+        <span style={{ ...mono, ...(on ? { color: "#1f478a" } : {}) }}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
+      </div>
+    );
+  };
+  const head: CSSProperties = { ...mono, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, padding: "9px 12px 3px" };
   return (
     <div style={compact ? { ...treePanel, top: "auto", left: 8, right: 8, bottom: 122, width: "auto", maxHeight: "56vh", borderRadius: 16, zIndex: 80 } : treePanel}>
       <div style={specHead}>
-        <b style={{ fontSize: 15 }}>Detallar ({rows.length})</b>
+        <b style={{ fontSize: 15 }}>☰ Detallar ({rows.length})</b>
         <button onClick={onClose} style={{ ...pill, marginLeft: "auto" }} type="button">✕</button>
       </div>
       <div style={specList}>
-        {rows.map((p) => {
-          const on = p.id === selectedId;
-          return (
-            <div key={p.id} onClick={() => tapPart(on ? null : p.id)} style={{ ...treeRow, ...(on ? treeRowOn : {}) }}>
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-              <span style={{ ...mono, ...(on ? { color: "#1f478a" } : {}) }}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
-            </div>
-          );
-        })}
+        {groups.map((g, i) => (
+          <div key={g.label + i}>
+            {/* one cabinet with nothing else in the document needs no heading — it IS the document */}
+            {(groups.length > 1 || g.free.length > 0) && <div style={head}>🗄 {g.label}</div>}
+            {g.carcass.map(row)}
+            {g.free.length > 0 && <div style={{ ...head, paddingTop: 6 }}>◇ Erkin qismlar</div>}
+            {g.free.map(row)}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -3203,6 +3371,20 @@ type SwatchTarget = { kind: "plan"; slot: keyof Omit<MaterialPlan, "edge"> } | {
 const SwatchCtx = createContext<null | ((t: SwatchTarget) => void)>(null);
 const SWATCH_ORDER = ["Massiv", "Laminat", "Yog'och", "Shisha", "Metall", "Marmar", "Mato"] as const; // M8.7 — Massiv first
 const SWATCH_BADGE: Record<string, string> = { "Massiv": "🌳", "Laminat": "▤", "Yog'och": "🪵", "Shisha": "🧊", "Metall": "✨", "Marmar": "◈", "Mato": "🧵" };
+
+/**
+ * M10.2 — one material, drawn as the lit ball Moblo shows instead of a flat colour chip. The picture is
+ * the REAL material (same builder the 3D scene uses), so gloss looks glossy, marble shows its veining
+ * and a custom material's sliders are visible before it is ever applied to a board. Where there is no
+ * WebGL to draw with, `swatchDataUrl` returns "" and we fall back to the old flat chip — never a blank.
+ */
+function MatBall({ m, size = 20, shape = "ball", radius }: { m: SwatchSpec | undefined; size?: number; shape?: SwatchShape; radius?: number }) {
+  const spec: SwatchSpec = m ?? { hex: "#e6e6e6" };
+  const url = useMemo(() => swatchDataUrl(spec, shape), [swatchKey(spec, shape), shape]); // eslint-disable-line react-hooks/exhaustive-deps
+  const r = radius ?? (shape === "ball" ? size / 2 : Math.max(4, size * 0.22));
+  if (!url) return <span style={{ width: size, height: size, borderRadius: r, background: spec.hex, border: "1px solid rgba(0,0,0,0.18)", flexShrink: 0, display: "inline-block" }} />;
+  return <span aria-hidden style={{ width: size, height: size, borderRadius: r, backgroundImage: `url(${url})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0, display: "inline-block" }} />;
+}
 
 /** M3.4 — ONE centralised material swatch picker (Antigravity's single-overlay pattern). Opened from any
  *  MatSelect slot or the free-board bar; picks a board (or «Standart» for a free board) and closes. Boards
@@ -3228,10 +3410,12 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
   const [, bump] = useState(0); // re-read the custom library after create / delete
   const custom = getCustomBoards(); // M9U.3 — the usta's own materials
   const groups = SWATCH_ORDER.map((g) => ({ g, items: BOARDS.filter((b) => materialCategory(b) === g) })).filter((x) => x.items.length);
-  const chip = (key: string, bg: string, active: boolean, label: string, on: () => void) => (
+  // M10.2 — `mat` (when given) is drawn as a lit PBR ball; «Standart» has no material, so it keeps a chip.
+  const chip = (key: string, bg: string, active: boolean, label: string, on: () => void, mat?: SwatchSpec) => (
     <button key={key} type="button" title={label} aria-label={label} onClick={on}
       style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 9px", borderRadius: 10, border: active ? "2px solid #1f5570" : `1px solid ${dark ? "#33405a" : "#e3e6eb"}`, background: dark ? "#232b3d" : "#f7f8fa", color: "inherit", cursor: "pointer", fontSize: 12.5, fontWeight: 600, textAlign: "left" }}>
-      <span style={{ width: 20, height: 20, borderRadius: 5, background: bg, border: "1px solid rgba(0,0,0,0.18)", flexShrink: 0 }} />
+      {mat ? <MatBall m={mat} size={26} />
+        : <span style={{ width: 20, height: 20, borderRadius: 5, background: bg, border: "1px solid rgba(0,0,0,0.18)", flexShrink: 0 }} />}
       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
     </button>
   );
@@ -3254,7 +3438,7 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8 }}>
               {custom.map((b) => (
                 <div key={b.id} style={{ position: "relative" }}>
-                  {chip(b.id, b.hex, current === b.id, b.name, () => pick(b.id))}
+                  {chip(b.id, b.hex, current === b.id, b.name, () => pick(b.id), b)}
                   <button type="button" title="O'chirish" aria-label="O'chirish" onClick={(e) => { e.stopPropagation(); removeCustomBoard(b.id); bump((n) => n + 1); }}
                     style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", border: "none", background: "#c0392b", color: "#fff", fontSize: 12, lineHeight: "20px", cursor: "pointer", padding: 0, boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }}>×</button>
                 </div>
@@ -3266,7 +3450,7 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
           <div key={g} style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginBottom: 7 }}>{SWATCH_BADGE[g]} {g}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8 }}>
-              {items.map((b) => chip(b.id, b.hex, current === b.id, b.name, () => pick(b.id)))}
+              {items.map((b) => chip(b.id, b.hex, current === b.id, b.name, () => pick(b.id), b))}
             </div>
           </div>
         ))}
@@ -3302,6 +3486,16 @@ function MaterialCreateDialog({ theme, onCancel, onCreated }: { theme: "light" |
     registerCustomBoard(m);
     onCreated(id);
   };
+  // M10.3 — exactly what `save()` would store, so the preview cannot drift from the saved material.
+  // No `texture` here on purpose: createCustomMaterial only stores one when it is passed, and the dialog
+  // does not offer a texture picker yet (D1 #14). Previewing grain the saved material would not have is
+  // the one way this preview could lie.
+  const preview: SwatchSpec = {
+    hex,
+    roughness: Math.round((1 - gloss / 100) * 100) / 100,
+    ...(aks > 0 ? { metalness: Math.round((aks / 100) * 100) / 100 } : {}),
+    ...(shaf < 100 ? { opacity: Math.round((shaf / 100) * 100) / 100 } : {}),
+  };
   const lbl: CSSProperties = { fontSize: 12, fontWeight: 700, opacity: 0.7, display: "block", marginBottom: 4 };
   const box: CSSProperties = { width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${dark ? "#33405a" : "#d8d2c4"}`, background: dark ? "#232b3d" : "#fff", color: "inherit", fontSize: 13 };
   const row: CSSProperties = { marginBottom: 13 };
@@ -3318,9 +3512,12 @@ function MaterialCreateDialog({ theme, onCancel, onCreated }: { theme: "light" |
           <strong style={{ fontSize: 16 }}>🎨 Yangi material</strong>
           <button type="button" onClick={onCancel} aria-label="Yopish" style={{ border: "none", background: "transparent", color: "inherit", fontSize: 24, lineHeight: 1, cursor: "pointer" }}>×</button>
         </div>
-        {/* live preview */}
+        {/* M10.3 — a LIVE preview: the real material, lit by the editor's own environment, on a ball and
+            a board. It used to be a flat square, so moving the three sliders changed nothing you could
+            see — the usta had to save first and look at the 3D. Now what you slide is what you get. */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-          <span style={{ width: 56, height: 56, borderRadius: 12, background: hex, border: "1px solid rgba(0,0,0,0.2)", flexShrink: 0, opacity: shaf / 100, boxShadow: gloss > 55 ? "inset 0 6px 10px rgba(255,255,255,0.5)" : "none" }} />
+          <MatBall m={preview} size={62} shape="ball" />
+          <MatBall m={preview} size={62} shape="cube" radius={10} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name || "Material"}</div>
             <div style={{ fontSize: 12, opacity: 0.65 }}>{base ? `${money(base.pricePerM2)}/м² · ${base.thickness_mm}мм` : "—"} <span style={{ opacity: 0.7 }}>(avtomatik)</span></div>
@@ -3349,16 +3546,30 @@ function MaterialCreateDialog({ theme, onCancel, onCreated }: { theme: "light" |
   );
 }
 
+/** M10.5 — one primitive in the «Qo'shish» palette: its own drawn shape, its name, and the add it fires.
+ *  The kind doubles as the icon and the `addFreeBoard` argument, so the two can never drift apart — and
+ *  `Extract` keeps it to kinds that are BOTH drawable and addable, so a typo can't reach the store. */
+type AddablePrim = Extract<PrimKind, PrimitiveKind>;
+function AddPrim({ kind, label, onAdd, close }: { kind: AddablePrim; label: string; onAdd: (k: AddablePrim) => void; close: () => void }) {
+  return (
+    <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed", display: "flex", alignItems: "center", gap: 7, justifyContent: "flex-start" }}
+      onClick={() => { onAdd(kind); close(); }}>
+      <PrimIcon kind={kind} size={19} />
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+    </button>
+  );
+}
+
 function MatSelect({ label, slot }: { label: string; slot: keyof Omit<MaterialPlan, "edge"> }) {
   const value = useKarkas((s) => s.plan[slot]);
   const money = useMoney();
   const openSwatch = useContext(SwatchCtx);
-  const b = BOARDS.find((x) => x.id === value);
+  const b = boardById(value);
   return (
     <label style={matRow}>
       <span style={{ ...mono, width: 62 }}>{label}</span>
       <button type="button" aria-haspopup="dialog" onClick={() => openSwatch?.({ kind: "plan", slot })} style={{ ...matSel, display: "flex", alignItems: "center", gap: 8, textAlign: "left" }}>
-        <span style={{ ...swatch, background: b?.hex ?? "#ccc" }} />
+        <MatBall m={b} size={22} />
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b?.name ?? value}</span>
         <span style={{ opacity: 0.5, fontSize: 11 }}>{b ? `${money(b.pricePerM2)}/м²` : ""}</span>
       </button>
@@ -3388,6 +3599,9 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
   // order he wants to cut them. The totals above stay per-PART, because the sheet count and the price
   // are about panels, not rows.
   const [specSort, setSpecSort] = useState<SpecSort>("model");
+  // M10.6 — is the ortho/material/price-breakdown header unfolded? Folded on a phone so the cut list is
+  // the first thing on screen; open on a desktop, where it all fits without pushing the list away.
+  const [headOpen, setHeadOpen] = useState(!compact);
   const rows = useMemo(() => sortSpecs(groupSpecs(e.parts), specSort), [e.parts, specSort]);
   const exportCsv = () => {
     const text = specsToCsv(rows, { title: `Karkas blok — kesim ro'yxati (${new Date().toISOString().slice(0, 10)})`, totalLabel: "so'm" });
@@ -3446,6 +3660,19 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
         <button onClick={onClose} style={{ ...pill, ...(onExportCnc ? {} : { marginLeft: "auto" }) }} type="button">✕</button>
       </div>
 
+      {/* M10.6 — on a phone the three ortho views, the four material rows and the price breakdown filled
+          the WHOLE screen, so the cut list — the reason this tab exists — started below the fold and had
+          to be scrolled to every single time. They fold into one line here, open by default on a desktop
+          where they all fit. The headline total and the sign-off button never fold: those are what the
+          master shows the client. */}
+      <button type="button" onClick={() => setHeadOpen((v) => !v)} aria-expanded={headOpen}
+        style={{ display: "flex", alignItems: "center", gap: 8, width: "calc(100% - 28px)", margin: "8px 14px 0", padding: "7px 10px", borderRadius: 8, border: "1px solid #ded7c4", background: "#f5f1e6", color: PAPER_INK, cursor: "pointer", font: "inherit", fontSize: 12.5, fontWeight: 700 }}>
+        <span style={{ opacity: 0.6 }}>{headOpen ? "⌃" : "⌄"}</span>
+        <span>Ko'rinish · materiallar · narx tafsiloti</span>
+        {!headOpen && <span style={{ ...mono, marginLeft: "auto", fontSize: 11, opacity: 0.75 }}>{e.count} detal · {e.areaM2.toFixed(2)} m²</span>}
+      </button>
+
+      {headOpen && <>
       {/* Ortho views — Top / Front / Side, so the usta sees WHAT is being cut before reading the list */}
       {ortho.length > 0 && (
         <div className="mob-ortho">
@@ -3504,6 +3731,7 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
           Техника: {ap.lines.map((l) => `${l.name} ×${l.qty}`).join(" · ")} — {money(ap.priceUzs)}
         </div>
       )}
+      </>}
       <div style={totalRow}>
         <span>Итого</span>
         <span>{money(total)}</span>

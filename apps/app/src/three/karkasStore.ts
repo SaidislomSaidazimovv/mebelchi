@@ -33,7 +33,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentView, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, detachCarcassPanel as detachCarcassPanelOp, type DetachableSlot, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentView, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, detachCarcassPanel as detachCarcassPanelOp, type DetachableSlot, arrayFreePart, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -252,6 +252,9 @@ interface KarkasState extends Derived {
   moveBlockTo: (blockId: string, axis: "x" | "y" | "z", idealPos: number, first: boolean) => { pos: number; snapped: boolean };
   /** gizmos «duplicate» — copy the selection: a free board (copy gets selected) or its whole cabinet. */
   duplicateSelected: () => void;
+  /** M10.10 — repeat the selected FREE part `count` more times, `stepMm` apart along `axis`. One undo
+   *  step for the whole run. A no-op unless a free part is selected. */
+  arraySelected: (axis: "x" | "y" | "z", stepMm: number, count: number) => void;
   /** gizmos «rotate» — turn a free board about the vertical axis (deg, render-only). `first` = new undo step. */
   rotateFreePartTo: (fpId: string, deg: number, first: boolean) => void;
   /** gizmos «rotate» — turn a whole cabinet about the vertical axis (deg, placement-only, not machined). */
@@ -835,6 +838,23 @@ export const useKarkas = create<KarkasState>((set, get) => {
           apply(duplicateBlock(s.model, block.id, uid));
         }
       } catch { /* unknown id — ignore rather than crash the editor */ }
+    },
+    // M10.10 — repeat the selected FREE part along an axis. One undo step for the whole run: an usta who
+    // asks for twenty rafters and changes his mind wants them gone in one tap, not twenty.
+    arraySelected: (axis, stepMm, count) => {
+      const s = get();
+      const sel = s.selectedId;
+      if (!sel?.includes("__free_")) return;
+      const block = blockOfPart(s.model, sel);
+      if (!block) return;
+      const fpId = sel.slice(sel.indexOf("__free_") + "__free_".length);
+      const uid = Date.now().toString(36) + "_" + (freeSeq++).toString(36);
+      try {
+        apply(arrayFreePart(s.model, block.id, fpId, {
+          axis, step_mm10: Math.round(stepMm * 10), count,
+          idAt: (i) => `fp_${uid}_a${i}`,
+        }));
+      } catch { /* bad count / unknown id — leave the model untouched rather than crash the editor */ }
     },
     // U4.2 — block navigator: tick whole blocks (clearing any part selection), then group ≥2 into a Run.
     // groupBlocks tiles the members end-to-end at their current widths (gaps removed); resolveRun (U4.4)

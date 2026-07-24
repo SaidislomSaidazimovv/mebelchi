@@ -12,6 +12,12 @@ import type { MaterialFinish, TextureKind, PbrOverride } from "./materials";
 const WOOD = 0xe7ddc9; // carcass face (matches the kitchen runStyle default)
 const EDGE = 0xc9bd9e; // panel edge outline
 const SELECTED = 0x2a6df0; // blue emissive tint (same as kitchen selection)
+// M10.1 — Moblo marks a selected board with a CYAN CAGE and leaves the board's own decor alone, so a
+// master showing a client «this one is oak» can still see the oak. We do the same: the tint drops to a
+// whisper and the board's existing edge outline turns cyan and stops depth-testing, so it reads through
+// the piece from any angle.
+const SEL_OUTLINE = 0x22d3ee; // cyan — the selected board's edge cage
+const SEL_TINT = 0.15; // was 0.5, which repainted the board lavender and hid its texture
 const WIRE_EDGE = 0x334155; // dark outline for wireframe (contrast against the light backdrop)
 const SHADED = 0xcfcabd; // uniform clay grey for the "shaded" mode (form without decor colour)
 const STEEL_LEG = 0x2d3138; // M9E.4 — powder-coated steel: a hairpin leg is bent, not sawn from a decor
@@ -414,18 +420,35 @@ export function buildRoomGroup(scene: Scene): THREE.Group {
   return group;
 }
 
-/** Tint the board whose id matches (selection). Pass null to clear every tint. */
+/** Tint the board whose id matches (selection) and wrap it in the M10.1 cyan cage. Pass null to clear
+ *  every tint and cage. The cage IS the board's own edge outline (`children[0]`), recoloured — no extra
+ *  object to build, dispose or keep in sync with the board's transform. */
 export function highlightBoard(group: THREE.Group, id: string | null): void {
   for (const child of group.children) {
     const mesh = child as THREE.Mesh;
+    const on = id != null && mesh.userData.partId === id;
     const mat = mesh.material as THREE.MeshStandardMaterial;
     if (mat && "emissive" in mat) {
-      const on = id != null && mesh.userData.partId === id;
       mat.emissive = new THREE.Color(on ? SELECTED : 0x000000);
-      mat.emissiveIntensity = on ? 0.5 : 0;
+      mat.emissiveIntensity = on ? SEL_TINT : 0;
       mat.needsUpdate = true;
     }
+    setBoardCage(mesh, on);
   }
+}
+
+/** M10.1 — turn one board's edge outline into the cyan selection cage, or hand it back to the resting
+ *  colour the current Visual Style asked for (`restEdgeColor`, stamped by applyRenderMode). Opacity is
+ *  never touched: the Materials view owns that, and the cage must not fight it. */
+function setBoardCage(mesh: THREE.Mesh, on: boolean): void {
+  const edge = mesh.children[0] as THREE.LineSegments | undefined;
+  const em = edge?.material as THREE.LineBasicMaterial | undefined;
+  if (!edge || !em || !("color" in em)) return;
+  em.color = new THREE.Color(on ? SEL_OUTLINE : ((edge.userData.restEdgeColor as number) ?? EDGE));
+  em.depthTest = !on; // the cage shows THROUGH the piece, like Moblo's
+  em.needsUpdate = true;
+  edge.renderOrder = on ? 997 : 0; // under the section overlay (998/999), over every board
+  edge.userData.caged = on; // applyRenderMode reads this so a style switch can't repaint a live cage
 }
 
 /**
@@ -510,9 +533,12 @@ export function applyRenderMode(group: THREE.Group, mode: RenderMode): void {
       mat.color = new THREE.Color(mode === "shaded" ? SHADED : ((mesh.userData.baseColor as number) ?? WOOD));
     }
     mat.needsUpdate = true;
-    if (edgeMat) {
-      edgeMat.color = new THREE.Color(mode === "wireframe" ? WIRE_EDGE : EDGE);
-      edgeMat.needsUpdate = true;
+    if (edge && edgeMat) {
+      // M10.1 — remember the colour this style wants, so dropping the cyan cage restores the right one.
+      // A board that is CAGED right now keeps its cage: the style may change under a live selection.
+      const rest = mode === "wireframe" ? WIRE_EDGE : EDGE;
+      edge.userData.restEdgeColor = rest;
+      if (!edge.userData.caged) { edgeMat.color = new THREE.Color(rest); edgeMat.needsUpdate = true; }
     }
   }
 }
@@ -980,15 +1006,19 @@ export function buildGizmo(
   // so the three hoops don't overlap into one un-pickable knot on a phone. A default Torus lies in XY (hole
   // along Z), so Z needs no turn, Y turns about X, X turns about Y.
   if (withRotate) {
-    const baseR = Math.max(size[0], size[1], size[2]) / 2 + hs * 2.4;
+    // M10.11 — a ring about an axis LIES IN the plane of the OTHER TWO, so its radius belongs to those
+    // two — not to the part's longest edge. Sized off the overall max, a 1200×40×700 worktop grew three
+    // 1.3 m hoops that swallowed the whole table: the red one spanned 1.3 m across a 40 mm thickness.
+    // Now each hoop hugs its own plane. The 1.05/1.0/0.95 offsets still keep them from knotting together.
+    const planeR = (a: 0 | 1 | 2, b: 0 | 1 | 2): number => Math.max(0.03, Math.max(size[a], size[b]) / 2 + hs * 2.4);
     const RING = {
-      x: { color: 0xe5484d, rot: [0, Math.PI / 2, 0] as const, scale: 1.05 },
-      y: { color: 0x30a46c, rot: [Math.PI / 2, 0, 0] as const, scale: 1.0 },
-      z: { color: 0x2f6bff, rot: [0, 0, 0] as const, scale: 0.95 },
+      x: { color: 0xe5484d, rot: [0, Math.PI / 2, 0] as const, scale: 1.05, base: planeR(1, 2) }, // spans Y–Z
+      y: { color: 0x30a46c, rot: [Math.PI / 2, 0, 0] as const, scale: 1.0, base: planeR(0, 2) }, // spans X–Z
+      z: { color: 0x2f6bff, rot: [0, 0, 0] as const, scale: 0.95, base: planeR(0, 1) }, // spans X–Y
     } as const;
     for (const ax of opts.rotateAxes ?? ["y"]) {
       const s = RING[ax];
-      const rr = baseR * s.scale;
+      const rr = s.base * s.scale;
       const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.003, rr * 0.022), 8, 48), new THREE.MeshBasicMaterial({ color: s.color, depthTest: false }));
       ring.rotation.set(s.rot[0], s.rot[1], s.rot[2]);
       ring.userData.rotateAxis = ax;
