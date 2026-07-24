@@ -23,8 +23,11 @@ export interface HandleLayout {
 }
 
 export function handleScrewPattern(panel: Panel, opts: HandleLayout, spec: HandleSpec): DrillOp[] {
-  // `bow` needs a screw pair, `knob` a single screw; `profile`/anything else drills nothing.
-  const count = opts.type === "bow" ? 2 : opts.type === "knob" ? 1 : 0;
+  // `bow` + `long_pull` need a screw pair, `knob` + `round_knob` a single screw; `profile` and `gola` — a
+  // glued-on lip, not a screwed fitting — and anything else drill nothing (M9E.4 widened the catalog).
+  const count = opts.type === "bow" || opts.type === "long_pull" ? 2
+    : opts.type === "knob" || opts.type === "round_knob" ? 1
+      : 0;
   if (count === 0) return [];
 
   const diameter = mmToMm10(spec.screw.diameter);

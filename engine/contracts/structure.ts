@@ -111,8 +111,11 @@ export type SectionPurpose =
 /** Composition kind of a `Row` above the carcasses. */
 export type RowKind = "base" | "upper" | "tall";
 
-/** Handle / dastak kind on a door or drawer (Phase 1.3). Absent on a Component = no handle (Без). */
-export type HandleType = "bow" | "profile" | "knob";
+/** Handle / dastak kind on a door or drawer (Phase 1.3). Absent on a Component = no handle (Без).
+ *  M9E.4 widened the catalog: a brass ROUND KNOB (one screw, like `knob`), a modern LONG PULL (a screw
+ *  pair, like `bow`) and a GOLA — the glued-on lip profile an usta fits instead of a handle, so like
+ *  `profile` it drills nothing. Absent/unknown values keep drilling nothing, so old models are unchanged. */
+export type HandleType = "bow" | "profile" | "knob" | "round_knob" | "long_pull" | "gola";
 
 /**
  * Lift-hinge kind on a door (Phase 2.1) — a top-opening wall-cabinet door on a gas-strut/arm mechanism
@@ -550,7 +553,10 @@ export type FreePartRole = "top" | "leg" | "rail" | "stretcher" | "panel" | "she
  */
 export type PrimitiveShape =
   | "box" | "cylinder" | "sphere" | "tube" | "wedge"
-  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus";
+  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus"
+  // M9E.4 — a HAIRPIN leg: the bent steel wire loop under a mid-century table. Bought or bent, never
+  // sawn from a sheet, so it inherits the same non-box treatment as the rest.
+  | "hairpin";
 
 /** One edge of a free part on an axis, pinned to the block's LOW (`x=0`) or HIGH (`x=extent`) face at a
  *  fixed `offset_mm10` inside it. This is what makes the "table law" work for free parts: on a block

@@ -26,7 +26,8 @@ export function carcassSlotOf(partId: string): CarcassSlot | null {
 
 export type PrimitiveKind =
   | "board" | "panel" | "post" | "box" | "cylinder" | "rail" | "sphere" | "tube" | "wedge"
-  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus"; // M7
+  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus" // M7
+  | "hairpin"; // M9E.4 — the bent-steel mid-century leg
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
@@ -635,6 +636,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
         cone: { name: "Torayuvchi oyoq", role: "leg", axis: "x", w: 700, h: Math.min(7100, bx.h), d: 700, shape: "cone" },
         halfCylinder: { name: "Yumaloq uch", role: "panel", axis: "y", w: Math.min(4000, Math.round(bx.w * 0.55)), h: 400, d: 400, shape: "halfCylinder" },
         hexagon: { name: "Olti qirrali ustun", role: "leg", axis: "x", w: 600, h: Math.min(7100, bx.h), d: 600, shape: "hexagon" },
+        // M9E.4 — a hairpin leg splays wider than a turned post, so it starts on a bigger footprint box.
+        hairpin: { name: "Hairpin oyoq", role: "leg", axis: "x", w: 1100, h: Math.min(7100, bx.h), d: 1100, shape: "hairpin" },
         // a ring is a pull — it belongs at handle height, not on the floor
         torus: { name: "Halqa", role: "rail", axis: "z", w: 1200, h: 1200, d: 300, shape: "torus", y: Math.max(0, Math.round(bx.h * 0.45)) },
       };

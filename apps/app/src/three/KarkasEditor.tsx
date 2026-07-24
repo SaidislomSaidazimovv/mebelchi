@@ -1303,7 +1303,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // + places as the hole markers (line ~405), so a handle sits exactly on its screw seats. Always on.
     if (r.handleGroup) { r.scene.remove(r.handleGroup); disposeStructureGroup(r.handleGroup); }
     const hplaces = solveLayout(model, planThickness(plan));
-    const hg = buildHandleGroup(handleFittings(solveModelToParts(model, planThickness(plan)), hplaces), layoutBounds(hplaces));
+    // M9E.4 — pass the MODEL so the fitting knows the declared handle kind (a bow and a long pull both drill
+    // a screw pair; the hole count alone cannot tell them apart).
+    const hg = buildHandleGroup(handleFittings(solveModelToParts(model, planThickness(plan)), hplaces, model), layoutBounds(hplaces));
     r.scene.add(hg);
     r.handleGroup = hg;
     // Phase 3.b — rebuild the 3D appliance meshes from the appliance fittings (real size in each section).
@@ -1953,6 +1955,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("halfCylinder"); setRpanel("none"); }}>◗ Yumaloq uch</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("hexagon"); setRpanel("none"); }}>⬡ Olti qirrali</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("torus"); setRpanel("none"); }}>◯ Halqa</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("hairpin"); setRpanel("none"); }}>⋀ Hairpin oyoq</button>
                 </div>
                 {selectedId && !selectedId.includes("__div_") && (
                   <div className="mob-addgrid" style={{ marginTop: 10 }}>
@@ -2253,6 +2256,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   <option value="bow">Скоба</option>
                   <option value="knob">Кнопка</option>
                   <option value="profile">Профиль</option>
+                  <option value="round_knob">Guruch tugma</option>
+                  <option value="long_pull">Cho'zinchoq pull</option>
+                  <option value="gola">Gola profil</option>
                 </select>
               </label>
             )}
@@ -2445,6 +2451,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <option value="halfCylinder">◗ Yumaloq uch</option>
             <option value="hexagon">⬡ Olti qirrali</option>
             <option value="torus">◯ Halqa</option>
+            <option value="hairpin">⋀ Hairpin oyoq</option>
           </select>
           <button type="button" aria-haspopup="dialog" title="Material" onClick={() => setSwatchTarget({ kind: "free", id: selFreeBoard.id })} style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34, display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ ...swatch, background: BOARDS.find((bd) => bd.id === selFreeBoard.material)?.hex ?? "#e6e6e6" }} />
@@ -2649,6 +2656,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <option value="bow">⊐ Скоба</option>
                 <option value="knob">● Кнопка</option>
                 <option value="profile">▭ Профиль</option>
+                <option value="round_knob">☉ Guruch tugma</option>
+                <option value="long_pull">▤ Cho'zinchoq pull</option>
+                <option value="gola">▬ Gola profil</option>
               </select>
             </>
           )}

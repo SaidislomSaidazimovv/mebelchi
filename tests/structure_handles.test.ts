@@ -97,3 +97,44 @@ describe("Phase 1.3d — handleFittings", () => {
     expect(fittingsOf(drawer())).toHaveLength(0);
   });
 });
+
+// M9E.4 — the catalog widened to a brass ROUND KNOB (one screw), a modern LONG PULL (a screw pair) and a
+// GOLA (glued on, no screws). The screw COUNT can no longer name the handle — a bow and a long pull both
+// drill a pair — so `handleFittings` takes the model and reads the component's declared kind.
+const fittingsWithModel = (m: StructuralModel) => handleFittings(solveModelToParts(m, tk), solveLayout(m, tk), m);
+
+describe("M9E.4 — the widened handle catalog", () => {
+  it("a round knob drills ONE screw and reports kind round_knob", () => {
+    const fs = fittingsWithModel(door("round_knob"));
+    expect(fs).toHaveLength(1);
+    expect(fs[0]!.kind).toBe("round_knob");
+    expect(fs[0]!.seats).toHaveLength(1);
+    expect(fs[0]!.along).toBeUndefined();
+  });
+
+  it("a long pull drills a 128mm screw PAIR and reports kind long_pull with a bar axis", () => {
+    const fs = fittingsWithModel(door("long_pull"));
+    expect(fs).toHaveLength(1);
+    const f = fs[0]!;
+    expect(f.kind).toBe("long_pull");
+    expect(f.seats).toHaveLength(2);
+    const [a, b] = f.seats;
+    expect(Math.round(Math.hypot(a![0] - b![0], a![1] - b![1], a![2] - b![2]))).toBe(128);
+    expect(f.along && isUnitAxis(f.along)).toBe(true);
+  });
+
+  it("a gola is glued on — no screws, so no fitting either way", () => {
+    expect(fittingsWithModel(door("gola"))).toHaveLength(0);
+    expect(fittingsOf(door("gola"))).toHaveLength(0);
+  });
+
+  it("WITHOUT the model the kind falls back to the screw-count rule (old callers byte-identical)", () => {
+    expect(fittingsOf(door("long_pull"))[0]!.kind).toBe("bow"); // a pair still reads as a bow
+    expect(fittingsOf(door("round_knob"))[0]!.kind).toBe("knob"); // one screw still reads as a knob
+  });
+
+  it("a drawer front carries the new kinds too", () => {
+    expect(fittingsWithModel(drawer("long_pull"))[0]!.kind).toBe("long_pull");
+    expect(fittingsWithModel(drawer("round_knob"))[0]!.kind).toBe("round_knob");
+  });
+});
