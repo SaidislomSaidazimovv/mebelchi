@@ -288,6 +288,10 @@ interface KarkasState extends Derived {
   /** gizmos — put a free board's `axis` coord at `idealPos` (mm10), MAGNETICALLY clicking to a nearby
    *  compartment face first. Absolute (no drift over a long drag); reports where it landed + whether it snapped. */
   moveFreePartTo: (fpId: string, axis: "x" | "y" | "z", idealPos: number, first: boolean) => { pos: number; snapped: boolean };
+  /** M9U.5 — «⇩ Yerga» (Moblo «Put on ground»): drop a free board so its BOTTOM rests on the block floor
+   *  (y = 0). Exact, never magnetic — the button promises the floor, and the drag magnet already handles
+   *  «land it on that shelf». One undo step; a locked part refuses, like every other free-part edit. */
+  putFreePartOnGround: (fpId: string) => void;
   snapFreePart: (fpId: string) => void;
   /** Resize a free board along one axis (mm). `pushHistory: false` for live drag frames — they replace
    *  the current state instead of stacking one undo entry per pointer move (gizmo resize). */
@@ -977,6 +981,14 @@ export const useKarkas = create<KarkasState>((set, get) => {
       delta[axis] = t.pos - pick(fp.box, false);
       if (delta[axis] !== 0) get().moveFreePart(fpId, delta, first);
       return t;
+    },
+    // M9U.5 — «⇩ Yerga»: the board's LOW edge (box.y) goes to the block floor. moveFreePart is the exact,
+    // snap-free mover, so the part lands where the button says instead of being pulled onto a nearby shelf.
+    putFreePartOnGround: (fpId) => {
+      if (get().isFreePartLocked(fpId)) return;
+      const fp = get().model.blocks[0]?.freeParts?.find((f) => f.id === fpId);
+      if (!fp || fp.box.y === 0) return; // already on the floor → no dead undo step
+      get().moveFreePart(fpId, { x: 0, y: -fp.box.y, z: 0 }, true);
     },
     // U3.2c — on drop, snap the board flush to any nearby compartment face (magnet). Part of the same
     // drag undo step (a plain set, no new past entry), so one drag = one undo.

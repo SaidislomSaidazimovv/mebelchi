@@ -104,6 +104,10 @@ interface RT {
   // Live 3D dimension lines, built on drag-start and torn down on pointer-up. A list because a divider
   // drag needs TWO at once — the bay either side of it.
   dimLines: DimLine[];
+  // M9U.5 — the SELECTION's own edge dimensions (Moblo's 324/160/408 on the picked part). Deliberately a
+  // SEPARATE list from `dimLines`: that one means «a drag is live» (other UI hides while it is non-empty),
+  // and a selected part is not a drag.
+  selDims: DimLine[];
   raf: number;
   labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
   aabb: THREE.Box3 | null;
@@ -204,6 +208,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setFreePartView = useKarkas((s) => s.setFreePartView); // M7.4
   const setPartView = useKarkas((s) => s.setPartView);
   const setFreePartTilt = useKarkas((s) => s.setFreePartTilt); // M8.1
+  const putFreePartOnGround = useKarkas((s) => s.putFreePartOnGround); // M9U.5 — «⇩ Yerga»
   const setCarcassPanel = useKarkas((s) => s.setCarcassPanel); // M8.5
   // M8.4 — multi-pick
   const multiMode = useKarkas((s) => s.multiMode);
@@ -748,7 +753,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     contactShadow.rotation.x = -Math.PI / 2; contactShadow.position.y = 0.0015; // just above the floor, under the piece
     contactShadow.renderOrder = 1; contactShadow.visible = false; // shown once a model is built + sized
     scene3.add(contactShadow);
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, roomGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, contactShadow, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, roomGroup: null, ghostGroup: null, dimLines: [], selDims: [], raf: 0, labels, aabb: null, contactShadow, framedKey: "" };
     // dev-only: expose the three runtime so local tooling (puppeteer) can assert on the SCENE GRAPH — a
     // 3D overlay like the dimension line has no DOM to query. Stripped from prod builds, like __karkas.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
@@ -1185,6 +1190,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.sectionGroup) disposeStructureGroup(rt.current.sectionGroup);
       if (rt.current?.gizmoGroup) disposeStructureGroup(rt.current.gizmoGroup);
       for (const dl of rt.current?.dimLines ?? []) dl.dispose(); // a drag can be interrupted by an unmount
+      for (const dl of rt.current?.selDims ?? []) dl.dispose(); // M9U.5 — …and so can a standing selection
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
       if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
       if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
@@ -1282,6 +1288,39 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     r.renderer.render(r.scene, r.camera);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, selectedId, selMode]);
+
+  // ── M9U.5 — the selected FREE part's own edge dimensions (Moblo's 324 / 160 / 408). FREE parts only: a
+  //    carcass panel is already wrapped by the block's W/H/D overlay, and three more lines per panel would
+  //    bury a phone screen. They live in `selDims`, NOT `dimLines` — that list means «a drag is live» and
+  //    other UI hides while it is non-empty, which a standing selection must never trigger. ──
+  useEffect(() => {
+    const r = rt.current;
+    if (!r) return;
+    const clear = (): void => {
+      for (const dl of r.selDims) { r.scene.remove(dl.group); dl.dispose(); }
+      r.selDims = [];
+    };
+    clear();
+    const bd = selectedId?.includes("__free_") ? scene.boards.find((b) => b.id === selectedId) : undefined;
+    if (bd) {
+      const [cx, cy, cz] = bd.pos; // pos is the board's CENTRE, size its full extents (metres)
+      const [sx, sy, sz] = bd.size;
+      const off = (s: number): number => Math.min(0.015, Math.max(0.004, s * 0.05)); // stand the line off the face it measures
+      const specs: { from: [number, number, number]; to: [number, number, number]; m: number }[] = [
+        { from: [cx - sx / 2, cy - sy / 2 - off(sy), cz - sz / 2 - off(sz)], to: [cx + sx / 2, cy - sy / 2 - off(sy), cz - sz / 2 - off(sz)], m: sx },
+        { from: [cx - sx / 2 - off(sx), cy - sy / 2, cz - sz / 2 - off(sz)], to: [cx - sx / 2 - off(sx), cy + sy / 2, cz - sz / 2 - off(sz)], m: sy },
+        { from: [cx + sx / 2 + off(sx), cy - sy / 2 - off(sy), cz - sz / 2], to: [cx + sx / 2 + off(sx), cy - sy / 2 - off(sy), cz + sz / 2], m: sz },
+      ];
+      for (const s of specs) {
+        const dl = createDimLine();
+        dl.update(s.from, s.to, String(Math.round(s.m * 1000))); // metres → the mm an usta reads
+        r.scene.add(dl.group);
+        r.selDims.push(dl);
+      }
+    }
+    r.renderer.render(r.scene, r.camera);
+    return clear;
+  }, [selectedId, scene]);
 
   // ── rebuild the group + reframe when the model (scene) changes ──
   useEffect(() => {
@@ -2430,6 +2469,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
           <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 34, padding: "6px 11px" }}>↻</button>
+          {/* M9U.5 — «Put on ground»: drop the part onto the block floor. Exact, never magnetic — the drag
+              magnet is what lands a board on a shelf; this button promises the floor. */}
+          <button type="button" title="Yerga qo'yish (polga tushirish)" aria-label="Yerga qo'yish"
+            onClick={() => putFreePartOnGround(selFreeBoard.id)}
+            style={{ ...act, borderColor: "#1f8a4c", background: "#e3f5ea", color: "#146c3a", minHeight: 34, padding: "6px 11px" }}>⇩ Yerga</button>
           {/* M8.1 — the two tilts. Y already has the ↻ button (90° at a time, the everyday turn); X and Z
               are typed, because a slanted part is set to an angle («30°»), not nudged to one. */}
           <label className="mob-props-f" title="Oldinga/orqaga qiyalik (X o'qi)"><span>↕°</span>
