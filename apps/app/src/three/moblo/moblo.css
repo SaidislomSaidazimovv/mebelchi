@@ -116,7 +116,7 @@
 .mob-iconbtn, .mob-round {
   appearance: none; cursor: pointer;
   display: grid; place-items: center;
-  width: 40px; height: 40px;
+  width: 44px; height: 44px; /* U11.3 — the finger minimum; was 40 */
   border-radius: 50%;
   background: var(--mob-surface);
   border: 1px solid var(--mob-border);
@@ -138,7 +138,7 @@
   display: flex; flex-direction: column; gap: 9px;
   z-index: 6;
 }
-.mob-lefttools .mob-round { width: 42px; height: 42px; }
+.mob-lefttools .mob-round { width: 44px; height: 44px; } /* U11.3 — was 42 */
 
 /* ── right rail (add / material) ── */
 .mob-rightrail {
@@ -181,9 +181,12 @@
   border-bottom: 1px solid var(--mob-border);
   font-size: 15px; font-weight: 650;
 }
+/* U11.3 — the close button was 21×26: the one control a master reaches for when a sheet is in the way,
+   and the hardest on the panel to hit. It is now a full finger target without growing the glyph. */
 .mob-x {
   appearance: none; border: 0; background: transparent; cursor: pointer;
-  font-size: 22px; line-height: 1; color: var(--mob-faint); padding: 2px 4px;
+  font-size: 22px; line-height: 1; color: var(--mob-faint);
+  min-width: 44px; min-height: 44px; display: grid; place-items: center; padding: 0;
 }
 .mob-x:hover { color: var(--mob-ink); }
 .mob-panel-body { padding: 14px 16px; overflow: auto; }
@@ -340,18 +343,30 @@
   .mob-top-left { grid-column: 1; }
   .mob-top-right { grid-column: 3; }
   .mob-tabbar { display: flex; }
-  .mob-fabgroup { display: flex; flex-direction: column; align-items: center; gap: 10px; position: absolute; right: 16px; bottom: 118px; z-index: 7; }
+  /* U11.5 — lifted from 118: the selection bar now sits at bottom:76 and is ~76 px tall, and the ＋ FAB
+     (the lowest item in this column) was disappearing behind it the moment anything was selected. */
+  .mob-fabgroup { display: flex; flex-direction: column; align-items: center; gap: 10px; position: absolute; right: 16px; bottom: 166px; z-index: 7; }
   .mob-panel.is-sheet { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none; max-height: 66vh; border-radius: 16px 16px 0 0; z-index: 8; }
   .mob-doc-name { max-width: 130px; }
+  /* U11.5 — the two control columns were TRIED merged onto the right edge (2026-07-24) and it was worse,
+     so this stays on the left: the info chip stretches to the right edge, so a right-hand rail put ↩ undo
+     straight back under it — the very collision U11.2 had just fixed — and the rail's «⋯» landed beside
+     the FAB group's «⋯». The covered-area measurement did not improve either (58 → 59 %), because moving
+     a column does not shrink it. Two columns on opposite edges is the honest answer. */
   .mob-lefttools { top: 64px; gap: 7px; max-height: calc(100vh - 220px); }
-  .mob-lefttools .mob-round { width: 38px; height: 38px; }
+  /* U11.3 — a finger needs 44 px. These were shrunk to 38 to fit nine icons down the edge; M10.4 folded
+     the rail to four, so the space is there and the shrink is no longer paying for anything. */
+  .mob-lefttools .mob-round { width: 44px; height: 44px; }
   /* keep the dims bar COMPACT + centred on mobile (not stretched full-width); it sits just above the nav */
-  .mob-bottombar { bottom: 66px; padding: 6px 8px; gap: 8px; }
+  /* U11.3/U11.5 — this row grew a 🔗 button and 44 px targets, which pushed 💾 eight pixels past the
+     right edge of a 375 px phone. Let it wrap to a second line rather than run off the screen — and
+     lift the selection bar clear of the taller result — see the override below .mob-selbar's own rule. */
+  .mob-bottombar { bottom: 66px; padding: 6px 8px; gap: 8px; flex-wrap: wrap; justify-content: center; }
   .mob-groupbar { bottom: 66px; padding: 6px 8px 6px 12px; gap: 8px; }
   .mob-gbtn { padding: 7px 10px; }
   .mob-bottombar .mob-dims { gap: 8px; }
   .mob-bottombar .mob-dim-input { width: 46px; }
-  .mob-unit { padding: 4px 6px; }
+  .mob-unit { padding: 4px 6px; min-width: 44px; min-height: 44px; } /* U11.3 — was 31×22 */
   .mob-project-btn { padding: 7px 11px; box-shadow: none; }
   .mob-legacy.is-sheet {
     left: 0; right: 0; bottom: 0; top: auto; width: auto;
@@ -385,7 +400,8 @@
 .mob-modebtn { flex: 1; appearance: none; border: 0; cursor: pointer; border-radius: 7px; padding: 7px 0; font: 600 13px Inter, system-ui, sans-serif; background: transparent; color: var(--mob-muted); }
 .mob-modebtn.is-active { background: var(--mob-surface); color: var(--mob-accent); box-shadow: var(--mob-shadow-sm); }
 .mob-addgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.mob-addbtn { appearance: none; cursor: pointer; border: 1px solid var(--mob-border); background: var(--mob-surface-2); color: var(--mob-ink); border-radius: 10px; padding: 10px 8px; font: 600 12.5px Inter, system-ui, sans-serif; text-align: center; }
+/* U11.3 — 38–41 px tall; the palette is tapped more than anything else in the app. */
+.mob-addbtn { appearance: none; cursor: pointer; border: 1px solid var(--mob-border); background: var(--mob-surface-2); color: var(--mob-ink); border-radius: 10px; padding: 10px 8px; min-height: 44px; font: 600 12.5px Inter, system-ui, sans-serif; text-align: center; }
 .mob-addbtn:hover { border-color: var(--mob-accent); color: var(--mob-accent); }
 .mob-addbtn.is-active { border-color: var(--mob-accent); background: var(--mob-accent-soft); color: var(--mob-accent); }
 .mob-hint { font-size: 12.5px; color: var(--mob-faint); line-height: 1.5; margin: 4px 2px; }
@@ -531,10 +547,70 @@
 .mob-props-toggle {
   flex: none; cursor: pointer; white-space: nowrap;
   font: 600 12px Inter, system-ui, sans-serif;
-  padding: 6px 11px; border-radius: 9px;
+  padding: 6px 11px; border-radius: 9px; min-height: 44px; min-width: 44px; /* U11.3 — was 30 px tall, and a short label like «Tag» only 41 px wide */
   border: 1px solid var(--mob-border); background: var(--mob-surface-2); color: var(--mob-ink);
 }
 .mob-props-toggle.is-on { border-color: var(--mob-accent); background: var(--mob-accent); color: #fff; }
+
+/* ── U11.1 — the mode-dependent selection bar (Moblo's contextual bar) ──
+   Two short rows instead of one 1252 px scroller: a mode segment + the name on top, and only the
+   active mode's fields underneath. Nothing scrolls sideways, so nothing can hide past the edge. */
+.mob-selbar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 118px; z-index: 62;
+  width: min(94vw, 520px);
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px; border-radius: 14px;
+  background: var(--mob-surface); border: 1px solid var(--mob-border);
+  box-shadow: var(--mob-shadow-sm);
+}
+/* On a phone the block dims bar stands down whenever something is selected (U11.5), so this bar has the
+   space above the tab bar to itself and sits where the thumb already expects it. (It had to be lifted to
+   176 px while the two could coexist.) The rule sits AFTER the one above on purpose: same specificity, so
+   source order decides — the copy inside the earlier @media block was silently losing. */
+@media (max-width: 899px) { .mob-selbar { bottom: 76px; } }
+.mob-selbar__head { display: flex; align-items: center; gap: 8px; }
+.mob-selbar__name {
+  flex: 1; min-width: 0; /* min-width:0 is what lets a long name shrink instead of pushing the ⋮ out */
+  font: 700 13px ui-monospace, monospace; color: var(--mob-accent);
+  border: 1px solid var(--mob-border); border-radius: 8px; padding: 9px 10px;
+  background: var(--mob-surface-2);
+}
+.mob-selbar__more {
+  appearance: none; cursor: pointer; flex: none;
+  min-width: 44px; min-height: 44px; border-radius: 10px;
+  border: 1px solid var(--mob-border); background: var(--mob-surface-2); color: var(--mob-ink);
+  font-size: 19px; line-height: 1;
+}
+.mob-selbar__more.is-on { border-color: var(--mob-accent); background: var(--mob-accent); color: #fff; }
+.mob-selbar__row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; /* wrap, never scroll */
+  min-height: 44px;
+}
+/* the [⟡ ▣ ↺] segment — one control, three states, like Moblo's */
+.mob-modeseg { display: flex; flex: none; border: 1px solid var(--mob-border); border-radius: 10px; overflow: hidden; }
+.mob-modeseg__b {
+  appearance: none; cursor: pointer; border: 0; background: var(--mob-surface-2);
+  min-width: 46px; min-height: 44px; font-size: 17px; line-height: 1; color: var(--mob-muted);
+  border-right: 1px solid var(--mob-border);
+}
+.mob-modeseg__b:last-child { border-right: 0; }
+.mob-modeseg__b.is-on { background: var(--mob-accent); color: #fff; }
+
+/* the ⋮ sheet — a wrapping panel, so a long control list grows DOWN (and scrolls) instead of sideways */
+.mob-moresheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 84;
+  max-height: 62vh; display: flex; flex-direction: column;
+  background: var(--mob-surface); border-top: 1px solid var(--mob-border);
+  border-radius: 16px 16px 0 0; box-shadow: 0 -6px 26px rgba(0,0,0,.22);
+}
+.mob-moresheet__body {
+  padding: 12px 14px 20px; overflow-y: auto;
+  display: flex; flex-wrap: wrap; gap: 9px; align-items: center;
+}
+.mob-moresheet__group {
+  flex: 1 1 100%; margin: 4px 0 0; border: 1px solid var(--mob-border); border-radius: 11px; padding: 10px 12px 12px;
+}
+.mob-moresheet__group > legend { font: 700 11.5px Inter, system-ui, sans-serif; color: var(--mob-muted); padding: 0 5px; }
 
 .mob-ar-err { font-size: 12.5px; color: #a01a2e; background: #fbe4e8; border-radius: 8px; padding: 8px 10px; }
 /* Device's own WebXR report — folded away by default; only opened when we ask for it. */
