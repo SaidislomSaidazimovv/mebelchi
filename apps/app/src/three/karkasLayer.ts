@@ -108,7 +108,23 @@ export function buildProjectBlocksGroup(
  *  `userData.isFacade`, from its parts list — so «Ichini ko'rish» knows which boards to fade. */
 export function tagFacades(group: THREE.Object3D, parts: readonly { id: string; role?: string | null }[]): void {
   const facadeBase = new Set(parts.filter((p) => p.role === "facade").map((p) => p.id.replace(/__(a|b|front)$/, "")));
-  group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.userData.isFacade = facadeBase.has(String(m.userData.partId).replace(/__(a|b|front)$/, "")); });
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const on = facadeBase.has(String(m.userData.partId).replace(/__(a|b|front)$/, ""));
+    m.userData.isFacade = on;
+    // U11.8 — a facade's front face was measured sitting on EXACTLY the carcass's front plane (both at
+    // z = −280 mm). Two coplanar surfaces give the renderer nothing to shade, so a white door on a white
+    // carcass reads as one blank box — which is why eight pieces in the catalogue looked like empty
+    // crates — and coplanar faces are also what z-fighting is made of. Standing the door 1 mm proud
+    // gives it an edge to catch the light, exactly as a real facade sits proud of its cabinet.
+    //
+    // RENDER ONLY, and deliberately so: this moves the MESH, never the PanelPlacement. The cut list, the
+    // hole coordinates, the edge banding and the CNC file are all computed upstream from the placement
+    // and cannot see this. `facadeProud` guards the offset so repeated calls cannot stack it.
+    if (on && !m.userData.facadeProud) { m.position.z -= 0.001; m.userData.facadeProud = true; }
+    else if (!on && m.userData.facadeProud) { m.position.z += 0.001; m.userData.facadeProud = false; }
+  });
 }
 
 /** «Ichini ko'rish» — fade the FRONT panels (tagged `isFacade`) of a structure group to a low opacity

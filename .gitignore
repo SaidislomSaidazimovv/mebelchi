@@ -70,3 +70,10 @@ TASK_3D_CONSTRUCTION.md
 .env
 .env.local
 .env.*.local
+
+# Generated HTML deliverables (2026-07-24). These are REBUILDABLE from the scratchpad scripts and run to
+# tens of megabytes of inlined PNG, which does not belong in a public repo. Keep them local; regenerate
+# with the gallery/guide builders when they are needed again. Any future generated .html artifact of this
+# kind belongs here too — a small text report may still be committed on purpose.
+GALEREYA_50.html
+QOLLANMA_MEBEL_YASASH.html

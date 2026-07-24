@@ -486,6 +486,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const addShelves = useKarkas((s) => s.addShelves);
   const [chainCorners, setChainCorners] = useState(true);
   const [linkDims, setLinkDims] = useState(false); // M10.9 — Moblo's 🔗 proportion lock on the dims bar
+  // U11.1 — Moblo's mode-dependent contextual bar. Every control for the selection used to live in ONE
+  // row: measured at 1252 px of content in a 351 px bar, so «⛓ Ajratish» sat 121 px off the right edge of
+  // a 375 px phone and «Burilish°» nearly two screens away. Now the bar shows a MODE segment and only
+  // that mode's fields; everything rarer moves one tap away into the ⋮ sheet. The gizmo follows the mode
+  // too, so the three gizmos no longer pile onto the part at once.
+  const [gizmoMode, setGizmoMode] = useState<"move" | "size" | "turn">("move");
+  const [propsSheet, setPropsSheet] = useState(false); // the ⋮ sheet — everything not in the active mode
   // M10.10 — the array form's own state: axis, how many copies, how far apart (mm). Defaults suit the
   // commonest case by far — a row of slats marching sideways.
   const [arrAxis, setArrAxis] = useState<"x" | "y" | "z">("x");
@@ -1289,7 +1296,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       // a FREE board — move arrows + a resize handle per axis, sized to the board
       const bd = scene.boards.find((b) => b.id === selectedId);
       if (bd) {
-        r.gizmoGroup = buildGizmo(bd.pos, bd.size, { rotateAxes: ["x", "y", "z"] }); // M9U.4 — the full 3-axis RGB rings
+        // U11.1 — one gizmo at a time, chosen by the bar's mode. All three at once buried a flat part
+        // under arrows, cubes and three hoops, and on a wide worktop the hoops were larger than the
+        // furniture. Moblo shows exactly the gizmo whose mode you are in.
+        r.gizmoGroup = buildGizmo(bd.pos, bd.size, {
+          resize: gizmoMode === "size",
+          rotate: gizmoMode === "turn",
+          arrows: gizmoMode === "move", // the arrows belong to MOVE alone
+          ...(gizmoMode === "turn" ? { rotateAxes: ["x", "y", "z"] as const } : {}),
+        });
         r.gizmoGroup.userData.target = { kind: "free", id: selectedId.slice(selectedId.indexOf("__free_") + "__free_".length) };
       }
     } else if (selectedId && !selectedId.includes("__div_")) {
@@ -1322,7 +1337,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     if (r.gizmoGroup) r.scene.add(r.gizmoGroup);
     r.renderer.render(r.scene, r.camera);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, selectedId, selMode]);
+  }, [scene, selectedId, selMode, gizmoMode]);
 
   // ── M9U.5 — the selected FREE part's own edge dimensions (Moblo's 324 / 160 / 408). FREE parts only: a
   //    carcass panel is already wrapped by the block's W/H/D overlay, and three more lines per panel would
@@ -1726,6 +1741,20 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
    * separate store call, so an undo steps back one axis at a time — the honest account of what happened,
    * and the same thing three taps on the fields would have produced.
    */
+  /** U11.1 — the same 🔗 lock, applied to the selected FREE part's own three sizes. */
+  const resizeFreeLinked = (dim: "w" | "h" | "d", mm: number): void => {
+    const fp = selFreeBoard;
+    if (!fp) return;
+    const was = Math.round(fp.box[dim] / 10);
+    resizeFreeBoard(fp.id, dim, mm);
+    if (!linkDims || was <= 0 || mm === was) return;
+    const k = mm / was;
+    for (const other of (["w", "h", "d"] as const).filter((a) => a !== dim)) {
+      const v = Math.round(fp.box[other] / 10);
+      const scaled = Math.max(1, Math.round(v * k));
+      if (scaled !== v) resizeFreeBoard(fp.id, other, scaled);
+    }
+  };
   const resizeLinked = (axis: "w" | "h" | "d", mm: number): void => {
     const was = axis === "w" ? dims.w : axis === "h" ? dims.h : dims.d;
     resize(axis, mm);
@@ -1810,8 +1839,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {/* M3.4 — the one material swatch picker, opened from any MatSelect slot or the free-board bar. */}
       {swatchTarget && <MaterialSwatchOverlay target={swatchTarget} theme={theme} onClose={() => setSwatchTarget(null)} />}
 
-      {/* ── U2.1 — Moblo bottom contextual bar (overall dims · selection · +Loyihaga) ── */}
-      {tab === "build" && selMode !== "block" && (
+      {/* ── U2.1 — Moblo bottom contextual bar (overall dims · selection · +Loyihaga) ──
+          U11.5 — on a phone it stands down WHENEVER something is selected. Moblo's bottom bar always
+          belongs to the current selection; ours carried the block's W/H/D on top of the selection bar,
+          which cost the 3D stage a fifth of the screen (measured: 47 % left with a carcass board picked)
+          and, for a free part, put two different sets of W/H/D on screen at once. Tapping empty space
+          deselects and brings the cabinet's own dimensions straight back — one tap, and the founder
+          approved the trade on 2026-07-24. Desktop keeps both: there is room for them there. */}
+      {tab === "build" && selMode !== "block" && !(compact && selectedId) && (
         <div className="mob-bottombar">
           <div className="mob-dims" title="Butun mebel — eni × bo'y × chuqurlik">
             <MobDim axis="x" value={dims.w} units={units} locked={!!selFreeBoard} onCommit={(mm) => resizeLinked("w", mm)} onKeypad={compact ? () => setKeypad({ label: "Eni", value: dims.w, units, onCommit: (mm) => resizeLinked("w", mm) }) : undefined} />
@@ -1822,7 +1857,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <button type="button" className={"mob-unit" + (linkDims ? " is-active" : "")} aria-pressed={linkDims}
               title={linkDims ? "Nisbat qulflangan — bittasi qolganini ham o'zgartiradi" : "Nisbatni qulflash"}
               style={linkDims ? { borderColor: "#1f5570", background: "#dce9f0", color: "#1f5570", fontWeight: 800 } : undefined}
-              onClick={() => setLinkDims((v) => !v)}>{linkDims ? "🔗" : "⛓️‍💥"}</button>
+              onClick={() => setLinkDims((v) => !v)}>🔗</button>
             <button type="button" className="mob-unit" title="mm ⇄ cm" onClick={() => setUnits((u) => (u === "mm" ? "cm" : "mm"))}>{units}</button>
           </div>
           <div className="mob-divider" />
@@ -2266,8 +2301,18 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       })()}
       {/* Step 3.3a (v4 §5 readout law) — the selection's dimensions in a FIXED top-centre strip, never
           hidden by the hand. Updates live during a drag/resize (later pieces). 2 axes only (face w×h). */}
+      {/* U11.2 — on a phone this strip was centred on the viewport and landed straight on top of the left
+          rail's ↩ undo button: the one control a master reaches for right after a mis-drag was the one the
+          readout covered. It now starts CLEAR of the rail (which sits at left:14 and is 44 wide) and
+          stretches to the right edge instead of centring on the screen. */}
       {tab === "build" && selectedId && selPart && (
-        <div style={{ position: "fixed", top: compact ? 64 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 60, background: "rgba(31,85,112,0.94)", color: "#fff", borderRadius: 9, padding: "5px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 2px 10px rgba(0,0,0,0.22)", display: "flex", gap: 11, alignItems: "center", pointerEvents: precise ? "auto" : "none", whiteSpace: "nowrap", maxWidth: "94vw", overflowX: "auto" }}>
+        <div style={{ position: "fixed", top: compact ? 64 : 70,
+          ...(compact
+            // Narrower than before (it starts clear of the rail), so it WRAPS rather than scrolling: a
+            // readout you have to drag sideways to finish reading is no readout at all.
+            ? { left: 70, right: 12, transform: "none", justifyContent: "center", flexWrap: "wrap" as const, whiteSpace: "normal" as const, rowGap: 2 }
+            : { left: "50%", transform: "translateX(-50%)", maxWidth: "94vw", whiteSpace: "nowrap" as const, overflowX: "auto" as const }),
+          zIndex: 60, background: "rgba(31,85,112,0.94)", color: "#fff", borderRadius: 9, padding: "5px 15px", fontSize: 13, fontWeight: 700, boxShadow: "0 2px 10px rgba(0,0,0,0.22)", display: "flex", gap: 11, alignItems: "center", pointerEvents: precise ? "auto" : "none" }}>
           <span>{selComp?.name ?? "Bo'lak"}</span>
           <span style={{ opacity: 0.5 }}>│</span>
           <span style={{ fontFamily: "monospace" }}>{Math.round(selPart.length_mm10 / 10)} × {Math.round(selPart.width_mm10 / 10)} mm</span>
@@ -2386,8 +2431,27 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       {mobileProps && (() => {
         const { blk } = mobileProps;
         return (
-          <div className="mob-props">
-            <span className="mob-props-name">{selComp?.name ?? "Shkaf"}</span>
+          <>
+          {/* U11.1 — a carcass board or a component gets the SAME contextual bar, but with a two-button
+              segment: ⟡ (its arrows slide the whole cabinet — a rule-driven board has no size or turn of
+              its own) and ⋮ for everything else. Its W/H/D stay where they belong, on the block bar below. */}
+          <div className="mob-selbar">
+            <div className="mob-selbar__head">
+              <div className="mob-modeseg" role="group" aria-label="Rejim">
+                <button type="button" className="mob-modeseg__b is-on" title="Ko'chirish" aria-label="Ko'chirish" aria-pressed>⟡</button>
+              </div>
+              <span className="mob-selbar__name" style={{ display: "flex", alignItems: "center" }}>{selComp?.name ?? "Shkaf"}</span>
+              <button type="button" className={"mob-selbar__more" + (propsSheet ? " is-on" : "")} title="Boshqa amallar" aria-label="Boshqa amallar"
+                aria-expanded={propsSheet} onClick={() => setPropsSheet((v) => !v)}>⋮</button>
+            </div>
+            {/* No second row here: a rule-driven board has no size or turn of its own, and an EMPTY row
+                still cost 44 px of the 3D stage (measured 6 % of a 375×667 screen). */}
+          </div>
+          {propsSheet && (
+          <div className="mob-moresheet">
+            <div className="mob-sheet-head"><span>{selComp?.name ?? "Shkaf"}</span>
+              <button type="button" className="mob-x" onClick={() => setPropsSheet(false)} aria-label="Yopish">×</button></div>
+            <div className="mob-moresheet__body">
             {selComp && (
               <label className="mob-props-f"><span>Qalinlik</span>
                 <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
@@ -2560,7 +2624,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <button type="button" className="mob-props-toggle" onClick={() => setLCornerHand(lHand === "left" ? "right" : "left")} title="L burchakni chapga / o'ngga aylantirish">⇄ {lHand === "left" ? "Chap" : "O'ng"} burchak</button>
               </>
             )}
+            </div>
           </div>
+          )}
+          </>
         );
       })()}
       {/* M8.4 — the batch bar. Appears the moment something is ticked; every button acts on ALL of them in
@@ -2580,98 +2647,127 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <button type="button" style={{ ...act, minHeight: 34 }} onClick={() => setMultiMode(false)}>✕</button>
         </div>
       )}
-      {/* ── U3.3 — free-board editor: appears when a free board is selected (resize W/H/D · delete) ── */}
+      {/* ── U11.1 — the free part's contextual bar, rebuilt Moblo-style: a MODE segment and only the
+          fields of the mode you are in. It used to be one card carrying fourteen controls at once —
+          name, note, hide, lock, W, H, D, turn, ground, array, height, two tilts, duplicate, shape,
+          material, delete — which is what made the phone bar 1252 px wide. Everything outside the
+          active mode now lives one tap away in the ⋮ sheet, and the 3D gizmo follows the mode. ── */}
       {tab === "build" && !(compact && toolsOpen) && selFreeBoard && rpanel === "none" && (
-        <div style={{ position: "fixed", bottom: compact ? 118 : 70, left: "50%", transform: "translateX(-50%)", zIndex: 62, background: "rgba(255,255,255,0.98)", borderRadius: 12, padding: "7px 12px", boxShadow: "0 3px 14px rgba(0,0,0,0.18)", display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", flexWrap: "wrap", maxWidth: "94vw" }}>
-          <span style={{ ...mono, fontWeight: 700, color: "#1f5570" }}>🪵</span>
-          <input key={selFreeBoard.id} defaultValue={selFreeBoard.name} title="Nom" aria-label="Nom"
-            onBlur={(e) => renameFreePart(selFreeBoard.id, e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-            style={{ ...mono, fontWeight: 700, color: "#1f5570", width: 100, border: "1px solid #cdd5df", borderRadius: 6, padding: "3px 7px", background: "#fff" }} />
-          {/* M7.3 — a note the workshop must read; it reaches the cut list and the printed drawing */}
-          <input key={`n${selFreeBoard.id}`} defaultValue={selFreeBoard.note ?? ""} title="Izoh — kesim ro'yxati va chizmaga tushadi" aria-label="Izoh" placeholder="✎ izoh"
-            onBlur={(e) => setFreePartNote(selFreeBoard.id, e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-            style={{ ...mono, color: "#7a6a4a", width: 120, border: "1px solid #cdd5df", borderRadius: 6, padding: "3px 7px", background: "#fff" }} />
-          {/* M7.4 — hide it from the view (still cut and priced) · lock it against accidental drags */}
-          <button type="button" title={selFreeBoard.hidden ? "Ko'rsatish" : "Yashirish (kesim ro'yxatida qoladi)"} aria-label="Yashirish"
-            onClick={() => setFreePartView(selFreeBoard.id, "hidden", !selFreeBoard.hidden)}
-            style={{ ...act, minHeight: 34, padding: "6px 10px", ...(selFreeBoard.hidden ? { borderColor: "#8a6d1f", background: "#fdf6e3", color: "#8a6d1f" } : {}) }}>{selFreeBoard.hidden ? "🚫" : "👁"}</button>
-          <button type="button" title={selFreeBoard.locked ? "Qulfni ochish" : "Qulflash (tasodifan surilmasin)"} aria-label="Qulflash"
-            onClick={() => setFreePartView(selFreeBoard.id, "locked", !selFreeBoard.locked)}
-            style={{ ...act, minHeight: 34, padding: "6px 10px", ...(selFreeBoard.locked ? { borderColor: "#a01a2e", background: "#fdeaee", color: "#a01a2e" } : {}) }}>{selFreeBoard.locked ? "🔒" : "🔓"}</button>
-          <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "w", mm)} units={units} />
-          <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
-          <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
-          <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 34, padding: "6px 11px" }}>↻</button>
-          {/* M9U.5 — «Put on ground»: drop the part onto the block floor. Exact, never magnetic — the drag
-              magnet is what lands a board on a shelf; this button promises the floor. */}
-          <button type="button" title="Yerga qo'yish (polga tushirish)" aria-label="Yerga qo'yish"
-            onClick={() => putFreePartOnGround(selFreeBoard.id)}
-            style={{ ...act, borderColor: "#1f8a4c", background: "#e3f5ea", color: "#146c3a", minHeight: 34, padding: "6px 11px" }}>⇩ Yerga</button>
-          {/* M10.10 — repeat this part along an axis. Twenty pergola rafters, a slatted bed base or a row
-              of shelf pins used to be twenty rounds of ⧉ + drag; this is one action and one undo. */}
-          <div style={popWrap}>
-            <button type="button" title="Massiv — bir necha marta takrorlash" aria-label="Massiv"
-              onClick={(e) => { e.stopPropagation(); setMenu(menu === "array" ? null : "array"); }}
-              style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", minHeight: 34, padding: "6px 11px" }}>⧉ N×</button>
-            {menu === "array" && (
-              <div style={{ ...popover, bottom: "calc(100% + 8px)", top: "auto", left: 0, minWidth: 208, padding: 10 }}>
-                <div style={{ ...mono, fontSize: 11, opacity: 0.65, marginBottom: 7 }}>Nechta qo'shilsin va qanday qadam bilan</div>
-                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                  {(["x", "y", "z"] as const).map((a) => (
-                    <button key={a} type="button" onClick={() => setArrAxis(a)}
-                      style={{ ...act, flex: 1, minHeight: 30, padding: "4px 0", ...(arrAxis === a ? { borderColor: "#1f5570", background: "#dce9f0", color: "#1f5570", fontWeight: 800 } : {}) }}>
-                      {a === "x" ? "↔ eni" : a === "y" ? "↕ bo'y" : "⤡ chuq."}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 9 }}>
-                  <DimField label="soni" value={arrCount} onCommit={(n) => setArrCount(Math.max(1, Math.min(200, Math.round(n))))} min={1} />
-                  <DimField label="qadam" value={arrStep} onCommit={setArrStep} units={units} min={1} />
-                </div>
-                <button type="button" onClick={() => { arraySelected(arrAxis, arrStep, arrCount); setMenu(null); }}
-                  style={{ width: "100%", padding: "8px", borderRadius: 8, border: "none", background: "#1f5570", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
-                  ＋ {arrCount} ta qo'shish
-                </button>
-              </div>
-            )}
+        <div className="mob-selbar">
+          <div className="mob-selbar__head">
+            <div className="mob-modeseg" role="group" aria-label="Rejim">
+              {([["move", "⟡", "Ko'chirish"], ["size", "▣", "O'lcham"], ["turn", "↺", "Burash"]] as const).map(([m, icon, label]) => (
+                <button key={m} type="button" title={label} aria-label={label} aria-pressed={gizmoMode === m}
+                  className={"mob-modeseg__b" + (gizmoMode === m ? " is-on" : "")} onClick={() => setGizmoMode(m)}>{icon}</button>
+              ))}
+            </div>
+            <input key={selFreeBoard.id} defaultValue={selFreeBoard.name} title="Nom" aria-label="Nom"
+              className="mob-selbar__name"
+              onBlur={(e) => renameFreePart(selFreeBoard.id, e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+            <button type="button" className={"mob-selbar__more" + (propsSheet ? " is-on" : "")} title="Boshqa amallar" aria-label="Boshqa amallar"
+              aria-expanded={propsSheet} onClick={() => setPropsSheet((v) => !v)}>⋮</button>
           </div>
-          {/* M10.9 — Moblo puts a typed HEIGHT ABOVE THE FLOOR next to its «Put on ground». A shelf at
-              «exactly 400 from the floor» was only reachable by dragging until the measure line agreed;
-              now it is a number. 0 = standing on the floor, which is what the button next door sets. */}
-          <label className="mob-props-f" title="Yerdan balandlik (0 = polda)"><span>⇧</span>
-            <DimField label="⇧" value={Math.round(selFreeBoard.box.y / 10)} units={units} min={0}
-              onCommit={(mm) => moveFreePartAbs(selFreeBoard.id, { x: 0, y: mm * 10 - selFreeBoard.box.y, z: 0 }, true)} />
-          </label>
-          {/* M8.1 — the two tilts. Y already has the ↻ button (90° at a time, the everyday turn); X and Z
-              are typed, because a slanted part is set to an angle («30°»), not nudged to one. */}
-          <label className="mob-props-f" title="Oldinga/orqaga qiyalik (X o'qi)"><span>↕°</span>
-            <DimField label="°" value={Math.round(selFreeBoard.rotX_deg ?? 0)} onCommit={(d) => setFreePartTilt(selFreeBoard.id, "x", d)} min={0} suffix="°" />
-          </label>
-          <label className="mob-props-f" title="Chapga/o'ngga qiyalik (Z o'qi)"><span>↔°</span>
-            <DimField label="°" value={Math.round(selFreeBoard.rotZ_deg ?? 0)} onCommit={(d) => setFreePartTilt(selFreeBoard.id, "z", d)} min={0} suffix="°" />
-          </label>
-          <button type="button" title="Nusxalash" onClick={duplicateSelected} style={{ ...act, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a", minHeight: 34, padding: "6px 11px" }}>⧉</button>
-          {/* M4 — switch this part's primitive. Back to «Quti» makes it a flat, cuttable panel again. */}
-          <select value={selFreeBoard.shape ?? "box"} onChange={(e) => setFreeBoardShape(selFreeBoard.id, e.target.value as PrimitiveShape)} title="Shakl" style={{ ...matSel, flex: "0 0 auto", maxWidth: 112, minHeight: 34 }}>
-            <option value="box">▭ Quti</option>
-            <option value="cylinder">◯ Silindr</option>
-            <option value="tube">◎ Quvur</option>
-            <option value="sphere">⬤ Shar</option>
-            <option value="wedge">◺ Pona</option>
-            <option value="arc">◠ Egri fasad</option>
-            <option value="cone">△ Torayuvchi</option>
-            <option value="halfCylinder">◗ Yumaloq uch</option>
-            <option value="hexagon">⬡ Olti qirrali</option>
-            <option value="torus">◯ Halqa</option>
-            <option value="hairpin">⋀ Hairpin oyoq</option>
-          </select>
-          <button type="button" aria-haspopup="dialog" title="Material" onClick={() => setSwatchTarget({ kind: "free", id: selFreeBoard.id })} style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34, display: "flex", alignItems: "center", gap: 6 }}>
-            <MatBall m={boardById(selFreeBoard.material ?? "")} size={20} />
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardById(selFreeBoard.material ?? "")?.name ?? "Standart"}</span>
-          </button>
-          <button type="button" title="O'chirish" onClick={() => removeFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#d1495b", background: "#fbe4e8", color: "#a01a2e", minHeight: 34, padding: "6px 11px" }}>🗑</button>
+          <div className="mob-selbar__row">
+            {gizmoMode === "move" && <>
+              {/* M10.9 — a typed height above the floor beside Moblo's «Put on ground». 0 = on the floor. */}
+              <label className="mob-props-f" title="Yerdan balandlik (0 = polda)"><span>⇧</span>
+                <DimField label="⇧" value={Math.round(selFreeBoard.box.y / 10)} units={units} min={0}
+                  onCommit={(mm) => moveFreePartAbs(selFreeBoard.id, { x: 0, y: mm * 10 - selFreeBoard.box.y, z: 0 }, true)} />
+              </label>
+              <button type="button" title="Yerga qo'yish (polga tushirish)" aria-label="Yerga qo'yish"
+                onClick={() => putFreePartOnGround(selFreeBoard.id)}
+                style={{ ...act, borderColor: "#1f8a4c", background: "#e3f5ea", color: "#146c3a", minHeight: 44, padding: "6px 11px" }}>⇩ Yerga</button>
+            </>}
+            {gizmoMode === "size" && <>
+              <DimField label="Ш" value={Math.round(selFreeBoard.box.w / 10)} onCommit={(mm) => resizeFreeLinked("w", mm)} units={units} />
+              <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeLinked("h", mm)} units={units} />
+              <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeLinked("d", mm)} units={units} />
+              <button type="button" className={"mob-unit" + (linkDims ? " is-on" : "")} aria-pressed={linkDims}
+                title={linkDims ? "Nisbat qulflangan" : "Nisbatni qulflash"}
+                style={linkDims ? { borderColor: "#1f5570", background: "#dce9f0", color: "#1f5570", fontWeight: 800 } : undefined}
+                onClick={() => setLinkDims((v) => !v)}>🔗</button>
+            </>}
+            {gizmoMode === "turn" && <>
+              <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)}
+                style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 44, padding: "6px 13px" }}>↻ 90°</button>
+              {/* M8.1 — X and Z are typed, because a slanted part is SET to an angle, not nudged to one. */}
+              <label className="mob-props-f" title="Oldinga/orqaga qiyalik (X o'qi)"><span>↕°</span>
+                <DimField label="°" value={Math.round(selFreeBoard.rotX_deg ?? 0)} onCommit={(d) => setFreePartTilt(selFreeBoard.id, "x", d)} min={0} suffix="°" />
+              </label>
+              <label className="mob-props-f" title="Chapga/o'ngga qiyalik (Z o'qi)"><span>↔°</span>
+                <DimField label="°" value={Math.round(selFreeBoard.rotZ_deg ?? 0)} onCommit={(d) => setFreePartTilt(selFreeBoard.id, "z", d)} min={0} suffix="°" />
+              </label>
+            </>}
+          </div>
+        </div>
+      )}
+
+      {/* U11.1 — the ⋮ sheet: everything the active mode does not show. One tap away, laid out as a
+          WRAPPING sheet instead of a sideways scroller, so nothing ever hides past the right edge. */}
+      {tab === "build" && propsSheet && selFreeBoard && rpanel === "none" && (
+        <div className="mob-moresheet">
+          <div className="mob-sheet-head"><span>{selFreeBoard.name || "Detal"}</span>
+            <button type="button" className="mob-x" onClick={() => setPropsSheet(false)} aria-label="Yopish">×</button></div>
+          <div className="mob-moresheet__body">
+            <label className="mob-props-f" style={{ width: "100%" }}><span>Izoh</span>
+              <input key={`n${selFreeBoard.id}`} defaultValue={selFreeBoard.note ?? ""} title="Izoh — kesim ro'yxati va chizmaga tushadi" placeholder="✎ izoh"
+                onBlur={(e) => setFreePartNote(selFreeBoard.id, e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                style={{ ...mono, color: "#7a6a4a", flex: 1, minWidth: 0, border: "1px solid #cdd5df", borderRadius: 6, padding: "7px 9px", background: "#fff" }} />
+            </label>
+            <button type="button" title={selFreeBoard.hidden ? "Ko'rsatish" : "Yashirish (kesim ro'yxatida qoladi)"}
+              onClick={() => setFreePartView(selFreeBoard.id, "hidden", !selFreeBoard.hidden)}
+              style={{ ...act, minHeight: 44, ...(selFreeBoard.hidden ? { borderColor: "#8a6d1f", background: "#fdf6e3", color: "#8a6d1f" } : {}) }}>{selFreeBoard.hidden ? "🚫 Yashirilgan" : "👁 Ko'rinadi"}</button>
+            <button type="button" title={selFreeBoard.locked ? "Qulfni ochish" : "Qulflash (tasodifan surilmasin)"}
+              onClick={() => setFreePartView(selFreeBoard.id, "locked", !selFreeBoard.locked)}
+              style={{ ...act, minHeight: 44, ...(selFreeBoard.locked ? { borderColor: "#a01a2e", background: "#fdeaee", color: "#a01a2e" } : {}) }}>{selFreeBoard.locked ? "🔒 Qulflangan" : "🔓 Ochiq"}</button>
+            <button type="button" title="Nusxalash" onClick={duplicateSelected}
+              style={{ ...act, minHeight: 44, borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" }}>⧉ Nusxa</button>
+            <button type="button" aria-haspopup="dialog" title="Material" onClick={() => setSwatchTarget({ kind: "free", id: selFreeBoard.id })}
+              style={{ ...matSel, minHeight: 44, display: "flex", alignItems: "center", gap: 7, flex: "1 1 150px" }}>
+              <MatBall m={boardById(selFreeBoard.material ?? "")} size={22} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{boardById(selFreeBoard.material ?? "")?.name ?? "Standart"}</span>
+            </button>
+            <label className="mob-props-f" style={{ flex: "1 1 150px" }}><span>Shakl</span>
+              <select value={selFreeBoard.shape ?? "box"} onChange={(e) => setFreeBoardShape(selFreeBoard.id, e.target.value as PrimitiveShape)} title="Shakl"
+                style={{ ...matSel, flex: 1, minWidth: 0, minHeight: 44 }}>
+                <option value="box">▭ Quti</option>
+                <option value="cylinder">◯ Silindr</option>
+                <option value="tube">◎ Quvur</option>
+                <option value="sphere">⬤ Shar</option>
+                <option value="wedge">◺ Pona</option>
+                <option value="arc">◠ Egri fasad</option>
+                <option value="cone">△ Torayuvchi</option>
+                <option value="halfCylinder">◗ Yumaloq uch</option>
+                <option value="hexagon">⬡ Olti qirrali</option>
+                <option value="torus">◯ Halqa</option>
+                <option value="hairpin">⋀ Hairpin oyoq</option>
+              </select>
+            </label>
+            {/* M10.10 — repeat along an axis: twenty pergola rafters in one action and one undo. */}
+            <fieldset className="mob-moresheet__group">
+              <legend>⧉ Massiv — takrorlash</legend>
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                {(["x", "y", "z"] as const).map((a) => (
+                  <button key={a} type="button" onClick={() => setArrAxis(a)}
+                    style={{ ...act, flex: 1, minHeight: 44, padding: "4px 0", ...(arrAxis === a ? { borderColor: "#1f5570", background: "#dce9f0", color: "#1f5570", fontWeight: 800 } : {}) }}>
+                    {a === "x" ? "↔ eni" : a === "y" ? "↕ bo'y" : "⤡ chuq."}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 9 }}>
+                <DimField label="soni" value={arrCount} onCommit={(n) => setArrCount(Math.max(1, Math.min(200, Math.round(n))))} min={1} />
+                <DimField label="qadam" value={arrStep} onCommit={setArrStep} units={units} min={1} />
+              </div>
+              <button type="button" onClick={() => { arraySelected(arrAxis, arrStep, arrCount); setPropsSheet(false); }}
+                style={{ width: "100%", minHeight: 44, padding: "11px", borderRadius: 9, border: "none", background: "#1f5570", color: "#fff", fontWeight: 800, fontSize: 13.5, cursor: "pointer" }}>
+                ＋ {arrCount} ta qo'shish
+              </button>
+            </fieldset>
+            <button type="button" title="O'chirish" onClick={() => { removeFreeBoard(selFreeBoard.id); setPropsSheet(false); }}
+              style={{ ...act, minHeight: 44, borderColor: "#d1495b", background: "#fbe4e8", color: "#a01a2e", width: "100%" }}>🗑 O'chirish</button>
+          </div>
         </div>
       )}
       {/* ── U2.1 — the pre-Moblo editing tools float in this transitional card until U2.2–U2.4 move
@@ -3416,7 +3512,10 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
       style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 9px", borderRadius: 10, border: active ? "2px solid #1f5570" : `1px solid ${dark ? "#33405a" : "#e3e6eb"}`, background: dark ? "#232b3d" : "#f7f8fa", color: "inherit", cursor: "pointer", fontSize: 12.5, fontWeight: 600, textAlign: "left" }}>
       {mat ? <MatBall m={mat} size={26} />
         : <span style={{ width: 20, height: 20, borderRadius: 5, background: bg, border: "1px solid rgba(0,0,0,0.18)", flexShrink: 0 }} />}
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      {/* U11.4 — «Столешница постформинг 38мм» wants 200 px in a 123 px cell. `nowrap` clipped it with no
+          ellipsis (the grid cell would not shrink), so the name simply ran out of the chip. Two lines,
+          clamped, keeps the whole name readable and the grid even. */}
+      <span style={{ minWidth: 0, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", lineHeight: 1.25, wordBreak: "break-word" }}>{label}</span>
     </button>
   );
   return (
