@@ -33,7 +33,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentView, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentView, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, detachCarcassPanel as detachCarcassPanelOp, type DetachableSlot, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -288,6 +288,10 @@ interface KarkasState extends Derived {
   /** gizmos — put a free board's `axis` coord at `idealPos` (mm10), MAGNETICALLY clicking to a nearby
    *  compartment face first. Absolute (no drift over a long drag); reports where it landed + whether it snapped. */
   moveFreePartTo: (fpId: string, axis: "x" | "y" | "z", idealPos: number, first: boolean) => { pos: number; snapped: boolean };
+  /** M9E.5 — «⛓ Ajratish»: hand the SELECTED carcass board over to free placement. It leaves the shell and
+   *  an identical free board takes its exact place, so the piece looks unchanged and the cut list keeps the
+   *  same panel — from then on it drags, turns and tilts like any free part. */
+  detachCarcassPanel: (slot: DetachableSlot) => void;
   /** M9U.5 — «⇩ Yerga» (Moblo «Put on ground»): drop a free board so its BOTTOM rests on the block floor
    *  (y = 0). Exact, never magnetic — the button promises the floor, and the drag magnet already handles
    *  «land it on that shelf». One undo step; a locked part refuses, like every other free-part edit. */
@@ -984,6 +988,46 @@ export const useKarkas = create<KarkasState>((set, get) => {
       delta[axis] = t.pos - pick(fp.box, false);
       if (delta[axis] !== 0) get().moveFreePart(fpId, delta, first);
       return t;
+    },
+    // M9E.5 — «⛓ Ajratish»: the selected carcass board leaves the rule-driven shell and an identical FREE
+    // board takes its EXACT solved place (read straight off solveLayout, so nothing shifts by a millimetre).
+    // The cut list keeps the same panel — it only moves from the carcass group to the free-part group.
+    detachCarcassPanel: (slot) => {
+      const s = get();
+      const pid = s.selectedId;
+      if (!pid) return;
+      const blockId = pid.slice(0, pid.indexOf("__"));
+      const block = s.model.blocks.find((b) => b.id === blockId);
+      if (!block) return;
+      const tk = { ...planThickness(s.plan), ...s.thickness }; // the same spec derive() solves with
+      const place = solveLayout(s.model, tk).find((p) => p.id === pid);
+      if (!place) return;
+      const part = solveStructure(s.model, tk).find((p) => p.id === pid); // for its name + banding
+      // How each slot reads as a free board: a side/bottom is a plain panel, the top a `top`, the back a `back`.
+      const SPEC: Record<DetachableSlot, { name: string; role: FreePart["role"]; axis: FreePart["thicknessAxis"] }> = {
+        sideL: { name: "Бок левый", role: "panel", axis: "x" },
+        sideR: { name: "Бок правый", role: "panel", axis: "x" },
+        top: { name: "Крышка", role: "top", axis: "y" },
+        bottom: { name: "Дно", role: "panel", axis: "y" },
+        back: { name: "Задняя стенка", role: "back", axis: "z" },
+      };
+      const sp = SPEC[slot];
+      const ov = block.panels?.[slot];
+      const fpId = `free_${Date.now().toString(36)}_${(freeSeq++).toString(36)}`;
+      const model = detachCarcassPanelOp(
+        s.model, blockId, slot, fpId,
+        { x: place.x_mm10, y: place.y_mm10, z: place.z_mm10, w: place.w_mm10, h: place.h_mm10, d: place.d_mm10 },
+        {
+          name: part?.name ?? sp.name,
+          role: sp.role,
+          thicknessAxis: sp.axis,
+          ...(part?.edges ? { edgeBands: part.edges } : {}), // keep the kromka it was cut with
+          ...(ov?.note ? { note: ov.note } : {}),
+          ...(ov?.material ? { material: ov.material } : {}),
+        },
+      );
+      apply(model, true);
+      set({ selectedId: `${blockId}__free_${fpId}` }); // select it so it can be dragged straight away
     },
     // M9U.5 — «⇩ Yerga»: the board's LOW edge (box.y) goes to the block floor. moveFreePart is the exact,
     // snap-free mover, so the part lands where the button says instead of being pulled onto a nearby shelf.

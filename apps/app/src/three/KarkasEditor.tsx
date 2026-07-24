@@ -211,6 +211,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setFreePartTilt = useKarkas((s) => s.setFreePartTilt); // M8.1
   const putFreePartOnGround = useKarkas((s) => s.putFreePartOnGround); // M9U.5 — «⇩ Yerga»
   const setProjectNotes = useKarkas((s) => s.setProjectNotes); // M9U.6 — the project-level note
+  const detachCarcassPanel = useKarkas((s) => s.detachCarcassPanel); // M9E.5 — «⛓ Ajratish»
   const setCarcassPanel = useKarkas((s) => s.setCarcassPanel); // M8.5
   // M8.4 — multi-pick
   const multiMode = useKarkas((s) => s.multiMode);
@@ -2374,6 +2375,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     onClick={() => setCarcassPanel(carcassSlot, { hidden: !cur?.hidden })}>{cur?.hidden ? "🚫 Yashirilgan" : "👁 Ko'rinadi"}</button>
                   <button type="button" className="mob-props-toggle" title="Shu taxtaning materiali"
                     onClick={() => setSwatchTarget({ kind: "carcass", slot: carcassSlot })}>▦ {BOARDS.find((b) => b.id === cur?.material)?.name ?? "Standart"}</button>
+                  {/* M9E.5 — hand this board over to free placement. Only the five SHELL boards can leave the
+                      carcass (a plinth / worktop is not part of the shell). It keeps its exact place and its
+                      cut, and becomes draggable like any free board. */}
+                  {(carcassSlot === "sideL" || carcassSlot === "sideR" || carcassSlot === "top" || carcassSlot === "bottom" || carcassSlot === "back") && (
+                    <button type="button" className="mob-props-toggle" title="Ajratish — taxta karkasdan chiqadi va erkin suriladigan bo'ladi (o'lchami va narxi o'zgarmaydi)"
+                      style={{ borderColor: "#1f8a4c", color: "#146c3a" }}
+                      onClick={() => detachCarcassPanel(carcassSlot)}>⛓ Ajratish</button>
+                  )}
                 </>
               );
             })()}
