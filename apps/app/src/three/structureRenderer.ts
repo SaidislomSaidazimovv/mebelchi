@@ -407,17 +407,107 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
 /** Phase 5.r1 — the room's wall backdrop: matte, floor-standing panels in their OWN group (so highlight /
  *  recolor / render-mode never touch them). Non-interactive: no `userData.partId`, raycast disabled, so a tap
  *  never selects a wall and the walls never appear in the cut list. Returns an empty group when there's no room. */
-export function buildRoomGroup(scene: Scene): THREE.Group {
+export function buildRoomGroup(scene: Scene, room?: RoomSurfaces): THREE.Group {
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0xe4e2dc, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+  // M12.1 — the wall's own decor, or the neutral it always had. M12.2 — walls are now SOLID and they
+  // RECEIVE shadow: at 0.55 opacity they read as fog and the furniture cast nothing onto them, so a piece
+  // never looked like it was standing in a room. The near wall is hidden per-frame instead (see
+  // `faceRoomWalls`), which is how architectural tools keep an interior readable.
+  // A wall's two in-plane axes are its long run and its height; the thin one is its facing axis.
+  const firstWall = (scene.walls ?? [])[0];
+  const wallSpan: [number, number] | undefined = firstWall
+    ? [Math.max(firstWall.size[0], firstWall.size[2]), firstWall.size[1]]
+    : undefined;
+  const wall = roomSurfaceMaterial(room?.wall, 0xe4e2dc, wallSpan);
   for (const b of scene.walls ?? []) {
     const geom = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
-    const mesh = new THREE.Mesh(geom, mat);
+    const mesh = new THREE.Mesh(geom, wall);
     mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
+    mesh.receiveShadow = true; // M12.2 — the furniture now casts onto the wall behind it
+    mesh.userData.roomWall = true; // marks it for the per-frame near-wall hide
     mesh.raycast = () => {}; // never pickable — a wall is a backdrop, not furniture
     group.add(mesh);
   }
+  if (scene.floor) {
+    const f = scene.floor;
+    const floorMat = roomSurfaceMaterial(room?.floor, 0xdedcd6, [f.size[0], f.size[2]]); // the slab's two FLAT axes
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(f.size[0], f.size[1], f.size[2]), floorMat);
+    mesh.position.set(f.pos[0], f.pos[1], f.pos[2]);
+    mesh.receiveShadow = true; // the whole point — the piece finally sits ON something
+    mesh.raycast = () => {};
+    group.add(mesh);
+  }
+  if (scene.rug) {
+    const r = scene.rug;
+    const rugMat = new THREE.MeshStandardMaterial({ color: room?.rugHex ?? 0xb8a892, roughness: 1, metalness: 0 });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(r.size[0], r.size[1], r.size[2]), rugMat);
+    mesh.position.set(r.pos[0], r.pos[1], r.pos[2]);
+    mesh.receiveShadow = true;
+    mesh.raycast = () => {};
+    group.add(mesh);
+  }
   return group;
+}
+
+/** M12.1 — what the editor tells the renderer about the room's surfaces. All optional: absent = the plain
+ *  neutral pair the room always had, so a model with no room decor renders byte-identically. */
+export interface RoomSurfaces {
+  wall?: RoomSurfaceSpec;
+  floor?: RoomSurfaceSpec;
+  rugHex?: number;
+}
+export interface RoomSurfaceSpec {
+  hex: number;
+  texture?: TextureKind;
+  finish?: MaterialFinish;
+  /** how big the grain reads, in metres — a floor plank is ~1 m, not the 8 m the slab is wide */
+  grain_m?: number;
+}
+
+/**
+ * One room surface, built through the SAME material path as the boards so the lighting matches.
+ *
+ * `materialForFinish` derives its texture repeat from the size it is handed, at a fixed 0.35 m per tile.
+ * A floor slab is ~9 m across, so it needs a repeat of `span / grain` — passing the grain size alone gave
+ * a repeat of 3 and drew floor planks two and a half metres wide. The pass-through size is therefore
+ * scaled so the plank comes out at `grain_m` in the real world, whatever the slab's own extent.
+ */
+function roomSurfaceMaterial(spec: RoomSurfaceSpec | undefined, fallbackHex: number, span?: readonly [number, number]): THREE.MeshStandardMaterial {
+  if (!spec) return new THREE.MeshStandardMaterial({ color: fallbackHex, roughness: 0.95, metalness: 0 });
+  const TILE = 0.35; // must match materialForFinish's own constant
+  const g = Math.max(0.05, spec.grain_m ?? 1);
+  const pass: [number, number, number] | undefined = spec.texture && span
+    ? [(span[0] / g) * TILE, (span[1] / g) * TILE, TILE]
+    : undefined;
+  const mat = materialForFinish(spec.hex, spec.finish, spec.texture, pass);
+  mat.envMapIntensity = 0.35; // a room surface is matte-ish; the boards' own gloss should still lead
+  return mat;
+}
+
+/**
+ * M12.2 — hide whichever walls stand BETWEEN the camera and the room, so an interior is always readable
+ * without making the walls translucent. A wall is a slab: the axis it is thin on is its facing axis, and
+ * if the camera sits on the same side as the room's interior we are looking at its back — keep it. If the
+ * camera is on the outside, that wall is in the way — hide it. Called every frame; it only flips
+ * `visible`, so it costs nothing and needs no material churn.
+ */
+export function faceRoomWalls(group: THREE.Group | null, camera: THREE.Camera, centre: THREE.Vector3): void {
+  if (!group) return;
+  const p = new THREE.Vector3();
+  for (const child of group.children) {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.userData.roomWall) continue;
+    mesh.getWorldPosition(p);
+    const g = mesh.geometry as THREE.BoxGeometry;
+    const { width, depth } = g.parameters;
+    // The thin axis is the one the wall faces along.
+    const alongX = width < depth;
+    const wallToCentre = alongX ? centre.x - p.x : centre.z - p.z;
+    const wallToCamera = alongX ? camera.position.x - p.x : camera.position.z - p.z;
+    // Same sign → the camera is on the interior side, looking at the wall's inner face: keep it.
+    // Opposite → the camera is outside and this wall is between it and the room: hide it.
+    mesh.visible = wallToCentre * wallToCamera > 0 || Math.abs(wallToCamera) < 1e-4;
+  }
 }
 
 /** Tint the board whose id matches (selection) and wrap it in the M10.1 cyan cage. Pass null to clear
