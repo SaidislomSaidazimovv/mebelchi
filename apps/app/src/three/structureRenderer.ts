@@ -5,6 +5,7 @@
 
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"; // M9U.2 — soft edges
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"; // M9E.4 — hairpin leg = wire + plate
 import type { Scene, Board } from "./structureScene";
 import type { MaterialFinish, TextureKind, PbrOverride } from "./materials";
 
@@ -13,6 +14,7 @@ const EDGE = 0xc9bd9e; // panel edge outline
 const SELECTED = 0x2a6df0; // blue emissive tint (same as kitchen selection)
 const WIRE_EDGE = 0x334155; // dark outline for wireframe (contrast against the light backdrop)
 const SHADED = 0xcfcabd; // uniform clay grey for the "shaded" mode (form without decor colour)
+const STEEL_LEG = 0x2d3138; // M9E.4 — powder-coated steel: a hairpin leg is bent, not sawn from a decor
 
 /** 3D visual style (imos Visual Styles). `realistic` = solid decor-coloured (default), `wireframe`
  *  = edges only / see-through, `shaded` = solid but a single uniform matte colour (no decor). */
@@ -118,6 +120,29 @@ function primitiveGeometry(shape: NonNullable<Board["shape"]>, w: number, h: num
     g.rotateX(-Math.PI / 2); // extrusion runs +Z → stand the panel up so `h` is its height
     if (d > w) g.rotateY(Math.PI / 2); // the chord follows the longer horizontal side
     return centred(g);
+  }
+  if (shape === "hairpin") {
+    // M9E.4 — a HAIRPIN leg: a bent steel rod that runs down from a small mounting plate, meets at the
+    // floor and rises back up. Like the other long primitives the axis follows the LONGEST side, so the
+    // box stretches the same leg instead of swapping which way it stands; the shorter horizontal side
+    // says how far the two feet splay.
+    const axis: "x" | "y" | "z" = h >= w && h >= d ? "y" : w >= d ? "x" : "z";
+    const len = Math.max(0.02, axis === "y" ? h : axis === "x" ? w : d);
+    const across = Math.max(0.01, axis === "y" ? Math.min(w, d) : axis === "x" ? Math.min(h, d) : Math.min(w, h));
+    const wire = Math.max(0.003, Math.min(0.006, across * 0.14)); // ≈6 mm rod, thinner on a small leg
+    const splay = across * 0.35;
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-splay, len / 2, -splay),
+      new THREE.Vector3(0, -len / 2 + wire, 0), // the floor point, lifted by the rod's own radius
+      new THREE.Vector3(splay, len / 2, -splay),
+    ]);
+    const loop = new THREE.TubeGeometry(curve, 32, wire, 8, false);
+    const plate = new THREE.BoxGeometry(across * 0.8, 0.004, across * 0.8);
+    plate.translate(0, len / 2 - 0.002, 0); // the plate the leg screws to, flush with the box top
+    const g = mergeGeometries([loop, plate]) ?? loop; // one mesh so it takes ONE material like every board
+    if (axis === "x") g.rotateZ(Math.PI / 2);
+    else if (axis === "z") g.rotateX(Math.PI / 2);
+    return g;
   }
   if (shape === "cylinder" || shape === "tube" || shape === "cone" || shape === "hexagon" || shape === "halfCylinder") {
     // The axis follows the LONGEST side, so ONE primitive serves a vertical round leg AND a horizontal
@@ -304,8 +329,26 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
     // quietly drop it from the order.
     if (b.hidden) continue;
     const geom = boardGeometry(b);
-    const mesh = new THREE.Mesh(geom, materialForFinish(colorOf?.(b.id) ?? WOOD, finishOf?.(b.id), textureOf?.(b.id), b.size, pbrOf?.(b.id)));
-    mesh.userData.baseColor = colorOf?.(b.id) ?? WOOD; // remembered so realistic/shaded can restore it
+    const fin = finishOf?.(b.id);
+    const pbr = pbrOf?.(b.id);
+    const bmat = materialForFinish(colorOf?.(b.id) ?? WOOD, fin, textureOf?.(b.id), b.size, pbr);
+    // M9E.4 — a hairpin leg is bent STEEL, not a sawn board. Unless the usta gave it a finish of his own (a
+    // metal/gloss decor) or a custom material (its sliders), draw it as dark powder-coated metal instead of
+    // the wood/laminate default it would otherwise inherit from the carcass decor.
+    const steelLeg = b.shape === "hairpin" && !pbr && !fin;
+    if (steelLeg) {
+      bmat.map?.dispose(); bmat.normalMap?.dispose(); // the cloned wood grain would sit on metal
+      bmat.map = null; bmat.normalMap = null;
+      bmat.color.setHex(STEEL_LEG);
+      bmat.metalness = 0.8;
+      bmat.roughness = 0.3;
+      bmat.envMapIntensity = 1;
+      bmat.needsUpdate = true;
+    }
+    const mesh = new THREE.Mesh(geom, bmat);
+    // the decor a mode switch restores — steel for a hairpin, the board's own decor for everything else
+    mesh.userData.baseColor = steelLeg ? STEEL_LEG : (colorOf?.(b.id) ?? WOOD);
+    if (steelLeg) mesh.userData.metalLeg = true; // …and recolorBoards must not repaint it with a decor
     mesh.castShadow = true; mesh.receiveShadow = true; // M3.1 — boards cast onto the floor + onto each other
     mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
     // Inclined shelf (imos AS_O_Angle): tilt the board so the FRONT stays LOW at its mount and the
@@ -428,6 +471,7 @@ export function highlightBlocks(group: THREE.Group, blockIds: readonly string[])
 export function recolorBoards(group: THREE.Group, colorOf: (id: string) => number | undefined): void {
   for (const child of group.children) {
     const mesh = child as THREE.Mesh;
+    if (mesh.userData.metalLeg) continue; // M9E.4 — a hairpin's steel is not a board decor; leave it alone
     const mat = mesh.material as THREE.MeshStandardMaterial;
     if (mat && "color" in mat) {
       const col = colorOf(mesh.userData.partId as string) ?? WOOD;
@@ -552,7 +596,7 @@ export function buildKromkaEdges(scene: Scene, colorOf: (kId: string) => number)
  */
 export function buildHandleGroup(
   fittings: readonly {
-    id: string; kind: "bow" | "knob"; seats: [number, number, number][];
+    id: string; kind: "bow" | "knob" | "round_knob" | "long_pull"; seats: [number, number, number][];
     normal: "x" | "y" | "z"; out: [number, number, number]; along?: [number, number, number];
   }[],
   bounds: { cx: number; cz: number; minY: number; ctrX: number; ctrY: number; ctrZ: number },
@@ -566,12 +610,17 @@ export function buildHandleGroup(
   // nothing to reflect and renders near-black; tuned metalness/roughness + a light base give the intended
   // brushed-aluminium look under these lights WITHOUT adding a scene envMap (which would alter the boards).
   const mat = new THREE.MeshStandardMaterial({ color: 0xd2d6dc, metalness: 0.55, roughness: 0.4 });
+  // M9E.4 — two more finishes so the widened catalog READS apart at a glance: warm brass for the round
+  // knob, powder-coated dark for the modern long pull. Same envMap-less tuning as the brushed steel above.
+  const brassMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.8, roughness: 0.25 });
+  const blackMat = new THREE.MeshStandardMaterial({ color: 0x2e3033, metalness: 0.65, roughness: 0.45 });
+  const PULL_OVERHANG = 0.035; // a long pull runs well past its screws — that is what makes it read «long»
   // seat (mm, placement space) → scene metres, shifted exactly like buildHoleMarkers.
   const scenePos = (s: [number, number, number]): THREE.Vector3 =>
     new THREE.Vector3(M(s[0] * 10 - bounds.cx), M(s[1] * 10 - bounds.minY), M(s[2] * 10 - bounds.cz));
   /** A cylinder/capsule of length `len` centred at `center`, its long axis turned from +Y to `dir`. */
-  const bar = (geom: THREE.BufferGeometry, center: THREE.Vector3, dir: THREE.Vector3): THREE.Mesh => {
-    const m = new THREE.Mesh(geom, mat);
+  const bar = (geom: THREE.BufferGeometry, center: THREE.Vector3, dir: THREE.Vector3, m0?: THREE.Material): THREE.Mesh => {
+    const m = new THREE.Mesh(geom, m0 ?? mat);
     m.quaternion.setFromUnitVectors(UP, dir.clone().normalize());
     m.position.copy(center);
     return m;
@@ -580,22 +629,35 @@ export function buildHandleGroup(
   for (const f of fittings) {
     const out = new THREE.Vector3(f.out[0], f.out[1], f.out[2]);
     const seats = f.seats.map(scenePos);
-    if (f.kind === "bow" && seats.length >= 2 && f.along) {
+    if ((f.kind === "bow" || f.kind === "long_pull") && seats.length >= 2 && f.along) {
+      // Both are BARS on a screw pair. A bow is a round brushed-steel grip; a long pull (M9E.4) is a square
+      // powder-coated profile that runs further past its screws — the modern kitchen look.
+      const pull = f.kind === "long_pull";
+      const fin = pull ? blackMat : mat;
       const along = new THREE.Vector3(f.along[0], f.along[1], f.along[2]);
       // two posts (face → standoff) at each seat
       for (const s of seats) {
-        g.add(bar(new THREE.CylinderGeometry(POST_R, POST_R, STANDOFF, 12), s.clone().addScaledVector(out, STANDOFF / 2), out));
+        const post = pull
+          ? new THREE.BoxGeometry(POST_R * 2, STANDOFF, POST_R * 2)
+          : new THREE.CylinderGeometry(POST_R, POST_R, STANDOFF, 12);
+        g.add(bar(post, s.clone().addScaledVector(out, STANDOFF / 2), out, fin));
       }
-      // the grip bar, pushed STANDOFF off the face, spanning the seats + a small overhang past each
+      // the grip bar, pushed STANDOFF off the face, spanning the seats + an overhang past each
       const mid = seats[0]!.clone().add(seats[1]!).multiplyScalar(0.5).addScaledVector(out, STANDOFF);
-      const span = seats[0]!.distanceTo(seats[1]!) + 2 * OVERHANG;
-      g.add(bar(new THREE.CapsuleGeometry(BAR_R, Math.max(0.001, span - 2 * BAR_R), 6, 12), mid, along));
+      const span = seats[0]!.distanceTo(seats[1]!) + 2 * (pull ? PULL_OVERHANG : OVERHANG);
+      const grip = pull
+        ? new THREE.BoxGeometry(BAR_R * 2, Math.max(0.001, span), BAR_R * 2) // BoxGeometry's Y is its long axis → `bar` turns it along the door edge
+        : new THREE.CapsuleGeometry(BAR_R, Math.max(0.001, span - 2 * BAR_R), 6, 12);
+      g.add(bar(grip, mid, along, fin));
     } else {
-      // knob: a post + a rounded knob head
+      // knob: a post + a rounded head. M9E.4 — `round_knob` is the brass one, a touch larger and warmer.
+      const brass = f.kind === "round_knob";
+      const fin = brass ? brassMat : mat;
+      const r = brass ? KNOB_R * 1.15 : KNOB_R;
       const s = seats[0]!;
-      g.add(bar(new THREE.CylinderGeometry(KNOB_POST_R, KNOB_POST_R, STANDOFF, 12), s.clone().addScaledVector(out, STANDOFF / 2), out));
-      const head = new THREE.Mesh(new THREE.SphereGeometry(KNOB_R, 16, 12), mat);
-      head.position.copy(s.clone().addScaledVector(out, STANDOFF + KNOB_R * 0.5));
+      g.add(bar(new THREE.CylinderGeometry(KNOB_POST_R, KNOB_POST_R, STANDOFF, 12), s.clone().addScaledVector(out, STANDOFF / 2), out, fin));
+      const head = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), fin);
+      head.position.copy(s.clone().addScaledVector(out, STANDOFF + r * 0.5));
       g.add(head);
     }
   }

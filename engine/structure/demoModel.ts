@@ -219,7 +219,7 @@ export function buildTable(
   w_mm: number,
   h_mm: number,
   d_mm: number,
-  opts: { topThickness_mm10?: number; legSize_mm10?: number; legInset_mm10?: number } = {},
+  opts: { topThickness_mm10?: number; legSize_mm10?: number; legInset_mm10?: number; legShape?: LegShape } = {},
 ): StructuralModel {
   const W = Math.max(1, Math.round(w_mm)) * 10;
   const H = Math.max(1, Math.round(h_mm)) * 10;
@@ -242,11 +242,12 @@ export function buildTable(
 
   const top = mkFree("top", "Столешница", "top", "y", { x: span, y: { start: hi(topT), end: hi(0) }, z: span });
   const legY: FreeAxisAnchor = { start: lo(0), end: hi(topT) }; // floor → under the top
+  const ls = legShapeProps(opts.legShape); // M9U.7 — tapered by default
   const legs: FreePart[] = [
-    mkFree("leg_fl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colLo }, BARE),
-    mkFree("leg_fr", "Ножка", "leg", "x", { x: colHi, y: legY, z: colLo }, BARE),
-    mkFree("leg_bl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colHi }, BARE),
-    mkFree("leg_br", "Ножка", "leg", "x", { x: colHi, y: legY, z: colHi }, BARE),
+    { ...mkFree("leg_fl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colLo }, BARE), ...ls },
+    { ...mkFree("leg_fr", "Ножка", "leg", "x", { x: colHi, y: legY, z: colLo }, BARE), ...ls },
+    { ...mkFree("leg_bl", "Ножка", "leg", "x", { x: colLo, y: legY, z: colHi }, BARE), ...ls },
+    { ...mkFree("leg_br", "Ножка", "leg", "x", { x: colHi, y: legY, z: colHi }, BARE), ...ls },
   ];
   const root: Section = { id: "sec_root", box: { ...box }, dividers: [], children: [], instanceIds: [], purpose: null };
   const block: Block = {
@@ -280,6 +281,19 @@ const bandHi = (at: number, size: number): FreeAxisAnchor => ({ start: edgeHi(at
 const spanInset = (m: number): FreeAxisAnchor => ({ start: edgeLo(m), end: edgeHi(m) });
 const NO_BAND: FreePart["edgeBands"] = [0, 0, 0, 0]; // a solid post / leg / hidden slat takes no edge banding
 
+/**
+ * M9U.7 — how a template's legs are drawn. `cone` (the DEFAULT) is the tapered turned leg that makes a
+ * table read as furniture instead of a CAD box; `box` keeps the square post and is byte-identical to the
+ * pre-M9U.7 templates (tests and callers that want the old cut list pass it).
+ *
+ * A cone leg is deliberately NOT a sheet panel (the M4.2 rule): it leaves the panel cut list, the m² price
+ * and the SWJ008 file and is listed under «Boshqa qismlar». That is what a tapered leg really is — turned
+ * on a lathe or bought, never sawn from a 16 mm board — so the sheet total should not pretend otherwise.
+ */
+export type LegShape = "box" | "cone";
+/** The `shape` marker a leg carries for the chosen style. A box leg carries none → byte-identical. */
+const legShapeProps = (s: LegShape = "cone"): { shape?: "cone" } => (s === "cone" ? { shape: "cone" } : {});
+
 /** A part factory bound to a block box (mirrors buildTable's local mkFree). */
 function partMaker(box: Box3D) {
   return (
@@ -311,31 +325,32 @@ function freeAssembly(modelId: string, blockId: string, name: string, box: Box3D
 }
 
 /** A top surface + four corner legs — the shared skeleton of a table / stool / bench. */
-function fourLegSurface(box: Box3D, o: { topT: number; legSz: number; inset: number; topName: string }): FreePart[] {
+function fourLegSurface(box: Box3D, o: { topT: number; legSz: number; inset: number; topName: string; legShape?: LegShape }): FreePart[] {
   const mk = partMaker(box);
   const colX_lo = bandLo(o.inset, o.legSz), colX_hi = bandHi(o.inset, o.legSz);
   const colZ_lo = bandLo(o.inset, o.legSz), colZ_hi = bandHi(o.inset, o.legSz);
   const legY: FreeAxisAnchor = { start: edgeLo(0), end: edgeHi(o.topT) }; // floor → under the top
+  const ls = legShapeProps(o.legShape); // M9U.7 — tapered by default
   return [
     mk("top", o.topName, "top", "y", { x: AXIS_SPAN, y: bandHi(0, o.topT), z: AXIS_SPAN }),
-    mk("leg_fl", "Ножка", "leg", "x", { x: colX_lo, y: legY, z: colZ_lo }, NO_BAND),
-    mk("leg_fr", "Ножка", "leg", "x", { x: colX_hi, y: legY, z: colZ_lo }, NO_BAND),
-    mk("leg_bl", "Ножка", "leg", "x", { x: colX_lo, y: legY, z: colZ_hi }, NO_BAND),
-    mk("leg_br", "Ножка", "leg", "x", { x: colX_hi, y: legY, z: colZ_hi }, NO_BAND),
+    { ...mk("leg_fl", "Ножка", "leg", "x", { x: colX_lo, y: legY, z: colZ_lo }, NO_BAND), ...ls },
+    { ...mk("leg_fr", "Ножка", "leg", "x", { x: colX_hi, y: legY, z: colZ_lo }, NO_BAND), ...ls },
+    { ...mk("leg_bl", "Ножка", "leg", "x", { x: colX_lo, y: legY, z: colZ_hi }, NO_BAND), ...ls },
+    { ...mk("leg_br", "Ножка", "leg", "x", { x: colX_hi, y: legY, z: colZ_hi }, NO_BAND), ...ls },
   ];
 }
 
 /** A STOOL — a small four-leg seat (no back). Defaults 400×450×400. */
-export function buildStool(w_mm = 400, h_mm = 450, d_mm = 400, opts: { seatThickness_mm10?: number; legSize_mm10?: number } = {}): StructuralModel {
+export function buildStool(w_mm = 400, h_mm = 450, d_mm = 400, opts: { seatThickness_mm10?: number; legSize_mm10?: number; legShape?: LegShape } = {}): StructuralModel {
   const box: Box3D = { x: 0, y: 0, z: 0, w: Math.max(1, Math.round(w_mm)) * 10, h: Math.max(1, Math.round(h_mm)) * 10, d: Math.max(1, Math.round(d_mm)) * 10 };
-  const parts = fourLegSurface(box, { topT: opts.seatThickness_mm10 ?? 300, legSz: opts.legSize_mm10 ?? 400, inset: 0, topName: "Сиденье" });
+  const parts = fourLegSurface(box, { topT: opts.seatThickness_mm10 ?? 300, legSz: opts.legSize_mm10 ?? 400, inset: 0, topName: "Сиденье", legShape: opts.legShape });
   return freeAssembly("stool", "stl", "Табурет", box, parts);
 }
 
 /** A BENCH — a long four-leg seat (no back), legs inset from the ends. Defaults 1200×450×350. */
-export function buildBench(w_mm = 1200, h_mm = 450, d_mm = 350, opts: { seatThickness_mm10?: number; legSize_mm10?: number; legInset_mm10?: number } = {}): StructuralModel {
+export function buildBench(w_mm = 1200, h_mm = 450, d_mm = 350, opts: { seatThickness_mm10?: number; legSize_mm10?: number; legInset_mm10?: number; legShape?: LegShape } = {}): StructuralModel {
   const box: Box3D = { x: 0, y: 0, z: 0, w: Math.max(1, Math.round(w_mm)) * 10, h: Math.max(1, Math.round(h_mm)) * 10, d: Math.max(1, Math.round(d_mm)) * 10 };
-  const parts = fourLegSurface(box, { topT: opts.seatThickness_mm10 ?? 400, legSz: opts.legSize_mm10 ?? 500, inset: opts.legInset_mm10 ?? 300, topName: "Сиденье" });
+  const parts = fourLegSurface(box, { topT: opts.seatThickness_mm10 ?? 400, legSz: opts.legSize_mm10 ?? 500, inset: opts.legInset_mm10 ?? 300, topName: "Сиденье", legShape: opts.legShape });
   return freeAssembly("bench", "bnc", "Скамья", box, parts);
 }
 
@@ -344,7 +359,7 @@ export function buildBench(w_mm = 1200, h_mm = 450, d_mm = 350, opts: { seatThic
  * pinned to a FIXED seat height (450 mm), so a height resize grows the backrest, not the legs. Backrest is
  * a `back` panel on the high-Z face (thin in Z). Defaults 450×850×450.
  */
-export function buildChair(w_mm = 450, h_mm = 850, d_mm = 450, opts: { seatHeight_mm10?: number; seatThickness_mm10?: number; legSize_mm10?: number; backThickness_mm10?: number } = {}): StructuralModel {
+export function buildChair(w_mm = 450, h_mm = 850, d_mm = 450, opts: { seatHeight_mm10?: number; seatThickness_mm10?: number; legSize_mm10?: number; backThickness_mm10?: number; legShape?: LegShape } = {}): StructuralModel {
   const box: Box3D = { x: 0, y: 0, z: 0, w: Math.max(1, Math.round(w_mm)) * 10, h: Math.max(1, Math.round(h_mm)) * 10, d: Math.max(1, Math.round(d_mm)) * 10 };
   const seatH = opts.seatHeight_mm10 ?? 4500, seatT = opts.seatThickness_mm10 ?? 300, legSz = opts.legSize_mm10 ?? 400, backT = opts.backThickness_mm10 ?? 250;
   const mk = partMaker(box);
@@ -354,20 +369,20 @@ export function buildChair(w_mm = 450, h_mm = 850, d_mm = 450, opts: { seatHeigh
   const parts: FreePart[] = [
     mk("seat", "Сиденье", "top", "y", { x: AXIS_SPAN, y: bandLo(seatH - seatT, seatT), z: AXIS_SPAN }),
     mk("back", "Спинка", "back", "z", { x: AXIS_SPAN, y: { start: edgeLo(seatH), end: edgeHi(0) }, z: bandHi(0, backT) }),
-    mk("leg_fl", "Ножка", "leg", "x", { x: colX_lo, y: legY, z: colZ_lo }, NO_BAND),
-    mk("leg_fr", "Ножка", "leg", "x", { x: colX_hi, y: legY, z: colZ_lo }, NO_BAND),
-    mk("leg_bl", "Ножка", "leg", "x", { x: colX_lo, y: legY, z: colZ_hi }, NO_BAND),
-    mk("leg_br", "Ножка", "leg", "x", { x: colX_hi, y: legY, z: colZ_hi }, NO_BAND),
+    { ...mk("leg_fl", "Ножка", "leg", "x", { x: colX_lo, y: legY, z: colZ_lo }, NO_BAND), ...legShapeProps(opts.legShape) },
+    { ...mk("leg_fr", "Ножка", "leg", "x", { x: colX_hi, y: legY, z: colZ_lo }, NO_BAND), ...legShapeProps(opts.legShape) },
+    { ...mk("leg_bl", "Ножка", "leg", "x", { x: colX_lo, y: legY, z: colZ_hi }, NO_BAND), ...legShapeProps(opts.legShape) },
+    { ...mk("leg_br", "Ножка", "leg", "x", { x: colX_hi, y: legY, z: colZ_hi }, NO_BAND), ...legShapeProps(opts.legShape) },
   ];
   return freeAssembly("chair", "chr", "Стул", box, parts);
 }
 
 /** A COFFEE TABLE — a low table + a lower shelf inset between the legs. Defaults 1000×450×550. */
-export function buildCoffeeTable(w_mm = 1000, h_mm = 450, d_mm = 550, opts: { topThickness_mm10?: number; legSize_mm10?: number; legInset_mm10?: number; shelfHeight_mm10?: number; shelfThickness_mm10?: number } = {}): StructuralModel {
+export function buildCoffeeTable(w_mm = 1000, h_mm = 450, d_mm = 550, opts: { topThickness_mm10?: number; legSize_mm10?: number; legInset_mm10?: number; shelfHeight_mm10?: number; shelfThickness_mm10?: number; legShape?: LegShape } = {}): StructuralModel {
   const box: Box3D = { x: 0, y: 0, z: 0, w: Math.max(1, Math.round(w_mm)) * 10, h: Math.max(1, Math.round(h_mm)) * 10, d: Math.max(1, Math.round(d_mm)) * 10 };
   const topT = opts.topThickness_mm10 ?? 400, legSz = opts.legSize_mm10 ?? 500, inset = opts.legInset_mm10 ?? 200, shelfH = opts.shelfHeight_mm10 ?? 800, shelfT = opts.shelfThickness_mm10 ?? 300;
   const mk = partMaker(box);
-  const surf = fourLegSurface(box, { topT, legSz, inset, topName: "Столешница" });
+  const surf = fourLegSurface(box, { topT, legSz, inset, topName: "Столешница", legShape: opts.legShape });
   const between = spanInset(inset + legSz); // between the legs on both floor axes
   const shelf = mk("shelf", "Полка", "shelf", "y", { x: between, y: bandLo(shelfH, shelfT), z: between });
   return freeAssembly("coffee", "cof", "Журнальный стол", box, [...surf, shelf]);

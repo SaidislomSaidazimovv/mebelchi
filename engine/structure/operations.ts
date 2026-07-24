@@ -1625,6 +1625,67 @@ export function addFreePart(model: StructuralModel, blockId: BlockId, fp: FreePa
   return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? { ...b, freeParts } : b)) };
 }
 
+/** M9E.5 — the carcass boards a block can hand over to free placement: exactly the `shell` mask's own
+ *  keys. A plinth or a worktop is not part of the shell, so it cannot be dropped this way. */
+export type DetachableSlot = "sideL" | "sideR" | "top" | "bottom" | "back";
+
+/**
+ * M9E.5 — DETACH a carcass board so the usta can place it by hand (Moblo's «everything is a free
+ * primitive», reached without rewriting the solver). The rule-driven board is dropped from the shell
+ * (`shell[slot] = false`) and an equivalent FREE part takes its exact place, so the piece looks unchanged
+ * the instant it is detached and the cut list keeps the SAME panel — it simply moves from the carcass
+ * group to the free-part group. From then on every free-part tool already applies: drag, the 3-axis
+ * gizmo, tilt, «⇩ Yerga», the magnetic snap, resize, its own material and note.
+ *
+ * The new part is pinned with FIXED block-local anchors (`lo` + offset), so it STAYS where it was put when
+ * the block is resized — standing outside the reflow is the whole point of detaching it. Its joinery also
+ * becomes the free-part kind (dowels where it touches its neighbours) instead of the carcass cam-and-dowel
+ * set, which is right: it is no longer a rule-driven carcass board.
+ *
+ * Pure and additive — a model whose boards were never detached is byte-identical.
+ */
+export function detachCarcassPanel(
+  model: StructuralModel,
+  blockId: BlockId,
+  slot: DetachableSlot,
+  fpId: string,
+  box: Box3D,
+  opts: { name: string; role: FreePart["role"]; thicknessAxis: FreePart["thicknessAxis"]; edgeBands?: FreePart["edgeBands"]; note?: string; material?: string },
+): StructuralModel {
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block) throw new Error("DETACH_BLOCK_NOT_FOUND");
+  if ((block.freeParts ?? []).some((f) => f.id === fpId)) throw new Error("DETACH_DUPLICATE_ID");
+  const at = (o: number): FreeEdge => ({ ref: "lo", offset_mm10: o });
+  const fp: FreePart = {
+    id: fpId,
+    name: opts.name,
+    role: opts.role,
+    thicknessAxis: opts.thicknessAxis,
+    anchor: {
+      x: { start: at(box.x), end: at(box.x + box.w) },
+      y: { start: at(box.y), end: at(box.y + box.h) },
+      z: { start: at(box.z), end: at(box.z + box.d) },
+    },
+    box: { ...box },
+    ...(opts.edgeBands ? { edgeBands: opts.edgeBands } : {}),
+    ...(opts.note ? { note: opts.note } : {}),
+    ...(opts.material ? { material: opts.material } : {}),
+  };
+  return {
+    ...model,
+    blocks: model.blocks.map((b) => {
+      if (b.id !== blockId) return b;
+      const shell = { ...(b.shell ?? {}), [slot]: false };
+      // the per-board override travels WITH the board — its material and note are the free part's own now
+      const panels = { ...(b.panels ?? {}) };
+      delete panels[slot];
+      const { panels: _dropped, ...base } = b;
+      const next: Block = { ...base, shell, freeParts: [...(b.freeParts ?? []), fp] };
+      return Object.keys(panels).length ? { ...next, panels } : next;
+    }),
+  };
+}
+
 /** Remove a free board from a block by id. No-op (same ref) when the block or the free part is missing. */
 export function removeFreePart(model: StructuralModel, blockId: BlockId, freePartId: string): StructuralModel {
   const block = model.blocks.find((b) => b.id === blockId);

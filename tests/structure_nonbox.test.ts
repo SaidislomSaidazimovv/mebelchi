@@ -38,7 +38,7 @@ const placement = (shape?: PrimitiveShape) => solveLayout(model(shape), tk).find
 
 describe("M4.1 — the shape rides through to the placement", () => {
   it("every primitive reaches the placement unchanged", () => {
-    for (const s of ["cylinder", "sphere", "tube", "wedge"] as const) {
+    for (const s of ["cylinder", "sphere", "tube", "wedge", "hairpin"] as const) {
       expect(placement(s).shape, s).toBe(s);
     }
   });
@@ -47,7 +47,7 @@ describe("M4.1 — the shape rides through to the placement", () => {
     const box = (p: { x_mm10: number; y_mm10: number; z_mm10: number; w_mm10: number; h_mm10: number; d_mm10: number }) =>
       [p.x_mm10, p.y_mm10, p.z_mm10, p.w_mm10, p.h_mm10, p.d_mm10];
     const flat = box(placement());
-    for (const s of ["cylinder", "sphere", "tube", "wedge"] as const) expect(box(placement(s)), s).toEqual(flat);
+    for (const s of ["cylinder", "sphere", "tube", "wedge", "hairpin"] as const) expect(box(placement(s)), s).toEqual(flat);
   });
 });
 
@@ -100,6 +100,20 @@ describe("M4.2 — the cut list, the CNC file and the price leave a non-box part
     expect(round.others[0]!.areaM2).toBe(0);
     expect(round.others[0]!.edgeM).toBe(0);
     expect(round.others[0]!.priceUzs).toBe(0);
+  });
+
+  // M9E.4 — a HAIRPIN leg is bent steel, bought or bent to order: it inherits the same non-box treatment as
+  // the turned leg, so it must never reach the saw, the sheet totals or the router.
+  it("a hairpin leg is treated exactly like the other non-box primitives", () => {
+    const p = solveStructure(cabinetWithCylinder("hairpin"), tk).find((x) => x.id === CYL_ID)!;
+    expect(p.shape).toBe("hairpin");
+    const est = estimate(solveStructure(cabinetWithCylinder("hairpin"), tk), DEFAULT_PLAN);
+    expect(est.parts.some((s) => s.id === CYL_ID)).toBe(false); // out of the panel cut list
+    expect(est.others.map((s) => s.id)).toEqual([CYL_ID]); // listed for the usta instead
+    expect(est.others[0]!.areaM2).toBe(0);
+    expect(est.others[0]!.priceUzs).toBe(0);
+    expect(est.priceUzs).toBe(estimate(solveStructure(buildCarcassModel(600, 720, 560), tk), DEFAULT_PLAN).priceUzs);
+    expect(exportModelToSWJ008(cabinetWithCylinder("hairpin"))).not.toContain(CYL_ID); // never reaches the router
   });
 
   it("the panels themselves are NEVER lost by the filter (the dangerous failure mode)", () => {

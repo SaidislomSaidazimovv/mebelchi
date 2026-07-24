@@ -42,11 +42,12 @@ import "./moblo/moblo.css";
 const PAPER_INK = "#1f2430";
 
 /** The Moblo shell's tabs (U2). U2.1 wires «build»; the rest arrive in U2.4. */
-type MobTab = "build" | "parts" | "drawing" | "ar";
+type MobTab = "build" | "parts" | "drawing" | "notes" | "ar";
 const MOB_TABS: { id: MobTab; label: string }[] = [
   { id: "build", label: "Yig'ish" },
   { id: "parts", label: "Detallar" },
   { id: "drawing", label: "Chizma" },
+  { id: "notes", label: "Izohlar" }, // M9U.6 — the project-level note, printed on the drawing
   { id: "ar", label: "AR" },
 ];
 
@@ -104,6 +105,10 @@ interface RT {
   // Live 3D dimension lines, built on drag-start and torn down on pointer-up. A list because a divider
   // drag needs TWO at once — the bay either side of it.
   dimLines: DimLine[];
+  // M9U.5 — the SELECTION's own edge dimensions (Moblo's 324/160/408 on the picked part). Deliberately a
+  // SEPARATE list from `dimLines`: that one means «a drag is live» (other UI hides while it is non-empty),
+  // and a selected part is not a drag.
+  selDims: DimLine[];
   raf: number;
   labels: { w: HTMLDivElement; h: HTMLDivElement; d: HTMLDivElement } | null; // C5 dimension overlays
   aabb: THREE.Box3 | null;
@@ -204,6 +209,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setFreePartView = useKarkas((s) => s.setFreePartView); // M7.4
   const setPartView = useKarkas((s) => s.setPartView);
   const setFreePartTilt = useKarkas((s) => s.setFreePartTilt); // M8.1
+  const putFreePartOnGround = useKarkas((s) => s.putFreePartOnGround); // M9U.5 — «⇩ Yerga»
+  const setProjectNotes = useKarkas((s) => s.setProjectNotes); // M9U.6 — the project-level note
+  const detachCarcassPanel = useKarkas((s) => s.detachCarcassPanel); // M9E.5 — «⛓ Ajratish»
   const setCarcassPanel = useKarkas((s) => s.setCarcassPanel); // M8.5
   // M8.4 — multi-pick
   const multiMode = useKarkas((s) => s.multiMode);
@@ -625,8 +633,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         materials: carcass,
         legend: [`Korpus: ${carcass}`, `Fasad: ${boardName(plan.facade)}`, `Orqa: ${boardName(plan.back)}`, `Kromka: ${edge}`],
         // M7.3 — carry the usta's notes onto the printed sheet. Identical notes on several parts (a
-        // drawer's four sides share one) are said once.
-        notes: [...new Set(parts.filter((p) => p.note).map((p) => `${p.name} — ${p.note}`))],
+        // drawer's four sides share one) are said once. M9U.6 — the PROJECT note leads: a condition that
+        // governs the whole order (delivery, the client's request) outranks one panel's remark.
+        notes: [
+          ...(model.notes ? model.notes.split("\n").map((n) => n.trim()).filter(Boolean) : []),
+          ...new Set(parts.filter((p) => p.note).map((p) => `${p.name} — ${p.note}`)),
+        ],
       });
     } catch { return ""; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -748,7 +760,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     contactShadow.rotation.x = -Math.PI / 2; contactShadow.position.y = 0.0015; // just above the floor, under the piece
     contactShadow.renderOrder = 1; contactShadow.visible = false; // shown once a model is built + sized
     scene3.add(contactShadow);
-    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, roomGroup: null, ghostGroup: null, dimLines: [], raf: 0, labels, aabb: null, contactShadow, framedKey: "" };
+    rt.current = { renderer, scene: scene3, camera, controls, group: null, grid, sectionGroup: null, gizmoGroup: null, holeGroup: null, kromkaGroup: null, handleGroup: null, applianceGroup: null, roomGroup: null, ghostGroup: null, dimLines: [], selDims: [], raf: 0, labels, aabb: null, contactShadow, framedKey: "" };
     // dev-only: expose the three runtime so local tooling (puppeteer) can assert on the SCENE GRAPH — a
     // 3D overlay like the dimension line has no DOM to query. Stripped from prod builds, like __karkas.
     if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
@@ -1185,6 +1197,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (rt.current?.sectionGroup) disposeStructureGroup(rt.current.sectionGroup);
       if (rt.current?.gizmoGroup) disposeStructureGroup(rt.current.gizmoGroup);
       for (const dl of rt.current?.dimLines ?? []) dl.dispose(); // a drag can be interrupted by an unmount
+      for (const dl of rt.current?.selDims ?? []) dl.dispose(); // M9U.5 — …and so can a standing selection
       if (rt.current?.group) disposeStructureGroup(rt.current.group);
       if (rt.current?.holeGroup) disposeStructureGroup(rt.current.holeGroup);
       if (rt.current?.kromkaGroup) disposeStructureGroup(rt.current.kromkaGroup);
@@ -1283,6 +1296,39 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, selectedId, selMode]);
 
+  // ── M9U.5 — the selected FREE part's own edge dimensions (Moblo's 324 / 160 / 408). FREE parts only: a
+  //    carcass panel is already wrapped by the block's W/H/D overlay, and three more lines per panel would
+  //    bury a phone screen. They live in `selDims`, NOT `dimLines` — that list means «a drag is live» and
+  //    other UI hides while it is non-empty, which a standing selection must never trigger. ──
+  useEffect(() => {
+    const r = rt.current;
+    if (!r) return;
+    const clear = (): void => {
+      for (const dl of r.selDims) { r.scene.remove(dl.group); dl.dispose(); }
+      r.selDims = [];
+    };
+    clear();
+    const bd = selectedId?.includes("__free_") ? scene.boards.find((b) => b.id === selectedId) : undefined;
+    if (bd) {
+      const [cx, cy, cz] = bd.pos; // pos is the board's CENTRE, size its full extents (metres)
+      const [sx, sy, sz] = bd.size;
+      const off = (s: number): number => Math.min(0.015, Math.max(0.004, s * 0.05)); // stand the line off the face it measures
+      const specs: { from: [number, number, number]; to: [number, number, number]; m: number }[] = [
+        { from: [cx - sx / 2, cy - sy / 2 - off(sy), cz - sz / 2 - off(sz)], to: [cx + sx / 2, cy - sy / 2 - off(sy), cz - sz / 2 - off(sz)], m: sx },
+        { from: [cx - sx / 2 - off(sx), cy - sy / 2, cz - sz / 2 - off(sz)], to: [cx - sx / 2 - off(sx), cy + sy / 2, cz - sz / 2 - off(sz)], m: sy },
+        { from: [cx + sx / 2 + off(sx), cy - sy / 2 - off(sy), cz - sz / 2], to: [cx + sx / 2 + off(sx), cy - sy / 2 - off(sy), cz + sz / 2], m: sz },
+      ];
+      for (const s of specs) {
+        const dl = createDimLine();
+        dl.update(s.from, s.to, String(Math.round(s.m * 1000))); // metres → the mm an usta reads
+        r.scene.add(dl.group);
+        r.selDims.push(dl);
+      }
+    }
+    r.renderer.render(r.scene, r.camera);
+    return clear;
+  }, [selectedId, scene]);
+
   // ── rebuild the group + reframe when the model (scene) changes ──
   useEffect(() => {
     const r = rt.current;
@@ -1303,7 +1349,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     // + places as the hole markers (line ~405), so a handle sits exactly on its screw seats. Always on.
     if (r.handleGroup) { r.scene.remove(r.handleGroup); disposeStructureGroup(r.handleGroup); }
     const hplaces = solveLayout(model, planThickness(plan));
-    const hg = buildHandleGroup(handleFittings(solveModelToParts(model, planThickness(plan)), hplaces), layoutBounds(hplaces));
+    // M9E.4 — pass the MODEL so the fitting knows the declared handle kind (a bow and a long pull both drill
+    // a screw pair; the hole count alone cannot tell them apart).
+    const hg = buildHandleGroup(handleFittings(solveModelToParts(model, planThickness(plan)), hplaces, model), layoutBounds(hplaces));
     r.scene.add(hg);
     r.handleGroup = hg;
     // Phase 3.b — rebuild the 3D appliance meshes from the appliance fittings (real size in each section).
@@ -1788,6 +1836,29 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           </div>
         </div>
       )}
+      {/* ── M9U.6 «Izohlar» — the PROJECT-level note (Moblo «Notes»). Whatever the usta types here leads the
+             drawing's IZOHLAR band, above the per-part notes; empty clears it again. ── */}
+      {tab === "notes" && (
+        <div style={{ position: "absolute", inset: "60px 0 0 0", background: "var(--mob-surface-2)", zIndex: 3, display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 16px", background: "var(--mob-surface)", borderBottom: "1px solid var(--mob-border)" }}>
+            <b style={{ fontSize: 15 }}>📝 Izohlar</b>
+            <button type="button" className="mob-project-btn" style={{ padding: "9px 15px" }} onClick={() => setTab("drawing")}>📐 Chizmada ko'rish</button>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            <span style={{ fontSize: 13, color: "var(--mob-muted)" }}>
+              Butun buyurtma bo'yicha eslatma — yetkazib berish, mijoz talabi, montaj sharti. Bu matn <b>chizmaga chiqadi</b> (detal izohlaridan oldin).
+            </span>
+            <textarea
+              key={`pn${model.id}`}
+              defaultValue={model.notes ?? ""}
+              onBlur={(e) => setProjectNotes(e.target.value)}
+              placeholder="Masalan: Yetkazib berish 3-qavatga, lift yo'q. Fasadда tirnalish bo'lmasin."
+              style={{ width: "100%", minHeight: "min(320px, 46vh)", padding: "12px 14px", borderRadius: 10, border: "1px solid var(--mob-border)", background: "var(--mob-surface)", color: "inherit", fontSize: 14, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical" }}
+            />
+            <span style={{ fontSize: 12, color: "var(--mob-muted)" }}>Har bir yangi qator — chizmada alohida band. Chizmaga 6 tagacha band sig'adi, qolgani «…+N» bo'lib ko'rsatiladi.</span>
+          </div>
+        </div>
+      )}
       {/* ── AR tab — native camera placement (deferred) ── */}
       {tab === "ar" && (
         <div className="mob-ar">
@@ -1953,6 +2024,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("halfCylinder"); setRpanel("none"); }}>◗ Yumaloq uch</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("hexagon"); setRpanel("none"); }}>⬡ Olti qirrali</button>
                   <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("torus"); setRpanel("none"); }}>◯ Halqa</button>
+                  <button className="mob-addbtn" type="button" style={{ borderStyle: "dashed" }} onClick={() => { addFreeBoard("hairpin"); setRpanel("none"); }}>⋀ Hairpin oyoq</button>
                 </div>
                 {selectedId && !selectedId.includes("__div_") && (
                   <div className="mob-addgrid" style={{ marginTop: 10 }}>
@@ -2253,6 +2325,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   <option value="bow">Скоба</option>
                   <option value="knob">Кнопка</option>
                   <option value="profile">Профиль</option>
+                  <option value="round_knob">Guruch tugma</option>
+                  <option value="long_pull">Cho'zinchoq pull</option>
+                  <option value="gola">Gola profil</option>
                 </select>
               </label>
             )}
@@ -2300,6 +2375,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     onClick={() => setCarcassPanel(carcassSlot, { hidden: !cur?.hidden })}>{cur?.hidden ? "🚫 Yashirilgan" : "👁 Ko'rinadi"}</button>
                   <button type="button" className="mob-props-toggle" title="Shu taxtaning materiali"
                     onClick={() => setSwatchTarget({ kind: "carcass", slot: carcassSlot })}>▦ {BOARDS.find((b) => b.id === cur?.material)?.name ?? "Standart"}</button>
+                  {/* M9E.5 — hand this board over to free placement. Only the five SHELL boards can leave the
+                      carcass (a plinth / worktop is not part of the shell). It keeps its exact place and its
+                      cut, and becomes draggable like any free board. */}
+                  {(carcassSlot === "sideL" || carcassSlot === "sideR" || carcassSlot === "top" || carcassSlot === "bottom" || carcassSlot === "back") && (
+                    <button type="button" className="mob-props-toggle" title="Ajratish — taxta karkasdan chiqadi va erkin suriladigan bo'ladi (o'lchami va narxi o'zgarmaydi)"
+                      style={{ borderColor: "#1f8a4c", color: "#146c3a" }}
+                      onClick={() => detachCarcassPanel(carcassSlot)}>⛓ Ajratish</button>
+                  )}
                 </>
               );
             })()}
@@ -2424,6 +2507,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           <DimField label="В" value={Math.round(selFreeBoard.box.h / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "h", mm)} units={units} />
           <DimField label="Г" value={Math.round(selFreeBoard.box.d / 10)} onCommit={(mm) => resizeFreeBoard(selFreeBoard.id, "d", mm)} units={units} />
           <button type="button" title="90° aylantirish" onClick={() => rotateFreeBoard(selFreeBoard.id)} style={{ ...act, borderColor: "#7a5cc9", background: "#e9e2f7", color: "#4a2f8a", minHeight: 34, padding: "6px 11px" }}>↻</button>
+          {/* M9U.5 — «Put on ground»: drop the part onto the block floor. Exact, never magnetic — the drag
+              magnet is what lands a board on a shelf; this button promises the floor. */}
+          <button type="button" title="Yerga qo'yish (polga tushirish)" aria-label="Yerga qo'yish"
+            onClick={() => putFreePartOnGround(selFreeBoard.id)}
+            style={{ ...act, borderColor: "#1f8a4c", background: "#e3f5ea", color: "#146c3a", minHeight: 34, padding: "6px 11px" }}>⇩ Yerga</button>
           {/* M8.1 — the two tilts. Y already has the ↻ button (90° at a time, the everyday turn); X and Z
               are typed, because a slanted part is set to an angle («30°»), not nudged to one. */}
           <label className="mob-props-f" title="Oldinga/orqaga qiyalik (X o'qi)"><span>↕°</span>
@@ -2445,6 +2533,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             <option value="halfCylinder">◗ Yumaloq uch</option>
             <option value="hexagon">⬡ Olti qirrali</option>
             <option value="torus">◯ Halqa</option>
+            <option value="hairpin">⋀ Hairpin oyoq</option>
           </select>
           <button type="button" aria-haspopup="dialog" title="Material" onClick={() => setSwatchTarget({ kind: "free", id: selFreeBoard.id })} style={{ ...matSel, flex: "0 0 auto", maxWidth: 150, minHeight: 34, display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ ...swatch, background: BOARDS.find((bd) => bd.id === selFreeBoard.material)?.hex ?? "#e6e6e6" }} />
@@ -2649,6 +2738,9 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <option value="bow">⊐ Скоба</option>
                 <option value="knob">● Кнопка</option>
                 <option value="profile">▭ Профиль</option>
+                <option value="round_knob">☉ Guruch tugma</option>
+                <option value="long_pull">▤ Cho'zinchoq pull</option>
+                <option value="gola">▬ Gola profil</option>
               </select>
             </>
           )}

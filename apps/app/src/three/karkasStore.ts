@@ -26,13 +26,14 @@ export function carcassSlotOf(partId: string): CarcassSlot | null {
 
 export type PrimitiveKind =
   | "board" | "panel" | "post" | "box" | "cylinder" | "rail" | "sphere" | "tube" | "wedge"
-  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus"; // M7
+  | "arc" | "cone" | "halfCylinder" | "hexagon" | "torus" // M7
+  | "hairpin"; // M9E.4 — the bent-steel mid-century leg
 import type { Part } from "../../../../engine/contracts/types.js";
 import { leafSections, type Section } from "../../../../engine/contracts/structure.js";
 import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentView, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentView, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, detachCarcassPanel as detachCarcassPanelOp, type DetachableSlot, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -287,6 +288,14 @@ interface KarkasState extends Derived {
   /** gizmos — put a free board's `axis` coord at `idealPos` (mm10), MAGNETICALLY clicking to a nearby
    *  compartment face first. Absolute (no drift over a long drag); reports where it landed + whether it snapped. */
   moveFreePartTo: (fpId: string, axis: "x" | "y" | "z", idealPos: number, first: boolean) => { pos: number; snapped: boolean };
+  /** M9E.5 — «⛓ Ajratish»: hand the SELECTED carcass board over to free placement. It leaves the shell and
+   *  an identical free board takes its exact place, so the piece looks unchanged and the cut list keeps the
+   *  same panel — from then on it drags, turns and tilts like any free part. */
+  detachCarcassPanel: (slot: DetachableSlot) => void;
+  /** M9U.5 — «⇩ Yerga» (Moblo «Put on ground»): drop a free board so its BOTTOM rests on the block floor
+   *  (y = 0). Exact, never magnetic — the button promises the floor, and the drag magnet already handles
+   *  «land it on that shelf». One undo step; a locked part refuses, like every other free-part edit. */
+  putFreePartOnGround: (fpId: string) => void;
   snapFreePart: (fpId: string) => void;
   /** Resize a free board along one axis (mm). `pushHistory: false` for live drag frames — they replace
    *  the current state instead of stacking one undo entry per pointer move (gizmo resize). */
@@ -417,6 +426,9 @@ interface KarkasState extends Derived {
   /** 4 polish — set which way the L turns (left/right). No-op if the block isn't an L. */
   setLCornerHand: (hand: "left" | "right") => void;
   /** 5.r1 — set the room walls: preset I/L/U + per-wall lengths (mm) + turn. Render-only backdrop. */
+  /** M9U.6 — the PROJECT-level note (Moblo «Notes»), printed above the per-part notes on the drawing.
+   *  Empty text drops the field, so a note-less project serialises exactly as it did before. */
+  setProjectNotes: (text: string) => void;
   setRoom: (preset: "I" | "L" | "U", lengths_mm: number[], turn?: "left" | "right") => void;
   /** 5.r1 — drop the room (walls disappear; the model is byte-identical to no-room). */
   clearRoom: () => void;
@@ -635,6 +647,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
         cone: { name: "Torayuvchi oyoq", role: "leg", axis: "x", w: 700, h: Math.min(7100, bx.h), d: 700, shape: "cone" },
         halfCylinder: { name: "Yumaloq uch", role: "panel", axis: "y", w: Math.min(4000, Math.round(bx.w * 0.55)), h: 400, d: 400, shape: "halfCylinder" },
         hexagon: { name: "Olti qirrali ustun", role: "leg", axis: "x", w: 600, h: Math.min(7100, bx.h), d: 600, shape: "hexagon" },
+        // M9E.4 — a hairpin leg splays wider than a turned post, so it starts on a bigger footprint box.
+        hairpin: { name: "Hairpin oyoq", role: "leg", axis: "x", w: 1100, h: Math.min(7100, bx.h), d: 1100, shape: "hairpin" },
         // a ring is a pull — it belongs at handle height, not on the floor
         torus: { name: "Halqa", role: "rail", axis: "z", w: 1200, h: 1200, d: 300, shape: "torus", y: Math.max(0, Math.round(bx.h * 0.45)) },
       };
@@ -974,6 +988,54 @@ export const useKarkas = create<KarkasState>((set, get) => {
       delta[axis] = t.pos - pick(fp.box, false);
       if (delta[axis] !== 0) get().moveFreePart(fpId, delta, first);
       return t;
+    },
+    // M9E.5 — «⛓ Ajratish»: the selected carcass board leaves the rule-driven shell and an identical FREE
+    // board takes its EXACT solved place (read straight off solveLayout, so nothing shifts by a millimetre).
+    // The cut list keeps the same panel — it only moves from the carcass group to the free-part group.
+    detachCarcassPanel: (slot) => {
+      const s = get();
+      const pid = s.selectedId;
+      if (!pid) return;
+      const blockId = pid.slice(0, pid.indexOf("__"));
+      const block = s.model.blocks.find((b) => b.id === blockId);
+      if (!block) return;
+      const tk = { ...planThickness(s.plan), ...s.thickness }; // the same spec derive() solves with
+      const place = solveLayout(s.model, tk).find((p) => p.id === pid);
+      if (!place) return;
+      const part = solveStructure(s.model, tk).find((p) => p.id === pid); // for its name + banding
+      // How each slot reads as a free board: a side/bottom is a plain panel, the top a `top`, the back a `back`.
+      const SPEC: Record<DetachableSlot, { name: string; role: FreePart["role"]; axis: FreePart["thicknessAxis"] }> = {
+        sideL: { name: "Бок левый", role: "panel", axis: "x" },
+        sideR: { name: "Бок правый", role: "panel", axis: "x" },
+        top: { name: "Крышка", role: "top", axis: "y" },
+        bottom: { name: "Дно", role: "panel", axis: "y" },
+        back: { name: "Задняя стенка", role: "back", axis: "z" },
+      };
+      const sp = SPEC[slot];
+      const ov = block.panels?.[slot];
+      const fpId = `free_${Date.now().toString(36)}_${(freeSeq++).toString(36)}`;
+      const model = detachCarcassPanelOp(
+        s.model, blockId, slot, fpId,
+        { x: place.x_mm10, y: place.y_mm10, z: place.z_mm10, w: place.w_mm10, h: place.h_mm10, d: place.d_mm10 },
+        {
+          name: part?.name ?? sp.name,
+          role: sp.role,
+          thicknessAxis: sp.axis,
+          ...(part?.edges ? { edgeBands: part.edges } : {}), // keep the kromka it was cut with
+          ...(ov?.note ? { note: ov.note } : {}),
+          ...(ov?.material ? { material: ov.material } : {}),
+        },
+      );
+      apply(model, true);
+      set({ selectedId: `${blockId}__free_${fpId}` }); // select it so it can be dragged straight away
+    },
+    // M9U.5 — «⇩ Yerga»: the board's LOW edge (box.y) goes to the block floor. moveFreePart is the exact,
+    // snap-free mover, so the part lands where the button says instead of being pulled onto a nearby shelf.
+    putFreePartOnGround: (fpId) => {
+      if (get().isFreePartLocked(fpId)) return;
+      const fp = get().model.blocks[0]?.freeParts?.find((f) => f.id === fpId);
+      if (!fp || fp.box.y === 0) return; // already on the floor → no dead undo step
+      get().moveFreePart(fpId, { x: 0, y: -fp.box.y, z: 0 }, true);
     },
     // U3.2c — on drop, snap the board flush to any nearby compartment face (magnet). Part of the same
     // drag undo step (a plain set, no new past entry), so one drag = one undo.
@@ -1418,6 +1480,19 @@ export const useKarkas = create<KarkasState>((set, get) => {
       apply(setBlockFootprint(s.model, b.id, { legA: b.footprint.legA, legB: b.footprint.legB, hand }), true);
     },
     // 5.r1 — set the room: an I/L/U wall preset + per-wall lengths (mm → mm10). Render-only backdrop.
+    // M9U.6 — the project-level note. Empty text DROPS the field rather than storing "", so a project
+    // without a note is byte-identical to the pre-M9U.6 world. One undo step, like every other model edit.
+    setProjectNotes: (text) => {
+      const s = get();
+      const t = text.trim();
+      if ((s.model.notes ?? "") === t) return; // unchanged → no dead undo step
+      if (!t) {
+        const { notes: _drop, ...rest } = s.model;
+        apply(rest, true);
+        return;
+      }
+      apply({ ...s.model, notes: t }, true);
+    },
     setRoom: (preset, lengths_mm, turn) => {
       const s = get();
       const room = roomFromPreset(preset, lengths_mm.map((mm) => Math.max(1000, Math.round(mm) * 10)), turn ?? s.model.room?.turn ?? "left");
