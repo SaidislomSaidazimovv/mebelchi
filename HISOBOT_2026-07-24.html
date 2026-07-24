@@ -1,0 +1,255 @@
+<meta charset="utf-8">
+<title>Mebelchi — 6 kunlik ish hisoboti</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  :root{
+    --ink:#1b2430; --muted:#6b7787; --line:#e2e6ec; --paper:#ffffff; --soft:#f6f8fa;
+    --brand:#1f5570; --ok:#1f8a4c; --warn:#a8710f; --accent:#2a6df0;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Roboto Mono", Consolas, monospace;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:var(--sans); color:var(--ink); background:var(--soft); line-height:1.55; }
+  .wrap{ max-width:900px; margin:0 auto; padding:28px 20px 60px; }
+  .sheet{ background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:30px 32px; margin-bottom:20px; }
+  h1{ font-size:27px; margin:0 0 6px; letter-spacing:-.4px; }
+  h2{ font-size:19px; margin:34px 0 12px; padding-bottom:7px; border-bottom:2px solid var(--brand); color:var(--brand); }
+  h2:first-of-type{ margin-top:8px; }
+  h3{ font-size:15.5px; margin:20px 0 7px; }
+  p{ margin:0 0 11px; }
+  .lead{ font-size:15px; color:var(--muted); margin-bottom:2px; }
+  .meta{ font-family:var(--mono); font-size:12px; color:var(--muted); }
+  table{ width:100%; border-collapse:collapse; margin:12px 0 18px; font-size:13.5px; }
+  th,td{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ background:var(--soft); font-size:12px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); font-weight:700; }
+  td.day{ white-space:nowrap; font-family:var(--mono); font-size:12.5px; color:var(--brand); font-weight:700; }
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:16px 0 6px; }
+  .kpi{ background:var(--soft); border:1px solid var(--line); border-radius:11px; padding:13px 15px; }
+  .kpi b{ display:block; font-size:25px; line-height:1.15; letter-spacing:-.5px; }
+  .kpi span{ font-size:12px; color:var(--muted); }
+  .chart{ margin:14px 0 6px; }
+  .bar{ display:grid; grid-template-columns:74px 1fr 40px; align-items:center; gap:9px; margin-bottom:6px; font-size:12.5px; }
+  .bar i{ font-style:normal; font-family:var(--mono); color:var(--muted); }
+  .bar u{ display:block; height:15px; border-radius:4px; background:linear-gradient(90deg,#2a6df0,#5aa9e6); text-decoration:none; }
+  .bar b{ font-family:var(--mono); font-size:12px; text-align:right; }
+  ul{ margin:0 0 12px; padding-left:20px; } li{ margin-bottom:5px; }
+  .two{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media (max-width:680px){ .two{ grid-template-columns:1fr; } .wrap{ padding:14px 10px 40px; } .sheet{ padding:20px 16px; } }
+  .badge{ display:inline-block; padding:2px 9px; border-radius:99px; font-size:11.5px; font-weight:700; }
+  .b-ok{ background:#e3f5ea; color:var(--ok); } .b-stop{ background:#fdeaee; color:#a01a2e; }
+  .b-new{ background:#e0e8f7; color:var(--brand); }
+  .note{ background:#fbf7ec; border-left:4px solid var(--warn); padding:11px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:13.5px; }
+  .win{ background:#eef7f1; border-left:4px solid var(--ok); padding:11px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:13.5px; }
+  .foot{ text-align:center; color:var(--muted); font-size:12px; padding:8px 0 0; }
+  @media print{ body{ background:#fff; } .wrap{ padding:0; max-width:none; } .sheet{ border:none; border-radius:0; padding:0 0 14px; margin:0; } h2{ break-after:avoid; } table{ break-inside:auto; } tr{ break-inside:avoid; } }
+</style>
+
+<div class="wrap">
+<div class="sheet">
+
+  <p class="lead">Mebelchi · 3D mebel konstruktori</p>
+  <h1>Olti kunlik ish hisoboti</h1>
+  <p class="meta">Davr: 2026-yil 18–24-iyul · Tayyorlandi: 24-iyul</p>
+
+  <h2>1. Qisqacha mazmun</h2>
+  <p>
+    17–18-iyulda biz <b>ikkinchi yo'nalish</b> ustida ishlayotgan edik — konstruktorning butunlay yangi,
+    noldan yoziladigan varianti (uch xil boshqaruv usuli sinab ko'rildi). 18-iyulda qaror qabul qilindi:
+    <span class="badge b-stop">bu yo'nalish to'xtatildi</span>
+    va <span class="badge b-ok">o'zimizning tayyor karkas dvigatelimizga qaytdik</span>.
+  </p>
+  <p>
+    Sabab oddiy: yangi variantda hamma narsani noldan yozish kerak edi — narx hisobi, kesim ro'yxati,
+    teshiklar, stanok fayli. Bizning karkas dvigatelimizda bularning hammasi <b>allaqachon ishlab turgan</b> edi.
+    Ya'ni biz noldan boshlash o'rniga, tayyor poydevor ustiga qurishni tanladik.
+  </p>
+  <div class="win">
+    <b>Natija:</b> o'sha qarordan keyingi 6 kunda <b>217 ta ish</b> bajarildi va ilova
+    «faqat shkaf chizadigan» dasturdan <b>istalgan mebelni yasaydigan, narxini hisoblaydigan va
+    stanokka fayl beradigan</b> vositaga aylandi.
+  </div>
+
+  <h2>2. Raqamlarda</h2>
+  <div class="kpis">
+    <div class="kpi"><b>217</b><span>bajarilgan ish (commit)</span></div>
+    <div class="kpi"><b>6</b><span>kun</span></div>
+    <div class="kpi"><b>~17 200</b><span>qator yangi kod</span></div>
+    <div class="kpi"><b>117</b><span>o'zgargan fayl</span></div>
+    <div class="kpi"><b>1 204</b><span>avtomatik tekshiruv</span></div>
+    <div class="kpi"><b>50</b><span>xil mebel sinovdan o'tdi</span></div>
+  </div>
+
+  <h3>Kunlar bo'yicha ish hajmi</h3>
+  <div class="chart">
+    <div class="bar"><i>18-iyul</i><u style="width:13%"></u><b>4</b></div>
+    <div class="bar"><i>19-iyul</i><u style="width:43%"></u><b>13</b></div>
+    <div class="bar"><i>20-iyul</i><u style="width:100%"></u><b>30</b></div>
+    <div class="bar"><i>21-iyul</i><u style="width:37%"></u><b>11</b></div>
+    <div class="bar"><i>22-iyul</i><u style="width:77%"></u><b>23</b></div>
+    <div class="bar"><i>23-iyul</i><u style="width:100%"></u><b>30</b></div>
+    <div class="bar"><i>24-iyul</i><u style="width:53%"></u><b>16</b></div>
+  </div>
+  <p class="meta">Eslatma: 18-iyuldagi 4 ta ish — o'sha kuni yarim kun eski yo'nalishga ketgan.</p>
+
+  <h2>3. Har kuni nima qilindi</h2>
+  <table>
+    <thead><tr><th style="width:78px">Kun</th><th>Nima qilindi</th><th style="width:130px">Nima uchun kerak</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="day">18-iyul<br><span style="color:var(--muted);font-weight:400">payshanba</span></td>
+        <td>
+          <b>Karkasga qaytish kuni.</b> Dvigatelga uchta katta imkoniyat qo'shildi:
+          bir nechta shkafni <b>bitta qatorga birlashtirish</b>; <b>yashik ichida yashik</b>;
+          va eng muhimi — <b>erkin detal</b>, ya'ni shkaf devorlariga bog'lanmagan, istalgan joyga
+          qo'yiladigan taxta. Shu bilan birga ilovaning tashqi ko'rinishi Moblo uslubiga o'tkazildi.
+        </td>
+        <td>Erkin detal bo'lmaganda stol yoki karavot yasab bo'lmasdi — faqat quti shaklidagi shkaf chiqardi.</td>
+      </tr>
+      <tr>
+        <td class="day">19-iyul<br><span style="color:var(--muted);font-weight:400">juma</span></td>
+        <td>
+          Bir nechta shkaf bilan ishlash: <b>yangi shkaf qo'shish</b>, ularni tanlab guruhlash,
+          <b>devor uzunligiga avtomatik moslash</b>, har bir shkafga o'z qoidasi (qat'iy o'lcham /
+          nisbat / erkin). Bo'limga barmoq bilan tegib, aynan o'sha joyga polka yoki eshik qo'shish.
+        </td>
+        <td>Oshxona bir shkaf emas — bir necha shkafning qatori. Devorga o'zi moslashishi kerak.</td>
+      </tr>
+      <tr>
+        <td class="day">20-iyul<br><span style="color:var(--muted);font-weight:400">shanba</span></td>
+        <td>
+          <b>Eng katta kun (30 ta ish).</b> 3D boshqaruv «tutqichlari»: detalni ushlab surish, o'lchamini
+          tortib o'zgartirish, nusxalash, burish, qo'shni detalga <b>magnit kabi yopishtirish</b>.
+          <b>AR</b> — mebelni telefon kamerasi orqali xonaga qo'yib ko'rish. Alohida <b>«Chizma»</b> bo'limi.
+          Kalkulyatorli o'lcham klaviaturasi. <b>Bo'sh varaqdan boshlash</b> va birinchi stol shabloni.
+          Kromka narxidagi hisob xatosi topilib tuzatildi.
+        </td>
+        <td>Mijoz oldida mebelni qo'l bilan yig'ish shu kundan boshlab mumkin bo'ldi.</td>
+      </tr>
+      <tr>
+        <td class="day">21-iyul<br><span style="color:var(--muted);font-weight:400">yakshanba</span></td>
+        <td>
+          Ishlab chiqarish tafsilotlari: <b>sokol</b> (poyafza), <b>stoleshnitsa</b>,
+          <b>tutqichlar</b> (uch xil, 3D ko'rinishi va vint teshiklari bilan),
+          <b>podyomnik</b> (yuqoriga ochiladigan lift petlya).
+        </td>
+        <td>Bularsiz narx haqiqiy bo'lmaydi — furnitura pulini hisobga olmaslik zarar demakdir.</td>
+      </tr>
+      <tr>
+        <td class="day">22-iyul<br><span style="color:var(--muted);font-weight:400">dushanba</span></td>
+        <td>
+          <b>Texnika</b> — duxovka, plita, rakovina va boshqalar (7 xil), stoleshnitsada o'yig'i bilan
+          avtomatik. <b>L-shaklidagi burchak shkaf</b> to'liq ishga tushdi (ikkala qanotida ham polka,
+          eshik, tortma). <b>Xona devorlari</b> va burchakka avtomatik moslash.
+          <b>«Fabrika profili»</b> — har bir ustaxona o'z taxta qalinliklarini bir marta kiritib qo'yadi.
+        </td>
+        <td>Oshxona buyurtmalarining yarmi burchakli. Bu bo'lmasa oshxona chizib bo'lmaydi.</td>
+      </tr>
+      <tr>
+        <td class="day">23-iyul<br><span style="color:var(--muted);font-weight:400">seshanba</span></td>
+        <td>
+          <b>Yana katta kun (30 ta ish).</b> Tayyor shablonlar galereyasi. Karkas devorlarini olib tashlash
+          (ochiq javon yasash uchun). <b>Ko'rinish sifati</b> — yorug'lik, yumshoq soya, aks etish.
+          Material yuzalari: <b>yaltiroq, shisha, metall, oyna</b>. Yog'och, marmar, charm, mato teksturalari.
+          Yumaloq va egri shakllar. Detallar orasiga <b>shkant</b> qo'yish. CSV (Excel) eksporti.
+          <b>O'lchov lentasi</b>. <b>10 xil massiv yog'och</b> (эманд, ёнғоқ, қарағай, арча…).
+        </td>
+        <td>Mijoz ko'z bilan tanlaydi. Ilova endi haqiqiy materialni haqiqiydek ko'rsatadi.</td>
+      </tr>
+      <tr>
+        <td class="day">24-iyul<br><span style="color:var(--muted);font-weight:400">chorshanba</span></td>
+        <td>
+          Yakuniy sayqal: <b>o'zining materialini yaratish</b> (rang + yaltiroqlik + shaffoflik, narxi
+          avtomatik), uch o'q bo'yicha burish, hairpin (po'lat) oyoq, detalni yerga qo'yish,
+          <b>izohlar sahifasi</b> (chizmaga chiqadi), karkas taxtasini ajratib erkin qilish.
+          Kun oxirida <b>«Sayqal» fazasi</b> — 11 ta ko'rinish yaxshilanishi.
+        </td>
+        <td>Ilovaning «arzon dastur» hissi ketdi. Endi mijozga ko'rsatsa uyalmaydigan holatda.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>4. Bugun ilova nima qila oladi</h2>
+  <div class="two">
+    <div>
+      <h3>Chizish va yig'ish</h3>
+      <ul>
+        <li><b>14 ta tayyor shablon</b> — shkaf, stol, stul, karavot, stellaj, burchak shkaf va h.k.</li>
+        <li><b>21 ta shakl</b> — taxta, oyoq, quvur, shar, konus, olti qirrali, hairpin oyoq…</li>
+        <li>Bo'sh varaqdan boshlab <b>istalgan mebelni</b> qo'lda yig'ish</li>
+        <li>Bir necha shkafni qatorga birlashtirib, devor uzunligiga moslash</li>
+        <li>L-burchak shkaf, xona devorlari, texnika (duxovka, rakovina…)</li>
+        <li>Detalni bir necha marta takrorlash (masalan ayvon to'sinlari)</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Ishlab chiqarish va pul</h3>
+      <ul>
+        <li><b>Kesim ro'yxati</b> — har detalning o'lchami, soni, materiali</li>
+        <li><b>Narx</b> — list m², kromka metri, furnitura, jami summa</li>
+        <li><b>Narxni qulflash</b> — mijoz bilan kelishilgan summa saqlanadi</li>
+        <li><b>Teshiklar</b> — shkant va petlya markazlari</li>
+        <li><b>Stanok fayli (CNC)</b> va Excel (CSV) eksporti</li>
+        <li><b>Texnik chizma</b> — uch ko'rinish, o'lchovlar, shtamp, chop etish</li>
+        <li>23+ material, o'z materialini yaratish imkoniyati</li>
+        <li>AR — mebelni telefon orqali xonaga qo'yib ko'rish</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>5. Raqobatchi bilan taqqoslash</h2>
+  <p>
+    Asosiy raqobatchi — <b>Moblo</b> (xalqaro 3D mebel ilovasi). Uning 31 ta rasmi batafsil o'rganildi.
+  </p>
+  <table>
+    <thead><tr><th style="width:46%">Imkoniyat</th><th style="width:27%">Moblo</th><th style="width:27%">Mebelchi</th></tr></thead>
+    <tbody>
+      <tr><td><b>Narx hisobi</b></td><td>yo'q</td><td class="b-ok"><b>bor</b></td></tr>
+      <tr><td><b>Kromka (jiyak) hisobi</b></td><td>yo'q</td><td class="b-ok"><b>bor</b></td></tr>
+      <tr><td><b>Furnitura hisobi</b></td><td>yo'q</td><td class="b-ok"><b>bor</b></td></tr>
+      <tr><td><b>Teshiklar (shkant/petlya)</b></td><td>yo'q</td><td class="b-ok"><b>bor</b></td></tr>
+      <tr><td><b>Stanok fayli (CNC)</b></td><td>yo'q</td><td class="b-ok"><b>bor</b></td></tr>
+      <tr><td><b>Texnik chizma</b></td><td>yo'q</td><td class="b-ok"><b>bor</b></td></tr>
+      <tr><td>Tayyor shablonlar</td><td>yo'q</td><td class="b-ok"><b>14 ta</b></td></tr>
+      <tr><td>Shakllar soni</td><td>6 ta</td><td class="b-ok"><b>21 ta</b></td></tr>
+      <tr><td>Excel eksporti</td><td>bor</td><td>bor</td></tr>
+      <tr><td>AR (xonada ko'rish)</td><td>bor (kuchliroq)</td><td>bor (cheklangan)</td></tr>
+      <tr><td>Xona bezagi (devor, gilam, pol)</td><td>bor</td><td>hozircha yo'q</td></tr>
+      <tr><td>Panelga o'yiq kesish</td><td>bor</td><td>hozircha yo'q</td></tr>
+    </tbody>
+  </table>
+  <div class="win">
+    <b>Xulosa:</b> Moblo — bu <i>eskiz</i> vositasi. U chiroyli ko'rsatadi, lekin usta u bilan mebel yasay olmaydi:
+    narx yo'q, kesim ro'yxatida o'lchamdan boshqa hech narsa yo'q, stanokka beradigan fayl yo'q.
+    <b>Bizda esa mebel chizilgan zahoti narxi, kesimi, teshigi va stanok fayli tayyor.</b>
+    Ular bizdan faqat ko'rinish nafisligi va xona bezagi bo'yicha oldinda edi — 24-iyulda o'sha farqning
+    katta qismi yopildi.
+  </div>
+
+  <h2>6. Sifat nazorati</h2>
+  <ul>
+    <li><b>1 204 ta avtomatik tekshiruv</b> har o'zgarishdan keyin ishga tushadi. Bittasi ham qizarmayapti.</li>
+    <li>Har bir ish <b>ikki marta ko'rib chiqiladi</b>: boshlashdan oldin reja, tugagach kod.</li>
+    <li>Narx, kesim ro'yxati va stanok fayliga tegadigan har qanday o'zgarish alohida tekshiriladi —
+      ular <b>bir tiyin ham o'zgarmasligi</b> kafolatlanadi.</li>
+    <li>Ilova <b>50 xil mebelda</b> sinovdan o'tkazildi (alohida galereya hujjatida).</li>
+  </ul>
+
+  <h2>7. Keyingi qadamlar</h2>
+  <table>
+    <thead><tr><th style="width:34%">Ish</th><th>Nima beradi</th><th style="width:110px">Holati</th></tr></thead>
+    <tbody>
+      <tr><td><b>Xona bezagi</b> (devor, pol, gilam)</td><td>Mijozga mebelni o'z xonasida ko'rsatish — sotuvni oshiradi</td><td><span class="badge b-new">navbatda</span></td></tr>
+      <tr><td><b>Panelga o'yiq kesish</b></td><td>Quvur, rozetka, rakovina uchun o'yiq — stanokka ham chiqadi</td><td><span class="badge b-new">rejada</span></td></tr>
+      <tr><td><b>AR ni to'liq ishga tushirish</b></td><td>Hozir ba'zi telefonlarda ishlamayapti — diagnostika kerak</td><td><span class="badge b-new">tekshirilmoqda</span></td></tr>
+      <tr><td>Ramka bilan ko'p detal tanlash</td><td>Katta mebelda tez ishlash</td><td><span class="badge b-new">rejada</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>Muhim eslatma.</b> Bu 6 kunda qilingan ishlarning hammasi <b>ishlab turgan holatda</b> —
+    prototip emas. Ilovani hoziroq ochib, mebel chizib, narxini olib, stanokka fayl chiqarish mumkin.
+  </div>
+
+  <p class="foot">Mebelchi · 2026-yil 24-iyul</p>
+</div>
+</div>
