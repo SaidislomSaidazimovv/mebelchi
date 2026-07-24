@@ -11,6 +11,10 @@ packages/*/dist/
 active_tasks.md
 active_files.md
 
+# Internal karkas plan + review handoff — local only, must not appear on GitHub
+KARKAS_ROADMAP.md
+ANTIGRAVITY_REVIEW.md
+
 # Claude Code local tooling / IDE config (user request 2026-07-18) — not app code, keep out of the repo
 .claude/
 
@@ -61,3 +65,8 @@ TASK_3D_CONSTRUCTION.md
 
 # Vercel CLI link dir
 .vercel
+# Vercel env pulls at the repo root (`vercel env pull`) — these carry BLOB_READ_WRITE_TOKEN and friends.
+# The repo is PUBLIC, so an untracked-by-accident .env here would publish a live secret.
+.env
+.env.local
+.env.*.local
