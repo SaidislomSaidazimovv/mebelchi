@@ -422,6 +422,9 @@ interface KarkasState extends Derived {
   /** 4 polish — set which way the L turns (left/right). No-op if the block isn't an L. */
   setLCornerHand: (hand: "left" | "right") => void;
   /** 5.r1 — set the room walls: preset I/L/U + per-wall lengths (mm) + turn. Render-only backdrop. */
+  /** M9U.6 — the PROJECT-level note (Moblo «Notes»), printed above the per-part notes on the drawing.
+   *  Empty text drops the field, so a note-less project serialises exactly as it did before. */
+  setProjectNotes: (text: string) => void;
   setRoom: (preset: "I" | "L" | "U", lengths_mm: number[], turn?: "left" | "right") => void;
   /** 5.r1 — drop the room (walls disappear; the model is byte-identical to no-room). */
   clearRoom: () => void;
@@ -1433,6 +1436,19 @@ export const useKarkas = create<KarkasState>((set, get) => {
       apply(setBlockFootprint(s.model, b.id, { legA: b.footprint.legA, legB: b.footprint.legB, hand }), true);
     },
     // 5.r1 — set the room: an I/L/U wall preset + per-wall lengths (mm → mm10). Render-only backdrop.
+    // M9U.6 — the project-level note. Empty text DROPS the field rather than storing "", so a project
+    // without a note is byte-identical to the pre-M9U.6 world. One undo step, like every other model edit.
+    setProjectNotes: (text) => {
+      const s = get();
+      const t = text.trim();
+      if ((s.model.notes ?? "") === t) return; // unchanged → no dead undo step
+      if (!t) {
+        const { notes: _drop, ...rest } = s.model;
+        apply(rest, true);
+        return;
+      }
+      apply({ ...s.model, notes: t }, true);
+    },
     setRoom: (preset, lengths_mm, turn) => {
       const s = get();
       const room = roomFromPreset(preset, lengths_mm.map((mm) => Math.max(1000, Math.round(mm) * 10)), turn ?? s.model.room?.turn ?? "left");

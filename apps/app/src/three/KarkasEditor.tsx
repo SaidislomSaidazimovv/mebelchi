@@ -42,11 +42,12 @@ import "./moblo/moblo.css";
 const PAPER_INK = "#1f2430";
 
 /** The Moblo shell's tabs (U2). U2.1 wires «build»; the rest arrive in U2.4. */
-type MobTab = "build" | "parts" | "drawing" | "ar";
+type MobTab = "build" | "parts" | "drawing" | "notes" | "ar";
 const MOB_TABS: { id: MobTab; label: string }[] = [
   { id: "build", label: "Yig'ish" },
   { id: "parts", label: "Detallar" },
   { id: "drawing", label: "Chizma" },
+  { id: "notes", label: "Izohlar" }, // M9U.6 — the project-level note, printed on the drawing
   { id: "ar", label: "AR" },
 ];
 
@@ -209,6 +210,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setPartView = useKarkas((s) => s.setPartView);
   const setFreePartTilt = useKarkas((s) => s.setFreePartTilt); // M8.1
   const putFreePartOnGround = useKarkas((s) => s.putFreePartOnGround); // M9U.5 — «⇩ Yerga»
+  const setProjectNotes = useKarkas((s) => s.setProjectNotes); // M9U.6 — the project-level note
   const setCarcassPanel = useKarkas((s) => s.setCarcassPanel); // M8.5
   // M8.4 — multi-pick
   const multiMode = useKarkas((s) => s.multiMode);
@@ -630,8 +632,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         materials: carcass,
         legend: [`Korpus: ${carcass}`, `Fasad: ${boardName(plan.facade)}`, `Orqa: ${boardName(plan.back)}`, `Kromka: ${edge}`],
         // M7.3 — carry the usta's notes onto the printed sheet. Identical notes on several parts (a
-        // drawer's four sides share one) are said once.
-        notes: [...new Set(parts.filter((p) => p.note).map((p) => `${p.name} — ${p.note}`))],
+        // drawer's four sides share one) are said once. M9U.6 — the PROJECT note leads: a condition that
+        // governs the whole order (delivery, the client's request) outranks one panel's remark.
+        notes: [
+          ...(model.notes ? model.notes.split("\n").map((n) => n.trim()).filter(Boolean) : []),
+          ...new Set(parts.filter((p) => p.note).map((p) => `${p.name} — ${p.note}`)),
+        ],
       });
     } catch { return ""; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1826,6 +1832,29 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             {drawingSvg
               ? <div className="mob-drawing-inline" style={{ width: "100%", maxWidth: 1040, background: "#fff", color: PAPER_INK, boxShadow: "0 2px 16px rgba(0,0,0,0.14)", borderRadius: 6, overflow: "hidden" }} dangerouslySetInnerHTML={{ __html: drawingSvg }} />
               : <p style={{ color: "var(--mob-muted)", marginTop: 40 }}>Chizma tayyorlanmadi.</p>}
+          </div>
+        </div>
+      )}
+      {/* ── M9U.6 «Izohlar» — the PROJECT-level note (Moblo «Notes»). Whatever the usta types here leads the
+             drawing's IZOHLAR band, above the per-part notes; empty clears it again. ── */}
+      {tab === "notes" && (
+        <div style={{ position: "absolute", inset: "60px 0 0 0", background: "var(--mob-surface-2)", zIndex: 3, display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 16px", background: "var(--mob-surface)", borderBottom: "1px solid var(--mob-border)" }}>
+            <b style={{ fontSize: 15 }}>📝 Izohlar</b>
+            <button type="button" className="mob-project-btn" style={{ padding: "9px 15px" }} onClick={() => setTab("drawing")}>📐 Chizmada ko'rish</button>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            <span style={{ fontSize: 13, color: "var(--mob-muted)" }}>
+              Butun buyurtma bo'yicha eslatma — yetkazib berish, mijoz talabi, montaj sharti. Bu matn <b>chizmaga chiqadi</b> (detal izohlaridan oldin).
+            </span>
+            <textarea
+              key={`pn${model.id}`}
+              defaultValue={model.notes ?? ""}
+              onBlur={(e) => setProjectNotes(e.target.value)}
+              placeholder="Masalan: Yetkazib berish 3-qavatga, lift yo'q. Fasadда tirnalish bo'lmasin."
+              style={{ width: "100%", minHeight: "min(320px, 46vh)", padding: "12px 14px", borderRadius: 10, border: "1px solid var(--mob-border)", background: "var(--mob-surface)", color: "inherit", fontSize: 14, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical" }}
+            />
+            <span style={{ fontSize: 12, color: "var(--mob-muted)" }}>Har bir yangi qator — chizmada alohida band. Chizmaga 6 tagacha band sig'adi, qolgani «…+N» bo'lib ko'rsatiladi.</span>
           </div>
         </div>
       )}

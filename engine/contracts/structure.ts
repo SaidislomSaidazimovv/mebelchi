@@ -837,6 +837,13 @@ export interface StructuralModel {
    * one run; blocks not in any run keep their independent placement. `resolveRun` re-solves a run.
    */
   readonly runs?: readonly Run[];
+  /**
+   * M9U.6 — the usta's PROJECT-level note (Moblo's «Notes»): the conditions that belong to the whole
+   * order rather than to one panel — delivery, the client's request, an assembly caveat. Free text; the
+   * drawing sheet prints it above the per-part notes (M7.3). Optional and inert: nothing solves, cuts,
+   * drills or prices from it, so a model without one is byte-identical to the pre-M9U.6 world.
+   */
+  readonly notes?: string;
   /** The flat manufacturing leaves (Деталь), shared with the Project. */
   readonly parts: readonly Part[];
   /**
