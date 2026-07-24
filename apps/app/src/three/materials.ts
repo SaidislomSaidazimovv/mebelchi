@@ -30,6 +30,25 @@ export interface BoardMaterial {
   /** M8.7 — real SOLID timber (массив), not a wood-look ЛДСП. Groups under «Massiv» and is priced as
    *  a real board is. Absent = a sheet material (ЛДСП / МДФ / the wood-look decors). */
   solid?: boolean;
+  // M9U.3 — a user-created material's three sliders, mapped straight onto the renderer's PBR material.
+  // ALL optional: absent = the finish/matte defaults, byte-identical to pre-M9U.3.
+  /** «Yaltiroqlik» (glossiness) → the renderer uses `1 − roughness`; 0 = mirror-smooth, 1 = fully matte. */
+  roughness?: number;
+  /** «Aks» (reflectivity) → PBR metalness; 0 = dielectric, 1 = metal. */
+  metalness?: number;
+  /** «Shaffoflik» → PBR opacity; < 1 makes the board translucent (the renderer sets `transparent`). */
+  opacity?: number;
+  /** M9U.3 — a user-created material (not a catalog board): groups under «Men yaratganlar». */
+  custom?: boolean;
+  /** M9U.3 — the catalog stock this custom material's price + thickness were inherited from (auto-price). */
+  baseId?: string;
+}
+
+/** M9U.3 — a user-created material. Shares BoardMaterial's shape so it drops into EVERY existing resolver
+ *  (boardById → partColor / partBoard / planThickness / estimate / SWJ008), narrowing `custom`/`baseId`. */
+export interface CustomMaterial extends BoardMaterial {
+  custom: true;
+  baseId: string;
 }
 
 /** An edge-banding material (kromka / jiyak K-variable): priced per running metre, with a view colour
@@ -126,7 +145,91 @@ export const DEFAULT_PLAN: MaterialPlan = {
  */
 export const withPlanDefaults = (p?: Partial<MaterialPlan> | null): MaterialPlan => ({ ...DEFAULT_PLAN, ...(p ?? {}) });
 
-export const boardById = (id: string): BoardMaterial | undefined => BOARDS.find((b) => b.id === id);
+// ── M9U.3 — the user's custom-material library. Kept in a module-level array (the catalog `BOARDS` is
+//    read-only; custom ones live alongside it) + persisted to localStorage like the workshop profile, so
+//    an usta's colours survive across sessions and projects. Every accessor is localStorage-guarded so the
+//    node/vitest environment (no `localStorage`) never throws — the in-memory array is the source of truth. ──
+const CUSTOM_KEY = "mebelchi.karkas.customMaterials.v1";
+let customBoards: CustomMaterial[] = loadCustomBoards();
+
+function loadCustomBoards(): CustomMaterial[] {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(CUSTOM_KEY) : null;
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(arr) ? (arr as CustomMaterial[]).filter((m) => m && typeof m.id === "string" && m.custom) : [];
+  } catch {
+    return [];
+  }
+}
+function persistCustomBoards(): void {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(CUSTOM_KEY, JSON.stringify(customBoards));
+  } catch {
+    /* private-mode / quota / node — the in-memory array still works this session */
+  }
+}
+
+/** The user-created materials (read-only view). */
+export const getCustomBoards = (): readonly CustomMaterial[] => customBoards;
+/** Add or replace a custom material (id is the key), then persist. */
+export function registerCustomBoard(m: CustomMaterial): void {
+  customBoards = [...customBoards.filter((c) => c.id !== m.id), m];
+  persistCustomBoards();
+}
+/** Delete a custom material by id, then persist. */
+export function removeCustomBoard(id: string): void {
+  customBoards = customBoards.filter((c) => c.id !== id);
+  persistCustomBoards();
+}
+/** Merge project-embedded custom materials into the local library (dedup by id) — used on importProject so
+ *  a project opened on another device keeps its materials AND seeds them into that device's library. */
+export function mergeCustomBoards(ms: readonly CustomMaterial[] | undefined | null): void {
+  if (!ms?.length) return;
+  const have = new Set(customBoards.map((c) => c.id));
+  const add = ms.filter((m) => m && m.custom && !have.has(m.id));
+  if (add.length) { customBoards = [...customBoards, ...add]; persistCustomBoards(); }
+}
+/** Catalog boards + the user's custom ones — what the material pickers list. */
+export const allBoards = (): readonly BoardMaterial[] => [...BOARDS, ...customBoards];
+
+/** M9U.3 — the registered custom materials whose id is in `ids`. A project embeds only the custom
+ *  materials it actually references (its plan slots + per-part overrides), so the file stays small and a
+ *  project opened on another device still renders + prices them (`ProjectFile.customMaterials`, v2). */
+export function customMaterialsByIds(ids: Iterable<string>): CustomMaterial[] {
+  const want = new Set(ids);
+  return customBoards.filter((c) => want.has(c.id));
+}
+
+/**
+ * M9U.3 — build a custom material FROM a base catalog stock. Price + thickness are INHERITED from the base
+ * (auto-price — never hand-typed: a bespoke walnut-tint ЛДСП still costs what ЛДСП costs, and follows the
+ * base if its rate later changes). `priceOverride` lets a shop pin a bespoke rate (Antigravity's option),
+ * but the default is the inherited rate. The visual fields (hex + the three sliders) are the user's.
+ */
+export function createCustomMaterial(
+  baseId: string,
+  opts: { id: string; name: string; hex: string; finish?: MaterialFinish; texture?: TextureKind; roughness?: number; metalness?: number; opacity?: number; priceOverride?: number },
+): CustomMaterial {
+  const base = boardById(baseId);
+  return {
+    id: opts.id,
+    name: opts.name,
+    hex: opts.hex,
+    pricePerM2: opts.priceOverride ?? base?.pricePerM2 ?? 0,
+    thickness_mm: base?.thickness_mm ?? 16,
+    ...(opts.finish ? { finish: opts.finish } : {}),
+    ...(opts.texture ? { texture: opts.texture } : {}),
+    ...(opts.roughness !== undefined ? { roughness: opts.roughness } : {}),
+    ...(opts.metalness !== undefined ? { metalness: opts.metalness } : {}),
+    ...(opts.opacity !== undefined ? { opacity: opts.opacity } : {}),
+    ...(base?.solid ? { solid: true } : {}),
+    custom: true,
+    baseId,
+  };
+}
+
+export const boardById = (id: string): BoardMaterial | undefined =>
+  BOARDS.find((b) => b.id === id) ?? customBoards.find((b) => b.id === id); // M9U.3 — catalog first, then the user's library
 export const edgeById = (id: string): EdgeMaterial | undefined => EDGES.find((e) => e.id === id);
 
 /** Hardware unit prices (сум each) — provisional UZS placeholders (Phase 7.2). */
@@ -309,6 +412,33 @@ export function partTextureLookup(
     m.set(p.id, t);
     const base = layoutBaseId(p.id);
     if (base !== p.id && !m.has(base)) m.set(base, t);
+  }
+  return (id) => m.get(id);
+}
+
+/** M9U.3 — a custom material's PBR slider overrides (only the fields the user set). */
+export interface PbrOverride { roughness?: number; metalness?: number; opacity?: number; }
+
+/**
+ * The `id → PBR override` lookup (M9U.3), parallel to partFinishLookup / partTextureLookup. Returns a board's
+ * roughness/metalness/opacity ONLY when at least one is set (a custom material's sliders); catalog boards have
+ * none → undefined → the renderer keeps its finish/matte defaults (byte-identical). Same base-id registration.
+ */
+export function partPbrLookup(
+  parts: readonly { id: string; role?: string; materialId?: string }[],
+  plan: MaterialPlan,
+): (id: string) => PbrOverride | undefined {
+  const m = new Map<string, PbrOverride>();
+  for (const p of parts) {
+    const b = partBoard(plan, p.role, p.materialId);
+    if (!b || (b.roughness === undefined && b.metalness === undefined && b.opacity === undefined)) continue;
+    const o: PbrOverride = {};
+    if (b.roughness !== undefined) o.roughness = b.roughness;
+    if (b.metalness !== undefined) o.metalness = b.metalness;
+    if (b.opacity !== undefined) o.opacity = b.opacity;
+    m.set(p.id, o);
+    const base = layoutBaseId(p.id);
+    if (base !== p.id && !m.has(base)) m.set(base, o);
   }
   return (id) => m.get(id);
 }

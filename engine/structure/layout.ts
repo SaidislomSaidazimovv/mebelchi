@@ -81,6 +81,8 @@ export interface PanelPlacement {
   readonly shape?: PrimitiveShape;
   /** M7.4 — the usta hid this part in the viewport. Render-only: it is still cut, drilled and priced. */
   readonly hidden?: boolean;
+  /** M9E.1 — per-part soft edge radius (mm), overriding the global bevel. Render-only. */
+  readonly bevel_mm?: number;
 }
 
 const B = BOARD_MM10;
@@ -604,7 +606,8 @@ function freePartPlacement(block: Block, fp: FreePart): PanelPlacement {
   const tiltedX = fp.rotX_deg ? { ...turned, rotX_deg: fp.rotX_deg } : turned;
   const tilted = fp.rotZ_deg ? { ...tiltedX, rotZ_deg: fp.rotZ_deg } : tiltedX;
   const shaped = fp.shape && fp.shape !== "box" ? { ...tilted, shape: fp.shape } : tilted; // M4 — render-only shape
-  return fp.hidden ? { ...shaped, hidden: true } : shaped; // M7.4 — hidden in the viewport only
+  const beveled = fp.bevel_mm !== undefined ? { ...shaped, bevel_mm: fp.bevel_mm } : shaped; // M9E.1 — soft edge
+  return fp.hidden ? { ...beveled, hidden: true } : beveled; // M7.4 — hidden in the viewport only
 }
 
 /**

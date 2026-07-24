@@ -36,6 +36,8 @@ export interface Board {
   shape?: PrimitiveShape;
   /** M7.4 — hidden in the viewport only: still cut, still drilled, still priced. */
   hidden?: boolean;
+  /** M9E.1 — per-part soft edge radius (mm); absent = the renderer's global bevel. */
+  bevel_mm?: number;
 }
 
 export interface Scene {
@@ -71,6 +73,7 @@ interface RawBox {
   /** M4 — primitive shape carried straight through from the placement to the Board. */
   shape?: PrimitiveShape;
   hidden?: boolean; // M7.4
+  bevel_mm?: number; // M9E.1
 }
 
 /**
@@ -114,6 +117,7 @@ export function boxesToScene(
       ...(f?.kromka && f.kromka.some((k) => k) ? { kromka: f.kromka } : {}),
       ...(b.shape && b.shape !== "box" ? { shape: b.shape } : {}), // M4 — non-box primitive
       ...(b.hidden ? { hidden: true } : {}), // M7.4
+      ...(b.bevel_mm !== undefined ? { bevel_mm: b.bevel_mm } : {}), // M9E.1
     };
   });
   const w = M(maxX - minX), h = M(maxY - minY), d = M(maxZ - minZ);
@@ -174,6 +178,7 @@ export function layoutToScene(
       rotZDeg: p.rotZ_deg, // M8.1
       shape: p.shape, // M4
       hidden: p.hidden, // M7.4 — the usta hid it in the viewport
+      bevel_mm: p.bevel_mm, // M9E.1 — per-part soft edge
     })),
     features,
     origin,

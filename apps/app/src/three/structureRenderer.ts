@@ -4,8 +4,9 @@
 // userData for raycast selection, mirroring kitchen3d.ts's `userData.cabId` convention.
 
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"; // M9U.2 — soft edges
 import type { Scene, Board } from "./structureScene";
-import type { MaterialFinish, TextureKind } from "./materials";
+import type { MaterialFinish, TextureKind, PbrOverride } from "./materials";
 
 const WOOD = 0xe7ddc9; // carcass face (matches the kitchen runStyle default)
 const EDGE = 0xc9bd9e; // panel edge outline
@@ -156,11 +157,25 @@ function primitiveGeometry(shape: NonNullable<Board["shape"]>, w: number, h: num
   return g;
 }
 
+/**
+ * M9U.2 — the global soft edge (mm). Every plain board's edges are eased by this radius, which is the
+ * single biggest reason furniture reads as furniture and not a CAD box: a 1.3 mm rounded edge catches a
+ * thin highlight the way a real sanded panel does. A part may override it (`Board.bevel_mm`); 0 = sharp.
+ */
+const EDGE_BEVEL_MM = 1.3;
+
+/** A box with eased edges. The radius is clamped so it can never exceed a thin panel (a 3 mm back). */
+function roundedBox(w: number, h: number, d: number, mm: number): THREE.BufferGeometry {
+  const r = Math.min(mm / 1000, Math.min(w, h, d) * 0.45); // mm→scene units; never past the thin dimension
+  if (r < 0.0004) return new THREE.BoxGeometry(w, h, d); // too thin/too small to round → keep it sharp
+  return new RoundedBoxGeometry(w, h, d, 2, r);
+}
+
 function boardGeometry(b: Board): THREE.BufferGeometry {
   if (b.shape && b.shape !== "box") return primitiveGeometry(b.shape, b.size[0], b.size[1], b.size[2]); // M4
   const hasCorners = !!b.corners && b.corners.some((r) => r > 0);
   const hasCutouts = !!b.cutouts && b.cutouts.length > 0;
-  if (!hasCorners && !hasCutouts) return new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
+  if (!hasCorners && !hasCutouts) return roundedBox(b.size[0], b.size[1], b.size[2], b.bevel_mm ?? EDGE_BEVEL_MM); // M9U.2
 
   const [sx, sy, sz] = b.size;
   let tAxis: 0 | 1 | 2 = 0;
@@ -237,7 +252,7 @@ function texPair(kind: TextureKind): TexPair { const c = texCache.get(kind); if 
  *  finish/texture → the matte laminate look (byte-identical to pre-M3.2). Gloss/glass/frosted are
  *  MeshPhysicalMaterial; metal/mirror are metallic. A texture adds a cloned, per-board-scaled map +
  *  normalMap. Returned as MeshStandardMaterial so highlightBoard / recolorBoards keep working. */
-export function materialForFinish(color: number, finish?: MaterialFinish, texture?: TextureKind, size?: readonly [number, number, number]): THREE.MeshStandardMaterial {
+export function materialForFinish(color: number, finish?: MaterialFinish, texture?: TextureKind, size?: readonly [number, number, number], pbr?: PbrOverride): THREE.MeshStandardMaterial {
   const mat: THREE.MeshStandardMaterial = ((): THREE.MeshStandardMaterial => {
     switch (finish) {
       case "satin": return new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0, envMapIntensity: 0.5 });
@@ -261,13 +276,27 @@ export function materialForFinish(color: number, finish?: MaterialFinish, textur
     if (mat.roughness > 0.6) mat.roughness = 0.6; // a textured surface reads better a touch less flat
     mat.needsUpdate = true;
   }
+  // M9U.3 — a custom material's sliders override the finish/matte defaults last (Yaltiroqlik → roughness,
+  // Aks → metalness, Shaffoflik → opacity). Absent fields keep whatever the finish/texture set above, so a
+  // catalog board (no overrides) is byte-identical to pre-M9U.3.
+  if (pbr) {
+    if (pbr.roughness !== undefined) mat.roughness = pbr.roughness;
+    if (pbr.metalness !== undefined) {
+      mat.metalness = pbr.metalness;
+      // «Aks» is only visible if the surface actually samples the environment — a metallic board on the
+      // matte 0.25 envMap reads near-black. Lift the reflection with the slider so «Aks» does something.
+      mat.envMapIntensity = Math.max(mat.envMapIntensity ?? 0.25, 0.25 + pbr.metalness * 0.75);
+    }
+    if (pbr.opacity !== undefined && pbr.opacity < 1) { mat.transparent = true; mat.opacity = pbr.opacity; mat.depthWrite = false; }
+    mat.needsUpdate = true;
+  }
   return mat;
 }
 
 /** Build the assembled cabinet as a THREE.Group of box meshes — one per render board. `colorOf` (Phase F1)
  *  maps a part id → its decor colour (int); absent → WOOD. `finishOf` (M3.2) maps id → surface finish;
  *  absent → matte. */
-export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined, finishOf?: (id: string) => MaterialFinish | undefined, textureOf?: (id: string) => TextureKind | undefined): THREE.Group {
+export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined, finishOf?: (id: string) => MaterialFinish | undefined, textureOf?: (id: string) => TextureKind | undefined, pbrOf?: (id: string) => PbrOverride | undefined): THREE.Group {
   const group = new THREE.Group();
   for (const b of scene.boards) {
     // M7.4 — a hidden part is not drawn. It is NOT removed from anything else: the cut list, the holes,
@@ -275,7 +304,7 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
     // quietly drop it from the order.
     if (b.hidden) continue;
     const geom = boardGeometry(b);
-    const mesh = new THREE.Mesh(geom, materialForFinish(colorOf?.(b.id) ?? WOOD, finishOf?.(b.id), textureOf?.(b.id), b.size));
+    const mesh = new THREE.Mesh(geom, materialForFinish(colorOf?.(b.id) ?? WOOD, finishOf?.(b.id), textureOf?.(b.id), b.size, pbrOf?.(b.id)));
     mesh.userData.baseColor = colorOf?.(b.id) ?? WOOD; // remembered so realistic/shaded can restore it
     mesh.castShadow = true; mesh.receiveShadow = true; // M3.1 — boards cast onto the floor + onto each other
     mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
@@ -823,7 +852,7 @@ export function buildGizmo(
   size: [number, number, number],
   // `axes` limits which arrows appear: a shelf spans its bay, so only its HEIGHT is really its own and
   // offering X/Z arrows would promise a move the solver would immediately undo.
-  opts: { resize?: boolean; rotate?: boolean; axes?: readonly ("x" | "y" | "z")[]; biDir?: boolean } = {},
+  opts: { resize?: boolean; rotate?: boolean; axes?: readonly ("x" | "y" | "z")[]; biDir?: boolean; rotateAxes?: readonly ("x" | "y" | "z")[] } = {},
 ): THREE.Group {
   const withResize = opts.resize !== false; // a whole cabinet is move-only — it already resizes by face-drag
   const withRotate = opts.rotate !== false; // only a free board turns from its own gizmo (see KarkasEditor)
@@ -883,18 +912,30 @@ export function buildGizmo(
       g.add(shaft, cone, arrowHit);
     }
   }
-  // ROTATE ring — a horizontal hoop around the object; dragging it turns it about the vertical axis
-  // (FreePart.rotY_deg for a board, Block.rotY_deg for a whole cabinet — both placement-only).
+  // ROTATE rings (M9U.4) — a hoop per turnable axis; dragging one turns the object about THAT axis. A whole
+  // cabinet turns only about the vertical (Block.rotY_deg); a free board turns on all three (rotX/Y/Z_deg,
+  // render-only). X red · Y green · Z blue, matching the move arrows. Radii are offset (1.05 / 1.0 / 0.95×)
+  // so the three hoops don't overlap into one un-pickable knot on a phone. A default Torus lies in XY (hole
+  // along Z), so Z needs no turn, Y turns about X, X turns about Y.
   if (withRotate) {
-    const rr = Math.max(size[0], size[2]) / 2 + hs * 2.4; // hugs the footprint, clear of the face handles
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.003, rr * 0.022), 8, 48), new THREE.MeshBasicMaterial({ color: 0x7a5cc9, depthTest: false }));
-    ring.rotation.x = Math.PI / 2; // lay the hoop flat in the XZ plane so it spins about Y
-    ring.userData.rotateAxis = "y";
-    ring.renderOrder = 1000;
-    const ringHit = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.012, rr * 0.09), 6, 32), hitMat());
-    ringHit.rotation.x = Math.PI / 2;
-    ringHit.userData.rotateAxis = "y";
-    g.add(ring, ringHit);
+    const baseR = Math.max(size[0], size[1], size[2]) / 2 + hs * 2.4;
+    const RING = {
+      x: { color: 0xe5484d, rot: [0, Math.PI / 2, 0] as const, scale: 1.05 },
+      y: { color: 0x30a46c, rot: [Math.PI / 2, 0, 0] as const, scale: 1.0 },
+      z: { color: 0x2f6bff, rot: [0, 0, 0] as const, scale: 0.95 },
+    } as const;
+    for (const ax of opts.rotateAxes ?? ["y"]) {
+      const s = RING[ax];
+      const rr = baseR * s.scale;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.003, rr * 0.022), 8, 48), new THREE.MeshBasicMaterial({ color: s.color, depthTest: false }));
+      ring.rotation.set(s.rot[0], s.rot[1], s.rot[2]);
+      ring.userData.rotateAxis = ax;
+      ring.renderOrder = 1000;
+      const ringHit = new THREE.Mesh(new THREE.TorusGeometry(rr, Math.max(0.012, rr * 0.09), 6, 32), hitMat());
+      ringHit.rotation.set(s.rot[0], s.rot[1], s.rot[2]);
+      ringHit.userData.rotateAxis = ax;
+      g.add(ring, ringHit);
+    }
   }
   return g;
 }

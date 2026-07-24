@@ -49,7 +49,7 @@ import { layoutBounds, layoutToScene, rotateBlockPlacements, sceneWithRoom, type
 import { roomFromPreset } from "../../../../engine/structure/room.js";
 import { withApplianceCutouts } from "./appliances";
 import { snapCandidates, snapSpan, type SnapCandidate } from "../../../../engine/structure/snap.js";
-import { DEFAULT_PLAN, planThickness, boardThicknessMm10, withPlanDefaults, type MaterialPlan } from "./materials";
+import { DEFAULT_PLAN, planThickness, boardThicknessMm10, withPlanDefaults, mergeCustomBoards, customMaterialsByIds, type MaterialPlan, type CustomMaterial } from "./materials";
 import { loadWorkshopProfile, saveWorkshopProfile, type WorkshopProfile } from "./workshopProfile";
 import type { ThicknessSpec } from "../../../../engine/structure/solve.js";
 
@@ -301,8 +301,9 @@ interface KarkasState extends Derived {
   setFreePartNote: (fpId: string, text: string) => void;
   /** M7.4 — viewport flags: hide a part from the 3-D view (still cut/priced), or lock it against edits. */
   setFreePartView: (fpId: string, key: "hidden" | "locked", on: boolean) => void;
-  /** M8.1 — tilt a free part about X or Z (degrees, 0-359). Y keeps its own rotate action. */
-  setFreePartTilt: (fpId: string, axis: "x" | "z", deg: number) => void;
+  /** M8.1 — tilt a free part about X or Z (degrees, 0-359). Y keeps its own rotate action. `first` (M9U.4)
+   *  opens ONE undo step for a whole gizmo drag; absent/true = a single committed edit (a keypad entry). */
+  setFreePartTilt: (fpId: string, axis: "x" | "z", deg: number, first?: boolean) => void;
   /**
    * M8.4 — pick SEVERAL free parts and act on them at once. Four legs get one decor, three offcuts go
    * in one tap. Ids here are FREE-PART ids (not part ids), because that is what every free-part action
@@ -502,10 +503,13 @@ interface KarkasState extends Derived {
 
 /** The on-disk project shape (P7). Versioned so a future schema change can migrate. */
 interface ProjectFile {
-  version: 1;
+  version: 1 | 2;
   model: StructuralModel;
   plan: MaterialPlan;
   lockedQuote?: { total: number; date: string } | null;
+  /** M9U.3 (v2) — the custom materials this project references, embedded so a project opened on another
+   *  device (or after the local library is cleared) still renders + prices them instead of bare wood. */
+  customMaterials?: CustomMaterial[];
 }
 
 type XBox = { x: number; y: number; z: number; w: number; h: number; d: number };
@@ -1251,7 +1255,7 @@ export const useKarkas = create<KarkasState>((set, get) => {
         })),
       }, true);
     },
-    setFreePartTilt: (fpId, axis, deg) => {
+    setFreePartTilt: (fpId, axis, deg, first = true) => {
       const s = get();
       const block = s.model.blocks[0];
       if (!block?.freeParts || get().isFreePartLocked(fpId)) return;
@@ -1270,7 +1274,8 @@ export const useKarkas = create<KarkasState>((set, get) => {
           }),
         })),
       };
-      apply(model, true);
+      if (first) apply(model, true); // M9U.4 — one undo step per gizmo drag (else live-update, like rotateFreePartTo)
+      else set((st) => ({ ...derive(model, st.plan, st.thickness), selectedId: st.selectedId }));
     },
     removeFreeBoard: (fpId) => {
       if (get().isFreePartLocked(fpId)) return;
@@ -1736,7 +1741,17 @@ export const useKarkas = create<KarkasState>((set, get) => {
     canRedo: () => get().future.length > 0,
     exportProject: () => {
       const s = get();
-      const file: ProjectFile = { version: 1, model: s.model, plan: s.plan, lockedQuote: s.lockedQuote };
+      // M9U.3 — embed the custom materials this project references (plan slots + per-part overrides), so a
+      // project opened elsewhere renders + prices them. Only the USED ones travel — the file stays small.
+      const ids = new Set<string>();
+      for (const k of ["carcass", "back", "shelf", "facade", "worktop"] as const) if (s.plan[k]) ids.add(s.plan[k]);
+      for (const b of s.model.blocks) {
+        for (const f of b.freeParts ?? []) if (f.material) ids.add(f.material);
+        for (const c of b.components) if (c.material) ids.add(c.material);
+        for (const pnl of Object.values(b.panels ?? {})) if (pnl?.material) ids.add(pnl.material);
+      }
+      const customMaterials = customMaterialsByIds(ids);
+      const file: ProjectFile = { version: 2, model: s.model, plan: s.plan, lockedQuote: s.lockedQuote, ...(customMaterials.length ? { customMaterials } : {}) };
       return JSON.stringify(file, null, 2);
     },
     importProject: (json, blockId) => {
@@ -1745,14 +1760,21 @@ export const useKarkas = create<KarkasState>((set, get) => {
         throw new Error("BAD_PROJECT: not a karkas project file");
       }
       const plan = withPlanDefaults(data.plan); // migrate an old plan missing later slots (e.g. worktop)
+      // M9U.3 — register the project's embedded custom materials BEFORE solving, so boardById resolves their
+      // colour/price/thickness (else they'd fall back to bare wood), and seed them into this device's library.
+      const embedded = Array.isArray(data.customMaterials) ? data.customMaterials : [];
+      mergeCustomBoards(embedded);
+      const embeddedIds = embedded.map((m) => m.id);
       // §3.2 — a library block may carry decors the project pool lacks; flag them for the map-or-create
       // prompt (the block still loads so it's visible; resolveBinding/cancelBinding reconciles the pool).
-      const foreign = foreignDecors(get().materialPool, data.model, plan);
+      // Embedded customs are NOT foreign — they travelled with the project, so treat them as already known.
+      const knownPool = [...get().materialPool, ...embeddedIds];
+      const foreign = foreignDecors(knownPool, data.model, plan);
       // reset the FULL edit context on load (Step 12 audit fix): future[] (else redo restores the previous
       // project), and the manufacturing exportOverride / selectedHole (else block A's override leaks to B).
       // M8.4 — the PICKS go with the project too: a multi-pick or a block tick from the old file names
       // ids that mean something else here, and a batch action would land on a part the usta never chose.
-      set({ ...derive(data.model, plan, get().thickness), plan, selectedId: null, selectedBlockIds: [], multiIds: [], past: [], future: [], exportOverride: false, selectedHole: null, open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null, lockedQuote: data.lockedQuote ?? null });
+      set({ ...derive(data.model, plan, get().thickness), plan, materialPool: [...new Set(knownPool)], selectedId: null, selectedBlockIds: [], multiIds: [], past: [], future: [], exportOverride: false, selectedHole: null, open: true, editingBlockId: blockId ?? null, fromCabinet: false, pendingBinding: foreign.length ? { foreign } : null, lockedQuote: data.lockedQuote ?? null });
     },
     resolveBinding: (mapping) => {
       const s = get();
