@@ -33,7 +33,7 @@ import { leafSections, type Section } from "../../../../engine/contracts/structu
 import { solveStructure, DRAWER_HEIGHT_MM10 } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { buildDemoModel, buildCarcassModel } from "../../../../engine/structure/demoModel.js";
-import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentView, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, detachCarcassPanel as detachCarcassPanelOp, type DetachableSlot, arrayFreePart, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
+import { divideSection, addInstance, removeInstance, setLoadBearing, setComponentThickness, setComponentMaterial, setComponentNote, setComponentView, setComponentAngle, setComponentLip, setComponentHandle, setComponentLift, setComponentOrganizer, setComponentAppliance, setBlockFootprint, shelfMaxAngleDeg, setHingeEdge, forkComponentForInstance, resizeBlockWidth, resizeBlockHeight, resizeBlockDepth, moveLine as moveLineOp, setZoneRule as setZoneRuleOp, setSectionPurpose as setSectionPurposeOp, checkBoilerClearance, addFreePart as addFreePartOp, removeFreePart as removeFreePartOp, detachCarcassPanel as detachCarcassPanelOp, type DetachableSlot, arrayFreePart, snapBlockToWall, groupBlocks, ungroupBlocks, resolveRun, snapRunToWall, fitCorner, nestDrawer, duplicateBlock, duplicateFreePart, applyToFamily, familyStatus, moveInstanceAnchor, parentSectionOf, moveInstanceToSection, type AddKind, type AddOpts } from "../../../../engine/structure/operations.js";
 import type { SectionPurpose } from "../../../../engine/contracts/structure.js";
 import type { DivisionRule } from "../../../../engine/contracts/variables.js";
 import type { PanelFeatures, PanelCutout } from "../../../../engine/contracts/structure.js";
@@ -435,6 +435,13 @@ interface KarkasState extends Derived {
   setRoom: (preset: "I" | "L" | "U", lengths_mm: number[], turn?: "left" | "right") => void;
   /** 5.r1 — drop the room (walls disappear; the model is byte-identical to no-room). */
   clearRoom: () => void;
+  /** M12.1 — set the room's floor or wall decor (ids from the app's ROOM_MATERIALS, never from BOARDS).
+   *  Render-only: a room surface is never cut, never priced, never machined. No-op without a room. */
+  setRoomMaterial: (surface: "floor" | "wall", id: string) => void;
+  /** M12.3 — lay a rug under the piece (mm), or `null` to take it away. No-op without a room. */
+  setRoomRug: (rug: { w_mm: number; d_mm: number; color?: string } | null) => void;
+  /** M12.5 — the room's wall height in mm (clamped 1800…6000). No-op without a room. */
+  setRoomHeight: (mm: number) => void;
   /** 2.2b — combine the selected door with its siblings: move it onto its parent section (spans them all). */
   combineSelectedDoor: () => void;
   /** 2.2b — split a combined door back to one compartment: move it to its section's first leaf child. */
@@ -1515,8 +1522,70 @@ export const useKarkas = create<KarkasState>((set, get) => {
     },
     setRoom: (preset, lengths_mm, turn) => {
       const s = get();
-      const room = roomFromPreset(preset, lengths_mm.map((mm) => Math.max(1000, Math.round(mm) * 10)), turn ?? s.model.room?.turn ?? "left");
-      apply({ ...s.model, room }, true);
+      const built = roomFromPreset(preset, lengths_mm.map((mm) => Math.max(1000, Math.round(mm) * 10)), turn ?? s.model.room?.turn ?? "left");
+      // M12.1 — carry the decor across. `roomFromPreset` builds a fresh room from the walls alone, so
+      // editing one wall's length used to reset the floor, the wall colour and the rug back to plain.
+      const old = s.model.room;
+      const room = old ? {
+        ...built,
+        ...(old.floorMaterial ? { floorMaterial: old.floorMaterial } : {}),
+        ...(old.wallMaterial ? { wallMaterial: old.wallMaterial } : {}),
+        ...(old.rug ? { rug: old.rug } : {}),
+      } : built;
+      let next: StructuralModel = { ...s.model, room };
+      // M12.6 — stand the furniture against the first wall, unless the master has already placed it.
+      // A room drawn around world origin with the cabinet also at origin put the wall across the
+      // cabinet's FRONT, so the piece appeared to face the wall — measured, and the reason a room did not
+      // look like a room. Runs and lone blocks need different calls: a Run only exists once two blocks are
+      // grouped, so `snapRunToWall` does nothing at all on the single cabinet most rooms start from.
+      const firstWall = room.walls[0]?.id;
+      if (firstWall) {
+        const runs = next.runs ?? [];
+        if (runs.length > 0) {
+          for (const r of runs) if (!r.wallId) next = snapRunToWall(next, r.id, firstWall);
+        } else if (next.blocks.length === 1 && !old) {
+          // Only on the FIRST room: once a room exists the master may have moved the cabinet deliberately,
+          // and re-snapping on every wall-length edit would drag it back under his hands.
+          next = snapBlockToWall(next, next.blocks[0]!.id, firstWall);
+        }
+      }
+      apply(next, true);
+    },
+    // M12.1 — the room's own surfaces. A no-op without a room: there is nothing to decorate.
+    setRoomMaterial: (surface, id) => {
+      const s = get();
+      const room = s.model.room;
+      if (!room) return;
+      const key = surface === "floor" ? "floorMaterial" : "wallMaterial";
+      if (room[key] === id) return; // no dead undo step
+      apply({ ...s.model, room: { ...room, [key]: id } }, true);
+    },
+    // M12.3 — a rug under the piece. `null` removes it.
+    setRoomRug: (rug) => {
+      const s = get();
+      const room = s.model.room;
+      if (!room) return;
+      if (!rug) {
+        if (!room.rug) return;
+        const { rug: _drop, ...rest } = room;
+        apply({ ...s.model, room: rest }, true);
+        return;
+      }
+      apply({ ...s.model, room: { ...room, rug: {
+        w_mm10: Math.max(1000, Math.round(rug.w_mm * 10)),
+        d_mm10: Math.max(1000, Math.round(rug.d_mm * 10)),
+        ...(rug.color ? { color: rug.color } : {}),
+      } } }, true);
+    },
+    // M12.5 — the room's height. The contract has carried `Wall.height_mm10` since Phase 5 with no way to
+    // set it; every wall shares one height, which is what a room actually has.
+    setRoomHeight: (mm) => {
+      const s = get();
+      const room = s.model.room;
+      if (!room) return;
+      const h = Math.max(1800, Math.min(6000, Math.round(mm))) * 10;
+      if (room.walls.every((w) => (w.height_mm10 ?? 0) === h)) return;
+      apply({ ...s.model, room: { ...room, walls: room.walls.map((w) => ({ ...w, height_mm10: h })) } }, true);
     },
     clearRoom: () => {
       const s = get();

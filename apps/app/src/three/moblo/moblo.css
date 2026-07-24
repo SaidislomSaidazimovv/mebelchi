@@ -612,6 +612,23 @@
 }
 .mob-moresheet__group > legend { font: 700 11.5px Inter, system-ui, sans-serif; color: var(--mob-muted); padding: 0 5px; }
 
+/* ── M12.4 — presentation mode ──
+   Everything the master needs is gone and the client sees only the furniture. One rule instead of twenty
+   conditionals in the JSX: the canvas (and the exit button, which is a direct child) stay; every other
+   direct child of the root stands down. Nothing is unmounted, so leaving the mode restores it instantly
+   with its state intact. */
+.mob-root.is-presenting > *:not(.mob-viewport):not(.mob-present-exit) { display: none !important; }
+/* …and inside the viewport, only the canvas itself: the corner chips, hit-boxes and floating cards that
+   live in there are editing aids too. */
+.mob-root.is-presenting .mob-viewport > *:not(:first-child) { display: none !important; }
+.mob-present-exit {
+  position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; z-index: 300;
+  appearance: none; cursor: pointer;
+  min-height: 44px; padding: 10px 16px; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.35); background: rgba(20,24,30,.62); color: #fff;
+  font: 700 13px Inter, system-ui, sans-serif; backdrop-filter: blur(8px);
+}
+
 .mob-ar-err { font-size: 12.5px; color: #a01a2e; background: #fbe4e8; border-radius: 8px; padding: 8px 10px; }
 /* Device's own WebXR report — folded away by default; only opened when we ask for it. */
 .mob-ar-diag { font-size: 12.5px; border: 1px solid var(--mob-border); border-radius: 8px; padding: 8px 10px; }

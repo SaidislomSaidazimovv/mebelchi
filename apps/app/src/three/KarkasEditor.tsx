@@ -22,7 +22,8 @@ import { kromkaMetersByVariable } from "../../../../engine/structure/features.js
 import { buildBlockDrawing } from "./blockDrawing";
 import { blockHoles } from "./blockHoles";
 import { drawingSheetSvg, viewThumbSvg, panelThumbSvg } from "./drawingSvg";
-import { buildStructureGroup, highlightBoard, highlightBlocks, highlightParts, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode } from "./structureRenderer";
+import { buildStructureGroup, highlightBoard, highlightBlocks, highlightParts, recolorBoards, disposeStructureGroup, applyRenderMode, buildHoleMarkers, buildKromkaEdges, buildHandleGroup, buildApplianceGroup, buildRoomGroup, faceRoomWalls, buildGhostProps, buildSectionHitboxes, buildGizmo, createDimLine, type DimLine, type RenderMode, type RoomSurfaces } from "./structureRenderer";
+import { roomMaterialById, roomMaterialsFor, DEFAULT_FLOOR, DEFAULT_WALL } from "./roomMaterials";
 import { setSwatchHost, swatchDataUrl, swatchKey, type SwatchShape, type SwatchSpec } from "./swatchRender";
 import { PrimIcon, type PrimKind } from "./PrimIcons";
 import { handleFittings } from "./handles";
@@ -42,6 +43,35 @@ import "./moblo/moblo.css";
  * near-white — white text on a white card. Declared here, above every style constant that uses it.
  */
 const PAPER_INK = "#1f2430";
+/** M12.1 — the model's room decor, translated into what the renderer needs. Absent ids fall back to the
+ *  neutral pair the room always had, so a model saved before M12 renders exactly as it did. */
+/**
+ * M12.6 — which way is the piece FACING, as a unit vector in the XZ plane.
+ *
+ * The engine's front is −Z, and every camera here used to assume that literally. But a cabinet snapped to
+ * a wall is TURNED to face into the room (`rotY_deg`), so after M12.6 a 180°-turned cabinet showed the
+ * camera its back — its white HDF panel — which is precisely the «white fronts» trap this project has
+ * already been caught by once. The camera now stands where the fronts are.
+ */
+function facingOf(blocks: readonly { rotY_deg?: number }[]): { x: number; z: number } {
+  const deg = blocks[0]?.rotY_deg ?? 0;
+  const r = (deg * Math.PI) / 180;
+  // (0,0,−1) rotated about +Y by `deg`
+  return { x: -Math.sin(r), z: -Math.cos(r) };
+}
+
+function roomSurfaces(room: { floorMaterial?: string; wallMaterial?: string; rug?: { color?: string } } | undefined): RoomSurfaces | undefined {
+  if (!room) return undefined;
+  const spec = (id: string | undefined, fallback: string) => {
+    const m = roomMaterialById(id) ?? roomMaterialById(fallback);
+    return m ? { hex: hexToInt(m.hex), ...(m.texture ? { texture: m.texture } : {}), ...(m.finish ? { finish: m.finish } : {}), ...(m.grain_m ? { grain_m: m.grain_m } : {}) } : undefined;
+  };
+  return {
+    ...(spec(room.wallMaterial, DEFAULT_WALL) ? { wall: spec(room.wallMaterial, DEFAULT_WALL) } : {}),
+    ...(spec(room.floorMaterial, DEFAULT_FLOOR) ? { floor: spec(room.floorMaterial, DEFAULT_FLOOR) } : {}),
+    ...(room.rug?.color ? { rugHex: hexToInt(room.rug.color) } : {}),
+  };
+}
 // M10.7 — the whole piece's envelope reads BLUE, like Moblo's. The dim line's orange default stays the
 // colour of a live drag and the measuring tape, so «this is the model» never reads as «this is happening
 // right now».
@@ -462,6 +492,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const setLCornerHand = useKarkas((s) => s.setLCornerHand);
   const setRoom = useKarkas((s) => s.setRoom);
   const clearRoom = useKarkas((s) => s.clearRoom);
+  // M12.1/M12.3/M12.5 — the room's decor. `room` itself is read as a whole object (it is a stable slice
+  // of the model, not a derived one), the rest as primitives per the selector rule.
+  const setRoomMaterial = useKarkas((s) => s.setRoomMaterial);
+  const setRoomRug = useKarkas((s) => s.setRoomRug);
+  const setRoomHeight = useKarkas((s) => s.setRoomHeight);
+  const roomHeightMm = useKarkas((s) => Math.round((s.model.room?.walls[0]?.height_mm10 ?? 27000) / 10));
+  const room = model.room; // read off the model we already hold — not a second selector
   const fitCorner = useKarkas((s) => s.fitCorner);
   // 5.r1 — PRIMITIVE room selectors (React 18 rule): the preset (none/I/L/U) + wall lengths as a comma string.
   const roomPreset = useKarkas((s) => { const n = s.model.room?.walls.length ?? 0; return n === 0 ? "none" : n === 1 ? "I" : n === 2 ? "L" : "U"; });
@@ -1215,7 +1252,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       place(r.labels.h, max.x, (min.y + max.y) / 2, max.z); // height — right front edge
       place(r.labels.d, max.x, min.y, (min.z + max.z) / 2); // depth — bottom right edge
     };
-    const loop = () => { controls.update(); renderer.render(scene3, camera); positionLabels(); if (rt.current) rt.current.raf = requestAnimationFrame(loop); };
+    // M12.2 — decide which walls are in the way BEFORE drawing: a wall between the camera and the room
+    // hides itself, so the interior stays readable without the walls having to be see-through.
+    const loop = () => {
+      controls.update();
+      faceRoomWalls(rt.current?.roomGroup ?? null, camera, controls.target);
+      renderer.render(scene3, camera);
+      positionLabels();
+      if (rt.current) rt.current.raf = requestAnimationFrame(loop);
+    };
     rt.current.raf = requestAnimationFrame(loop);
     const onResize = () => { const w = mount.clientWidth || 320, h = mount.clientHeight || 480; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); };
     window.addEventListener("resize", onResize);
@@ -1435,7 +1480,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     r.applianceGroup = ag;
     // Phase 5.r1 — rebuild the room's wall backdrop (matte, non-interactive). Empty group when there's no room.
     if (r.roomGroup) { r.scene.remove(r.roomGroup); disposeStructureGroup(r.roomGroup); }
-    const rg = buildRoomGroup(scene);
+    const rg = buildRoomGroup(scene, roomSurfaces(model.room));
     r.scene.add(rg);
     r.roomGroup = rg;
     highlightBoard(group, selectedId);
@@ -1464,10 +1509,12 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
       const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
       r.controls.target.copy(ctr);
-      // Stand in FRONT of the cabinet (−Z). The back panel sits at +Z, so framing from +Z showed the
+      // Stand in FRONT of the cabinet. The back panel is opposite, so framing from behind showed the
       // master the closed back: a tap in the middle of the screen selected `__back`, and dividers and
-      // shelves could not be reached at all until they thought to orbit.
-      r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z - dist * 0.95);
+      // shelves could not be reached at all until they thought to orbit. M12.6 — the front is no longer
+      // always −Z: a cabinet snapped to a wall is turned to face into the room, so ask which way it faces.
+      const f = facingOf(model.blocks);
+      r.camera.position.set(ctr.x + dist * (f.x * 0.95 + f.z * -0.6), ctr.y + dist * 0.4, ctr.z + dist * (f.z * 0.95 + f.x * 0.6));
       r.camera.lookAt(ctr);
       r.controls.update();
     }
@@ -1612,11 +1659,66 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
     const dist = (Math.max(scene.radius, 0.3) / (2 * Math.tan((r.camera.fov * Math.PI) / 360))) * 2.2;
     r.controls.target.copy(ctr);
-    r.camera.position.set(ctr.x + dist * 0.6, ctr.y + dist * 0.4, ctr.z - dist * 0.95); // front (−Z), as above
+    const f = facingOf(model.blocks); // M12.6 — the front is wherever the piece faces, as above
+    r.camera.position.set(ctr.x + dist * (f.x * 0.95 + f.z * -0.6), ctr.y + dist * 0.4, ctr.z + dist * (f.z * 0.95 + f.x * 0.6));
     r.camera.lookAt(ctr);
     r.controls.update();
     r.framedKey = ""; // let the next bounds change reframe again
   };
+  /**
+   * M12.4 — PRESENTATION MODE. The master hands the client the phone: every bar, rail, tab, gizmo,
+   * dimension line and the floor grid step aside, and the camera swaps to the 20° product lens proven in
+   * U11.9 (the editor's 42° splays a small cabinet's sides outward — right for working close, wrong for
+   * showing). One button comes back. Nothing about the model changes; this is a way of LOOKING at it.
+   */
+  const [presenting, setPresenting] = useState(false);
+  const editorFovRef = useRef(42);
+  useEffect(() => {
+    const r = rt.current;
+    if (!r) return;
+    if (presenting) {
+      editorFovRef.current = r.camera.fov;
+      r.camera.fov = 20;
+      r.camera.updateProjectionMatrix();
+      if (r.grid) r.grid.visible = false;
+      if (r.sectionGroup) r.sectionGroup.visible = false;
+      if (r.gizmoGroup) r.gizmoGroup.visible = false;
+      for (const dl of r.selDims) dl.group.visible = false;
+      // Framing: the EDITOR frames the furniture alone (M12.0 — that is what you are working on, and a
+      // 3 m room would shrink a 600 mm cabinet to a speck). A PRESENTATION frames the furniture AND the
+      // room, because the room is the whole point of the shot. Same scene, two honest answers.
+      const box = new THREE.Box3();
+      const add = (bd: { pos: [number, number, number]; size: [number, number, number] }): void => {
+        box.expandByPoint(new THREE.Vector3(bd.pos[0] - bd.size[0] / 2, bd.pos[1] - bd.size[1] / 2, bd.pos[2] - bd.size[2] / 2));
+        box.expandByPoint(new THREE.Vector3(bd.pos[0] + bd.size[0] / 2, bd.pos[1] + bd.size[1] / 2, bd.pos[2] + bd.size[2] / 2));
+      };
+      for (const bd of scene.boards) add(bd);
+      for (const w of scene.walls ?? []) add(w);
+      // The camera AIMS at the furniture — it is the subject, and a room centre would push the piece to
+      // the edge of frame (measured: it went off screen entirely) — but it stands back far enough for the
+      // room to read around it. Subject centred, context included.
+      const ctr = new THREE.Vector3(scene.center[0], scene.center[1], scene.center[2]);
+      const span = box.isEmpty()
+        ? Math.max(scene.radius, 0.3)
+        : Math.max(scene.radius, box.getBoundingSphere(new THREE.Sphere()).center.distanceTo(ctr) + box.getBoundingSphere(new THREE.Sphere()).radius) * 0.55;
+      const dist = (span / Math.sin((20 * Math.PI) / 360)) * 0.62;
+      r.controls.target.copy(ctr);
+      const f = facingOf(model.blocks); // M12.6 — show the client the FRONTS, never the back panel
+      r.camera.position.set(ctr.x + dist * (f.x * 0.92 + f.z * -0.55), ctr.y + dist * 0.30, ctr.z + dist * (f.z * 0.92 + f.x * 0.55));
+      r.camera.lookAt(ctr);
+      r.controls.update();
+    } else {
+      r.camera.fov = editorFovRef.current;
+      r.camera.updateProjectionMatrix();
+      if (r.grid) r.grid.visible = true;
+      if (r.gizmoGroup) r.gizmoGroup.visible = true;
+      for (const dl of r.selDims) dl.group.visible = true;
+      r.framedKey = ""; // let the normal framing take over again
+    }
+    r.renderer.render(r.scene, r.camera);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presenting]);
+
   const screenshot = () => {
     const r = rt.current;
     if (!r) return;
@@ -1769,7 +1871,13 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   return (
     <KeypadCtx.Provider value={compact ? (o) => setKeypad(o) : null}>
     <SwatchCtx.Provider value={setSwatchTarget}>
-    <div className="mob-root" data-theme={theme}>
+    <div className={"mob-root" + (presenting ? " is-presenting" : "")} data-theme={theme}>
+      {/* M12.4 — the only thing on screen besides the furniture while presenting. Everything else is
+          stood down by one CSS rule rather than twenty conditionals, so no control can be forgotten. */}
+      {presenting && (
+        <button type="button" className="mob-present-exit" onClick={() => setPresenting(false)}
+          title="Tahrirlashga qaytish" aria-label="Tahrirlashga qaytish">✕ Tahrirlash</button>
+      )}
       {/* ── U2.1 — Moblo top bar (home · document · tabs · theme · menu) ── */}
       <header className="mob-topbar">
         <div className="mob-top-left">
@@ -2185,8 +2293,65 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                           onCommit={(v) => { const lens = roomLens.split(",").map(Number); lens[i] = v; setRoom(roomPreset as "I" | "L" | "U", lens); }} />
                       </label>
                     ))}
+                    {/* M12.5 — the room's height. One value for the whole room, which is what a room has. */}
+                    <label className="mob-props-f" style={{ justifyContent: "space-between" }}>
+                      <span>Balandligi</span>
+                      <DimField label="mm" value={roomHeightMm} min={1800} units={units} onCommit={setRoomHeight} />
+                    </label>
+
+                    {/* M12.1 — the room's own surfaces. A separate palette from the boards: a floor is not
+                        ЛДСП and must never carry a furniture price into the client's head. */}
+                    <div style={{ ...mono, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginTop: 8 }}>Pol</div>
+                    <div className="mob-addgrid">
+                      {roomMaterialsFor("floor").map((m) => (
+                        <button key={m.id} type="button" className={"mob-addbtn" + ((room?.floorMaterial ?? DEFAULT_FLOOR) === m.id ? " is-active" : "")}
+                          style={{ display: "flex", alignItems: "center", gap: 7, justifyContent: "flex-start" }}
+                          onClick={() => setRoomMaterial("floor", m.id)}>
+                          <span style={{ width: 20, height: 20, borderRadius: 5, background: m.hex, border: "1px solid rgba(0,0,0,0.18)", flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ ...mono, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginTop: 8 }}>Devor</div>
+                    <div className="mob-addgrid">
+                      {roomMaterialsFor("wall").map((m) => (
+                        <button key={m.id} type="button" className={"mob-addbtn" + ((room?.wallMaterial ?? DEFAULT_WALL) === m.id ? " is-active" : "")}
+                          style={{ display: "flex", alignItems: "center", gap: 7, justifyContent: "flex-start" }}
+                          onClick={() => setRoomMaterial("wall", m.id)}>
+                          <span style={{ width: 20, height: 20, borderRadius: 5, background: m.hex, border: "1px solid rgba(0,0,0,0.18)", flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* M12.3 — a rug under the piece. Sizes are the ones a shop actually sells. */}
+                    <div style={{ ...mono, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginTop: 8 }}>Gilam</div>
+                    <div className="mob-addgrid">
+                      <button type="button" className={"mob-addbtn" + (!room?.rug ? " is-active" : "")} onClick={() => setRoomRug(null)}>Yo'q</button>
+                      {([[1600, 2300, "1.6×2.3"], [2000, 3000, "2×3"], [2500, 3500, "2.5×3.5"]] as const).map(([w, d, label]) => (
+                        <button key={label} type="button"
+                          className={"mob-addbtn" + (room?.rug?.w_mm10 === w * 10 ? " is-active" : "")}
+                          onClick={() => setRoomRug({ w_mm: w, d_mm: d, ...(room?.rug?.color ? { color: room.rug.color } : {}) })}>{label} m</button>
+                      ))}
+                    </div>
+                    {room?.rug && (
+                      <div className="mob-addgrid">
+                        {(["#b8a892", "#8f9c8a", "#a8848a", "#7e8a99", "#3f4147"]).map((c) => (
+                          <button key={c} type="button" title="Gilam rangi" aria-label="Gilam rangi"
+                            className={"mob-addbtn" + ((room.rug?.color ?? "#b8a892") === c ? " is-active" : "")}
+                            onClick={() => setRoomRug({ w_mm: Math.round((room.rug?.w_mm10 ?? 20000) / 10), d_mm: Math.round((room.rug?.d_mm10 ?? 30000) / 10), color: c })}>
+                            <span style={{ display: "block", width: "100%", height: 18, borderRadius: 5, background: c }} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
+                {/* M12.4 — the reason the room exists: hand the phone to the client. */}
+                <button type="button" onClick={() => { setPresenting(true); setRpanel("none"); }}
+                  style={{ width: "100%", minHeight: 48, marginTop: 14, borderRadius: 11, border: "none", background: "#1f5570", color: "#fff", fontWeight: 800, fontSize: 14.5, cursor: "pointer" }}>
+                  👁 Mijozga ko'rsatish
+                </button>
                 {roomWallCount >= 2 && (
                   <button className="mob-addbtn" type="button" style={{ width: "100%", marginTop: 12 }}
                     onClick={() => { fitCorner(); setRpanel("none"); }}>⌐ Burchakka L-shkaf</button>
