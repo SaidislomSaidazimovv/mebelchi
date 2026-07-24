@@ -24,6 +24,20 @@ import { KarkasOverlay } from "./three/KarkasEditor";
 import { isSupabaseConfigured } from "./lib/supabase";
 
 export default function App() {
+  return (
+    <>
+      <AppScreens />
+      {/* The karkas editor is a FULL-SCREEN overlay, so it belongs outside the screen switch. Mounted
+          inside the details/configure/preview branch it silently unmounted the moment the app changed
+          screen — while its own `open` flag stayed true — so an edit in progress vanished and then
+          reappeared unbidden on the way back. Its own `open` is now the single thing that decides
+          whether it is on screen. */}
+      <KarkasOverlay />
+    </>
+  );
+}
+
+function AppScreens() {
   const screen = useStore((s) => s.screen);
   const authReady = useStore((s) => s.authReady);
   const recovery = useStore((s) => s.recovery);
@@ -76,7 +90,6 @@ export default function App() {
         <Menu />
         <SettingsModal />
         <LoginNudge />
-        <KarkasOverlay />
       </div>
     );
   }
