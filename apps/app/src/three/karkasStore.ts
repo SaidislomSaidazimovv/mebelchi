@@ -1385,7 +1385,11 @@ export const useKarkas = create<KarkasState>((set, get) => {
     setPlanMaterial: (slot, id) => set((s) => { const plan = { ...s.plan, [slot]: id }; return { plan, materialPool: [...new Set([...s.materialPool, id])], ...derive(s.model, plan, s.thickness) }; }),
     // a fresh model (new block / template) is NOT tied to a placed project block → clear the link.
     // meta.fromCabinet marks a converter copy of an existing kitchen module (saving adds a copy).
-    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p, s.thickness), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, multiIds: [], past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
+    // Opening a DIFFERENT model must leave nothing behind that points into the old one. `selectedBlockIds`
+    // was the one this forgot — `setModel` and `importProject` both clear it — so a block ticked in Blok
+    // mode before, then «＋ Yangi blok» from the library, arrived with a stale tick on an id that either
+    // no longer exists or now names a different cabinet.
+    openWith: (model, plan, meta) => set((s) => { const p = plan ?? s.plan; return { ...derive(model, p, s.thickness), plan: p, materialPool: planDecors(p), pendingBinding: null, lockedQuote: null, exportOverride: false, selectedHole: null, open: true, selectedId: null, selectedBlockIds: [], multiIds: [], past: [], future: [], editingBlockId: null, fromCabinet: meta?.fromCabinet ?? false }; }),
     // M8.4 — the multi-pick is cleared with the model: its ids belong to the OLD project, and an id that
     // happens to repeat in the new one would act on a part the usta never touched.
     setModel: (model) => set((s) => ({ ...derive(model, s.plan, s.thickness), selectedId: null, selectedBlockIds: [], multiIds: [], past: [], future: [], editingBlockId: null, fromCabinet: false, lockedQuote: null, exportOverride: false, selectedHole: null })),

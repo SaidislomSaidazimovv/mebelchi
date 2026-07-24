@@ -28,7 +28,14 @@
   font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   background: var(--mob-bg-b);
-  z-index: 1;
+  /* The karkas editor is a FULL-SCREEN overlay over the rest of the app (App.tsx renders KarkasOverlay
+     as a sibling of the menu button, the toast and the menu, inside a `.app` that makes no stacking
+     context of its own). At z-index 1 it covered the room scene but the app's own chrome kept floating
+     on top of it — the menu FAB at 12, the toast at 50, the menu backdrop at 60, dialogs up to 200 — so
+     opening a block from the library showed the karkas UI with the app's buttons scattered across it.
+     400 clears every one of them. `position: fixed` already makes this a stacking context, so the
+     editor's own layers (up to 300) stay contained and unaffected. */
+  z-index: 400;
 }
 
 /* Dark = EXPLICIT toggle only (light is the default, regardless of OS preference). */
