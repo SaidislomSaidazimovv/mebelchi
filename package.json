@@ -12,10 +12,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "bench": "vitest run --config vitest.bench.config.ts"
+    "bench": "vitest run --config vitest.bench.config.ts",
+    "test:ui": "node tools/ui-size-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.19.20",
+    "puppeteer-core": "^23.11.1",
     "typescript": "^5.5.4",
     "vitest": "^2.1.8"
   }
