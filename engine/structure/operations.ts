@@ -1709,6 +1709,40 @@ export function duplicateFreePart(model: StructuralModel, blockId: BlockId, free
 }
 
 /**
+ * M10.10 — repeat one free part along an axis: `count` NEW copies, each `step_mm10` further along than
+ * the last (so a pergola's twenty rafters, a slatted bed base or a run of shelf pins is one action rather
+ * than twenty duplicate-and-drag rounds). The original stays put and the copies march away from it; a
+ * negative step marches the other way.
+ *
+ * Ids come from the caller (`idAt(i)`) so the engine stays pure and deterministic, exactly as
+ * duplicateFreePart does. Throws when the block or part is unknown, when the count is out of range, or
+ * when an id would collide — a silent collision would let one copy shadow another for the rest of the
+ * document's life. Nothing else about the part changes: same size, material, note, tilt, lock.
+ */
+export function arrayFreePart(
+  model: StructuralModel,
+  blockId: BlockId,
+  freePartId: string,
+  opts: { axis: "x" | "y" | "z"; step_mm10: number; count: number; idAt: (i: number) => string },
+): StructuralModel {
+  const block = model.blocks.find((b) => b.id === blockId);
+  const fp = block?.freeParts?.find((f) => f.id === freePartId);
+  if (!block || !fp) throw new Error("ARRAY_FREEPART_NOT_FOUND");
+  if (!Number.isInteger(opts.count) || opts.count < 1 || opts.count > 200) throw new Error("ARRAY_FREEPART_BAD_COUNT");
+  if (!Number.isFinite(opts.step_mm10) || opts.step_mm10 === 0) throw new Error("ARRAY_FREEPART_BAD_STEP");
+  const taken = new Set((block.freeParts ?? []).map((f) => f.id));
+  const copies: FreePart[] = [];
+  for (let i = 1; i <= opts.count; i++) {
+    const id = opts.idAt(i);
+    if (taken.has(id)) throw new Error("ARRAY_FREEPART_DUPLICATE_ID");
+    taken.add(id);
+    const shift = Math.round(opts.step_mm10 * i);
+    copies.push({ ...fp, id, box: { ...fp.box, [opts.axis]: fp.box[opts.axis] + shift } });
+  }
+  return { ...model, blocks: model.blocks.map((b) => (b.id === blockId ? { ...b, freeParts: [...(b.freeParts ?? []), ...copies] } : b)) };
+}
+
+/**
  * Duplicate a whole cabinet. EVERY id inside is re-suffixed — zones, sections (recursively, plus their
  * divider/instance references), components, instances (including nested drawer interiors), lines, rows and
  * free parts. Without that the two blocks would share section/instance ids and an edit aimed at the copy
