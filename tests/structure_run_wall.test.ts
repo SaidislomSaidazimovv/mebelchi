@@ -63,8 +63,13 @@ describe("Phase 5.r2 — snap to the L's second wall (+Z)", () => {
 
 describe("Phase 5.r2 — no-ops (byte-identical)", () => {
   it("freeing an already-free run / unknown run / unknown wall are all same-ref", () => {
-    const m = twoBlockRoomRun();
-    const runId = m.runs![0]!.id;
+    const built = twoBlockRoomRun();
+    const runId = built.runs![0]!.id;
+    // M12.6 — `setRoom` now stands an unassigned run against the first wall, so the fixture arrives
+    // ALREADY snapped. Free it first to get back to the state this no-op is about; that call is itself
+    // the operation under test, and freeing twice must still be a same-ref no-op.
+    const m = snapRunToWall(built, runId, null);
+    expect(m.runs![0]!.wallId).toBeUndefined(); // precondition: the run really is free now
     expect(snapRunToWall(m, runId, null)).toBe(m); // already free
     expect(snapRunToWall(m, "nope", "wall_0")).toBe(m); // unknown run
     expect(snapRunToWall(m, runId, "wall_9")).toBe(m); // no such wall
