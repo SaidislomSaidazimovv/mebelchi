@@ -20,6 +20,8 @@ import {
   removeCustomBoard,
   mergeCustomBoards,
   createCustomMaterial,
+  partPbrLookup,
+  customMaterialsByIds,
 } from "../apps/app/src/three/materials.js";
 
 // The registry is module-level shared state — clear anything a test added so tests stay isolated.
@@ -115,5 +117,45 @@ describe("M9U.3 — a custom material prices a real cabinet exactly like its bas
     const priceCust = estimate(solveStructure(model, planThickness(planCust)), planCust).priceUzs;
 
     expect(priceCust).toBe(priceBase); // auto-price === base price, resolved through boardById everywhere
+  });
+});
+
+describe("M9U.3 — partPbrLookup surfaces a custom material's sliders (M9U.3b renderer wiring)", () => {
+  it("a catalog-only plan yields no PBR overrides", () => {
+    const look = partPbrLookup([{ id: "p1", role: "facade" }], DEFAULT_PLAN);
+    expect(look("p1")).toBeUndefined();
+  });
+
+  it("a custom facade's roughness/metalness/opacity ride to its part; other roles stay undefined", () => {
+    registerCustomBoard(createCustomMaterial("ldsp_white", { id: "cust_pbr", name: "Shiny", hex: "#ffffff", roughness: 0.1, metalness: 0.5, opacity: 0.7 }));
+    const plan = { ...DEFAULT_PLAN, facade: "cust_pbr" };
+    const look = partPbrLookup([{ id: "p1", role: "facade" }, { id: "p2", role: "carcass_side" }], plan);
+    expect(look("p1")).toEqual({ roughness: 0.1, metalness: 0.5, opacity: 0.7 });
+    expect(look("p2")).toBeUndefined();
+  });
+
+  it("a custom material with NO sliders emits no PBR entry (byte-identical to a catalog board)", () => {
+    registerCustomBoard(createCustomMaterial("ldsp_white", { id: "cust_flat", name: "Flat", hex: "#eeeeee" }));
+    const plan = { ...DEFAULT_PLAN, facade: "cust_flat" };
+    expect(partPbrLookup([{ id: "p1", role: "facade" }], plan)("p1")).toBeUndefined();
+  });
+});
+
+describe("M9U.3 — project embed: only USED custom materials travel, and import restores them (M9U.3c)", () => {
+  it("customMaterialsByIds returns only the registered customs whose id is requested", () => {
+    registerCustomBoard(createCustomMaterial("ldsp_white", { id: "cust_e1", name: "E1", hex: "#111111" }));
+    registerCustomBoard(createCustomMaterial("ldsp_white", { id: "cust_e2", name: "E2", hex: "#222222" }));
+    const picked = customMaterialsByIds(["cust_e1", "ldsp_white", "unknown"]);
+    expect(picked.map((m) => m.id)).toEqual(["cust_e1"]); // a catalog id + an unknown id are excluded
+  });
+
+  it("a round-trip (embed → clear → merge) restores the material so boardById resolves it again", () => {
+    registerCustomBoard(createCustomMaterial("wood_walnut", { id: "cust_rt", name: "RT", hex: "#5a3a22", roughness: 0.2 }));
+    const embedded = customMaterialsByIds(["cust_rt"]); // what exportProject would embed
+    removeCustomBoard("cust_rt"); // simulate opening the project on a device that never had it
+    expect(boardById("cust_rt")).toBeUndefined();
+    mergeCustomBoards(embedded); // what importProject does before solving
+    expect(boardById("cust_rt")).toEqual(embedded[0]);
+    expect(boardById("cust_rt")!.roughness).toBe(0.2);
   });
 });

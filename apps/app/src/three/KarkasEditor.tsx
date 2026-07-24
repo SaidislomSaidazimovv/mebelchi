@@ -30,7 +30,7 @@ import { arDiagnostics, ArSessionError, detectArSupport, exportGlb, exportObj, e
 import { tagFacades, fadeFacades, hideFacades, applyMaterialsView } from "./karkasLayer";
 import { sceneDimsMm, layoutBounds, leafSectionBoxes } from "./structureScene";
 import { estimate, hardwareEstimate, applianceEstimate, groupSpecs, sortSpecs, type SpecSort } from "./estimate";
-import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, partFinishLookup, partTextureLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, materialCategory, type MaterialPlan } from "./materials";
+import { BOARDS, EDGES, APPLIANCE, boardForRole, boardById, edgeVarById, hexToInt, partColorLookup, partFinishLookup, partTextureLookup, partPbrLookup, planThickness, selectionColors, projectMaterials, materialIdLookup, materialCategory, getCustomBoards, createCustomMaterial, registerCustomBoard, removeCustomBoard, type MaterialPlan } from "./materials";
 import "./moblo/moblo.css";
 
 /**
@@ -246,6 +246,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const textureFn = useMemo(() => partTextureLookup(parts, plan), [parts, plan]);
   const textureRef = useRef(textureFn);
   textureRef.current = textureFn;
+  // M9U.3 — part id → PBR slider overrides (roughness/metalness/opacity) of a custom material. Parallel to
+  // the finish/texture lookups; absent → the finish/matte defaults (byte-identical to a catalog board).
+  const pbrFn = useMemo(() => partPbrLookup(parts, plan), [parts, plan]);
+  const pbrRef = useRef(pbrFn);
+  pbrRef.current = pbrFn;
   const selComp = useKarkas((s) => s.selectedComponent());
   // NB: selectedParts() returns a FRESH array each call, so subscribing to it directly (`useKarkas(s =>
   // s.selectedParts())`) makes zustand's snapshot change every render → an infinite re-render loop (blank
@@ -1266,7 +1271,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     const r = rt.current;
     if (!r) return;
     if (r.group) { r.scene.remove(r.group); disposeStructureGroup(r.group); }
-    const group = buildStructureGroup(scene, colorRef.current, finishRef.current, textureRef.current);
+    const group = buildStructureGroup(scene, colorRef.current, finishRef.current, textureRef.current, pbrRef.current);
     tagFacades(group, parts); // «Ichini ko'rish» — mark fronts, then apply the current mode + fade
     applyVisuals(group);
     r.scene.add(group);
@@ -1485,7 +1490,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   // ── AR — detect once on mount; build the model on demand (never at import time) ──
   useEffect(() => { let live = true; void detectArSupport().then((s) => { if (live) setArSupport(s); }); return () => { live = false; }; }, []);
   /** A freshly built structure group for AR / export — independent of the editor's live group. */
-  const arGroup = () => buildStructureGroup(scene, colorRef.current, finishRef.current, textureRef.current);
+  const arGroup = () => buildStructureGroup(scene, colorRef.current, finishRef.current, textureRef.current, pbrRef.current);
   /** Turn a refused session into advice the master can act on — the raw WebXR text alone helps nobody. */
   const arAdvice = (err: unknown): string => {
     const msg = err instanceof Error ? err.message : String(err);
@@ -3110,6 +3115,9 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
     onClose();
   };
   const dark = theme === "dark";
+  const [creating, setCreating] = useState(false); // M9U.3 — the «＋ Yangi material» create dialog
+  const [, bump] = useState(0); // re-read the custom library after create / delete
+  const custom = getCustomBoards(); // M9U.3 — the usta's own materials
   const groups = SWATCH_ORDER.map((g) => ({ g, items: BOARDS.filter((b) => materialCategory(b) === g) })).filter((x) => x.items.length);
   const chip = (key: string, bg: string, active: boolean, label: string, on: () => void) => (
     <button key={key} type="button" title={label} aria-label={label} onClick={on}
@@ -3126,6 +3134,25 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
           <button type="button" onClick={onClose} aria-label="Yopish" style={{ border: "none", background: "transparent", color: "inherit", fontSize: 24, lineHeight: 1, cursor: "pointer" }}>×</button>
         </div>
         {target.kind !== "plan" && <div style={{ marginBottom: 12 }}>{chip("std", "#e6e6e6", current === "", "Standart (rol bo'yicha)", () => pick(""))}</div>}
+        {/* M9U.3 — create your own material (colour + sliders), auto-priced from a base stock. */}
+        <button type="button" onClick={() => setCreating(true)}
+          style={{ width: "100%", marginBottom: 14, padding: "10px 12px", borderRadius: 10, border: `1px dashed ${dark ? "#41597e" : "#c8b98e"}`, background: dark ? "#232b3d" : "#faf7ee", color: dark ? "#cfe0ff" : "#8a6d1f", cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+          ＋ Yangi material yaratish
+        </button>
+        {custom.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginBottom: 7 }}>🎨 Men yaratganlarim</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8 }}>
+              {custom.map((b) => (
+                <div key={b.id} style={{ position: "relative" }}>
+                  {chip(b.id, b.hex, current === b.id, b.name, () => pick(b.id))}
+                  <button type="button" title="O'chirish" aria-label="O'chirish" onClick={(e) => { e.stopPropagation(); removeCustomBoard(b.id); bump((n) => n + 1); }}
+                    style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", border: "none", background: "#c0392b", color: "#fff", fontSize: 12, lineHeight: "20px", cursor: "pointer", padding: 0, boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }}>×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {groups.map(({ g, items }) => (
           <div key={g} style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, opacity: 0.55, marginBottom: 7 }}>{SWATCH_BADGE[g]} {g}</div>
@@ -3134,6 +3161,80 @@ function MaterialSwatchOverlay({ target, theme, onClose }: { target: SwatchTarge
             </div>
           </div>
         ))}
+      </div>
+      {creating && <MaterialCreateDialog theme={theme} onCancel={() => setCreating(false)} onCreated={(id) => { setCreating(false); pick(id); }} />}
+    </div>
+  );
+}
+
+/** M9U.3 — create a material FROM a base stock. Colour + three sliders (Yaltiroqlik / Aks / Shaffoflik)
+ *  are the user's; price + thickness are INHERITED from the base (auto-price, shown read-only). On save it
+ *  registers the material in the library and hands the new id back so the overlay applies it. */
+function MaterialCreateDialog({ theme, onCancel, onCreated }: { theme: "light" | "dark"; onCancel: () => void; onCreated: (id: string) => void }) {
+  const dark = theme === "dark";
+  const money = useMoney();
+  const [name, setName] = useState("Mening materialim");
+  const [baseId, setBaseId] = useState(BOARDS[0]!.id);
+  const [hex, setHex] = useState("#8a5a30");
+  const [gloss, setGloss] = useState(30); // «Yaltiroqlik» 0..100 → roughness = 1 − gloss/100
+  const [aks, setAks] = useState(0); // «Aks» 0..100 → metalness
+  const [shaf, setShaf] = useState(100); // «Shaffoflik» 0..100 (100 = to'liq qattiq)
+  const base = boardById(baseId);
+  const save = (): void => {
+    const id = `cust_${Date.now().toString(36)}${Math.round(Math.random() * 1e5).toString(36)}`;
+    const m = createCustomMaterial(baseId, {
+      id,
+      name: name.trim() || "Material",
+      hex,
+      roughness: Math.round((1 - gloss / 100) * 100) / 100,
+      ...(aks > 0 ? { metalness: Math.round((aks / 100) * 100) / 100 } : {}),
+      ...(shaf < 100 ? { opacity: Math.round((shaf / 100) * 100) / 100 } : {}),
+    });
+    registerCustomBoard(m);
+    onCreated(id);
+  };
+  const lbl: CSSProperties = { fontSize: 12, fontWeight: 700, opacity: 0.7, display: "block", marginBottom: 4 };
+  const box: CSSProperties = { width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${dark ? "#33405a" : "#d8d2c4"}`, background: dark ? "#232b3d" : "#fff", color: "inherit", fontSize: 13 };
+  const row: CSSProperties = { marginBottom: 13 };
+  const slider = (label: string, val: number, set: (n: number) => void, hint: string) => (
+    <div style={row}>
+      <label style={lbl}>{label}: <span style={{ opacity: 0.6, fontWeight: 500 }}>{val}% · {hint}</span></label>
+      <input type="range" min={0} max={100} value={val} onChange={(e) => set(Number(e.target.value))} style={{ width: "100%" }} />
+    </div>
+  );
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 213, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onCancel}>
+      <div role="dialog" aria-label="Yangi material" onClick={(e) => e.stopPropagation()} style={{ background: dark ? "#1c2230" : "#fff", color: dark ? "#e7ebf2" : "#1a1a1a", borderRadius: 14, padding: 18, width: "min(440px, 94vw)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <strong style={{ fontSize: 16 }}>🎨 Yangi material</strong>
+          <button type="button" onClick={onCancel} aria-label="Yopish" style={{ border: "none", background: "transparent", color: "inherit", fontSize: 24, lineHeight: 1, cursor: "pointer" }}>×</button>
+        </div>
+        {/* live preview */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+          <span style={{ width: 56, height: 56, borderRadius: 12, background: hex, border: "1px solid rgba(0,0,0,0.2)", flexShrink: 0, opacity: shaf / 100, boxShadow: gloss > 55 ? "inset 0 6px 10px rgba(255,255,255,0.5)" : "none" }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name || "Material"}</div>
+            <div style={{ fontSize: 12, opacity: 0.65 }}>{base ? `${money(base.pricePerM2)}/м² · ${base.thickness_mm}мм` : "—"} <span style={{ opacity: 0.7 }}>(avtomatik)</span></div>
+          </div>
+        </div>
+        <div style={row}><label style={lbl}>Nom</label><input value={name} onChange={(e) => setName(e.target.value)} style={box} /></div>
+        <div style={row}>
+          <label style={lbl}>Asos (narx + qalinlik shundan)</label>
+          <select value={baseId} onChange={(e) => setBaseId(e.target.value)} style={box}>
+            {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name} — {money(b.pricePerM2)}/м²</option>)}
+          </select>
+        </div>
+        <div style={row}>
+          <label style={lbl}>Rang</label>
+          <input type="color" value={hex} onChange={(e) => setHex(e.target.value)} style={{ width: "100%", height: 40, borderRadius: 8, border: `1px solid ${dark ? "#33405a" : "#d8d2c4"}`, background: "transparent", cursor: "pointer" }} />
+        </div>
+        {slider("Yaltiroqlik", gloss, setGloss, "yaltiroq ↔ mat")}
+        {slider("Aks", aks, setAks, "metall aks")}
+        {slider("Shaffoflik", shaf, setShaf, shaf < 100 ? "shaffof" : "qattiq")}
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <button type="button" onClick={onCancel} style={{ flex: 1, padding: "10px 12px", borderRadius: 9, border: `1px solid ${dark ? "#41597e" : "#d8d2c4"}`, background: "transparent", color: "inherit", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Bekor</button>
+          <button type="button" onClick={save} style={{ flex: 2, padding: "10px 12px", borderRadius: 9, border: "none", background: "#1f8a4c", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Saqlash va qo'llash</button>
+        </div>
       </div>
     </div>
   );

@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"; // M9U.2 — soft edges
 import type { Scene, Board } from "./structureScene";
-import type { MaterialFinish, TextureKind } from "./materials";
+import type { MaterialFinish, TextureKind, PbrOverride } from "./materials";
 
 const WOOD = 0xe7ddc9; // carcass face (matches the kitchen runStyle default)
 const EDGE = 0xc9bd9e; // panel edge outline
@@ -252,7 +252,7 @@ function texPair(kind: TextureKind): TexPair { const c = texCache.get(kind); if 
  *  finish/texture → the matte laminate look (byte-identical to pre-M3.2). Gloss/glass/frosted are
  *  MeshPhysicalMaterial; metal/mirror are metallic. A texture adds a cloned, per-board-scaled map +
  *  normalMap. Returned as MeshStandardMaterial so highlightBoard / recolorBoards keep working. */
-export function materialForFinish(color: number, finish?: MaterialFinish, texture?: TextureKind, size?: readonly [number, number, number]): THREE.MeshStandardMaterial {
+export function materialForFinish(color: number, finish?: MaterialFinish, texture?: TextureKind, size?: readonly [number, number, number], pbr?: PbrOverride): THREE.MeshStandardMaterial {
   const mat: THREE.MeshStandardMaterial = ((): THREE.MeshStandardMaterial => {
     switch (finish) {
       case "satin": return new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0, envMapIntensity: 0.5 });
@@ -276,13 +276,27 @@ export function materialForFinish(color: number, finish?: MaterialFinish, textur
     if (mat.roughness > 0.6) mat.roughness = 0.6; // a textured surface reads better a touch less flat
     mat.needsUpdate = true;
   }
+  // M9U.3 — a custom material's sliders override the finish/matte defaults last (Yaltiroqlik → roughness,
+  // Aks → metalness, Shaffoflik → opacity). Absent fields keep whatever the finish/texture set above, so a
+  // catalog board (no overrides) is byte-identical to pre-M9U.3.
+  if (pbr) {
+    if (pbr.roughness !== undefined) mat.roughness = pbr.roughness;
+    if (pbr.metalness !== undefined) {
+      mat.metalness = pbr.metalness;
+      // «Aks» is only visible if the surface actually samples the environment — a metallic board on the
+      // matte 0.25 envMap reads near-black. Lift the reflection with the slider so «Aks» does something.
+      mat.envMapIntensity = Math.max(mat.envMapIntensity ?? 0.25, 0.25 + pbr.metalness * 0.75);
+    }
+    if (pbr.opacity !== undefined && pbr.opacity < 1) { mat.transparent = true; mat.opacity = pbr.opacity; mat.depthWrite = false; }
+    mat.needsUpdate = true;
+  }
   return mat;
 }
 
 /** Build the assembled cabinet as a THREE.Group of box meshes — one per render board. `colorOf` (Phase F1)
  *  maps a part id → its decor colour (int); absent → WOOD. `finishOf` (M3.2) maps id → surface finish;
  *  absent → matte. */
-export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined, finishOf?: (id: string) => MaterialFinish | undefined, textureOf?: (id: string) => TextureKind | undefined): THREE.Group {
+export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => number | undefined, finishOf?: (id: string) => MaterialFinish | undefined, textureOf?: (id: string) => TextureKind | undefined, pbrOf?: (id: string) => PbrOverride | undefined): THREE.Group {
   const group = new THREE.Group();
   for (const b of scene.boards) {
     // M7.4 — a hidden part is not drawn. It is NOT removed from anything else: the cut list, the holes,
@@ -290,7 +304,7 @@ export function buildStructureGroup(scene: Scene, colorOf?: (id: string) => numb
     // quietly drop it from the order.
     if (b.hidden) continue;
     const geom = boardGeometry(b);
-    const mesh = new THREE.Mesh(geom, materialForFinish(colorOf?.(b.id) ?? WOOD, finishOf?.(b.id), textureOf?.(b.id), b.size));
+    const mesh = new THREE.Mesh(geom, materialForFinish(colorOf?.(b.id) ?? WOOD, finishOf?.(b.id), textureOf?.(b.id), b.size, pbrOf?.(b.id)));
     mesh.userData.baseColor = colorOf?.(b.id) ?? WOOD; // remembered so realistic/shaded can restore it
     mesh.castShadow = true; mesh.receiveShadow = true; // M3.1 — boards cast onto the floor + onto each other
     mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);

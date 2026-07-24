@@ -192,6 +192,14 @@ export function mergeCustomBoards(ms: readonly CustomMaterial[] | undefined | nu
 /** Catalog boards + the user's custom ones — what the material pickers list. */
 export const allBoards = (): readonly BoardMaterial[] => [...BOARDS, ...customBoards];
 
+/** M9U.3 — the registered custom materials whose id is in `ids`. A project embeds only the custom
+ *  materials it actually references (its plan slots + per-part overrides), so the file stays small and a
+ *  project opened on another device still renders + prices them (`ProjectFile.customMaterials`, v2). */
+export function customMaterialsByIds(ids: Iterable<string>): CustomMaterial[] {
+  const want = new Set(ids);
+  return customBoards.filter((c) => want.has(c.id));
+}
+
 /**
  * M9U.3 — build a custom material FROM a base catalog stock. Price + thickness are INHERITED from the base
  * (auto-price — never hand-typed: a bespoke walnut-tint ЛДСП still costs what ЛДСП costs, and follows the
@@ -404,6 +412,33 @@ export function partTextureLookup(
     m.set(p.id, t);
     const base = layoutBaseId(p.id);
     if (base !== p.id && !m.has(base)) m.set(base, t);
+  }
+  return (id) => m.get(id);
+}
+
+/** M9U.3 — a custom material's PBR slider overrides (only the fields the user set). */
+export interface PbrOverride { roughness?: number; metalness?: number; opacity?: number; }
+
+/**
+ * The `id → PBR override` lookup (M9U.3), parallel to partFinishLookup / partTextureLookup. Returns a board's
+ * roughness/metalness/opacity ONLY when at least one is set (a custom material's sliders); catalog boards have
+ * none → undefined → the renderer keeps its finish/matte defaults (byte-identical). Same base-id registration.
+ */
+export function partPbrLookup(
+  parts: readonly { id: string; role?: string; materialId?: string }[],
+  plan: MaterialPlan,
+): (id: string) => PbrOverride | undefined {
+  const m = new Map<string, PbrOverride>();
+  for (const p of parts) {
+    const b = partBoard(plan, p.role, p.materialId);
+    if (!b || (b.roughness === undefined && b.metalness === undefined && b.opacity === undefined)) continue;
+    const o: PbrOverride = {};
+    if (b.roughness !== undefined) o.roughness = b.roughness;
+    if (b.metalness !== undefined) o.metalness = b.metalness;
+    if (b.opacity !== undefined) o.opacity = b.opacity;
+    m.set(p.id, o);
+    const base = layoutBaseId(p.id);
+    if (base !== p.id && !m.has(base)) m.set(base, o);
   }
   return (id) => m.get(id);
 }
