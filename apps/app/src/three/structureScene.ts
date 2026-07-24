@@ -45,6 +45,10 @@ export interface Scene {
   /** Phase 5 — the room's wall backdrop (metres), recentred with the boards. Absent = no room. Rendered
    *  matte + non-interactive (never machined, never raycast). */
   walls?: Board[];
+  /** M12.1 — the room's floor slab (metres), same rules as the walls. Absent = no room. */
+  floor?: Board;
+  /** M12.3 — the rug lying on that floor. Absent = none. */
+  rug?: Board;
   /** centre of the whole cabinet (metres) — camera target */
   center: [number, number, number];
   /** largest extent (metres) — camera distance basis */
@@ -204,9 +208,14 @@ export function layoutBounds(panels: readonly PanelPlacement[]): { cx: number; c
  *  Interior normal = dir rotated 90° toward the inside (`[-dz,dx]` for "left" / `[dz,-dx]` for "right"). */
 export function roomWallBoxes(room: Room | undefined): RawBox[] {
   if (!room || room.walls.length === 0) return [];
-  const T = WALL_THICKNESS_MM10, H = WALL_HEIGHT_MM10;
+  const T = WALL_THICKNESS_MM10;
   const turn = room.turn ?? "left";
+  // M12.5 — `Wall.height_mm10` has been in the contract since Phase 5 but nothing read it; the constant
+  // was used for every wall. A wall that states its own height now gets it (the UI sets all of them at
+  // once, because a room has ONE height); absent still means the standard 2700.
+  const byId = new Map(room.walls.map((w) => [w.id, w.height_mm10]));
   return roomWallSegments(room).map((seg, i) => {
+    const H = byId.get(seg.wallId) ?? WALL_HEIGHT_MM10;
     const [ox, oz] = seg.origin, [dx, dz] = seg.dir, L = seg.length_mm10;
     const n = wallInteriorNormal(seg.dir, turn); // Audit E3 — the room-handedness normal, single source in operations.ts
     void dz;
@@ -225,8 +234,12 @@ export function roomWallBoxes(room: Room | undefined): RawBox[] {
 }
 
 /** Phase 5 — the full scene: cabinets (placed / rotated) + the room's wall backdrop, both recentred on the
- *  cabinet bounds so they align; the camera radius grows to frame the whole room. No room → byte-identical to
- *  `layoutToScene` (walls absent). */
+ *  cabinet bounds so they align. No room → byte-identical to `layoutToScene` (walls absent).
+ *
+ *  M12.0 — the camera radius comes from the FURNITURE ALONE. It used to be taken from the combined bounds
+ *  of cabinets AND walls, so a 3 m room shrank a 600 mm cabinet to a speck the moment the room was turned
+ *  on, and the floor arriving in M12.1 would have shrunk it further. A room is the backdrop, not the
+ *  subject: the master is looking at the furniture, and the walls simply happen to be behind it. */
 export function sceneWithRoom(
   rotatedPanels: readonly PanelPlacement[],
   unrotatedFlat: readonly PanelPlacement[],
@@ -236,19 +249,67 @@ export function sceneWithRoom(
   const origin = layoutBounds(unrotatedFlat);
   const cab = layoutToScene(rotatedPanels, features, origin);
   const wallBoxes = roomWallBoxes(room);
-  if (wallBoxes.length === 0) return cab;
-  const walls = boxesToScene(wallBoxes, undefined, origin).boards;
-  // frame both: radius from the combined UNROTATED bounds (cabinets + walls)
-  let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-  const acc = (x: number, y: number, z: number, w: number, h: number, d: number): void => {
+  if (wallBoxes.length === 0 || !room) return cab;
+  // M12.1/M12.3 — the floor and the rug ride the SAME recentring as the walls, so they cannot drift apart
+  // from the furniture. Building them as boxes here keeps the renderer dumb and the geometry testable.
+  const extra = roomFloorBoxes(room, wallBoxes, unrotatedFlat);
+  const built = boxesToScene([...wallBoxes, ...extra.boxes], undefined, origin).boards;
+  const walls = built.slice(0, wallBoxes.length);
+  const rest = built.slice(wallBoxes.length);
+  const floor = extra.hasFloor ? rest[0] : undefined;
+  const rug = extra.hasRug ? rest[extra.hasFloor ? 1 : 0] : undefined;
+  return { boards: cab.boards, walls, ...(floor ? { floor } : {}), ...(rug ? { rug } : {}), center: cab.center, radius: cab.radius };
+}
+
+/**
+ * M12.1 — the floor slab (and M12.3's rug) for a room, in the same mm10 min-corner form as the walls.
+ *
+ * A room's walls are an OPEN polyline — one wall for an I room, two for an L — so there is no closed
+ * polygon to fill. The floor is therefore the rectangle that covers the walls AND the furniture, plus a
+ * generous margin, so it always reaches out past both and reads as «the room continues». It is a thin
+ * slab sitting just below y=0 (the furniture's base plane), never above it.
+ */
+function roomFloorBoxes(
+  room: Room,
+  wallBoxes: readonly RawBox[],
+  furniture: readonly PanelPlacement[],
+): { boxes: RawBox[]; hasFloor: boolean; hasRug: boolean } {
+  // A floor is a BACKDROP: its edge must never appear in shot, or the room reads as a raft floating in
+  // white. Measured in presentation mode with 800 mm of margin, the edge was plainly visible past the
+  // rug. 4 m costs one box and puts the seam well outside any framing we use.
+  const MARGIN = 40000;
+  const THICK = 200; // 20 mm slab — thin enough never to lift the furniture visually
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  const acc = (x: number, z: number, w: number, d: number): void => {
     minX = Math.min(minX, x); maxX = Math.max(maxX, x + w);
-    minY = Math.min(minY, y); maxY = Math.max(maxY, y + h);
     minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z + d);
   };
-  for (const p of unrotatedFlat) acc(p.x_mm10, p.y_mm10, p.z_mm10, p.w_mm10, p.h_mm10, p.d_mm10);
-  for (const b of wallBoxes) acc(b.x, b.y, b.z, b.w, b.h, b.d);
-  const radius = M(Math.max(maxX - minX, maxY - minY, maxZ - minZ));
-  return { boards: cab.boards, walls, center: cab.center, radius };
+  for (const b of wallBoxes) acc(b.x, b.z, b.w, b.d);
+  for (const p of furniture) acc(p.x_mm10, p.z_mm10, p.w_mm10, p.d_mm10);
+  if (!Number.isFinite(minX)) return { boxes: [], hasFloor: false, hasRug: false };
+
+  const boxes: RawBox[] = [{
+    id: "__room_floor", name: "Pol",
+    x: minX - MARGIN, y: -THICK, z: minZ - MARGIN,
+    w: (maxX - minX) + MARGIN * 2, h: THICK, d: (maxZ - minZ) + MARGIN * 2,
+  }];
+  const rug = room.rug;
+  if (rug && rug.w_mm10 > 0 && rug.d_mm10 > 0) {
+    // Centred on the FURNITURE, not on the room: a rug is laid where the piece stands.
+    let fMinX = Infinity, fMinZ = Infinity, fMaxX = -Infinity, fMaxZ = -Infinity;
+    for (const p of furniture) {
+      fMinX = Math.min(fMinX, p.x_mm10); fMaxX = Math.max(fMaxX, p.x_mm10 + p.w_mm10);
+      fMinZ = Math.min(fMinZ, p.z_mm10); fMaxZ = Math.max(fMaxZ, p.z_mm10 + p.d_mm10);
+    }
+    const cx = Number.isFinite(fMinX) ? (fMinX + fMaxX) / 2 : (minX + maxX) / 2;
+    const cz = Number.isFinite(fMinZ) ? (fMinZ + fMaxZ) / 2 : (minZ + maxZ) / 2;
+    boxes.push({
+      id: "__room_rug", name: "Gilam",
+      x: cx - rug.w_mm10 / 2, y: -20, z: cz - rug.d_mm10 / 2, // 2 mm proud of the floor, so it never z-fights
+      w: rug.w_mm10, h: 40, d: rug.d_mm10,
+    });
+  }
+  return { boxes, hasFloor: true, hasRug: !!rug && rug.w_mm10 > 0 && rug.d_mm10 > 0 };
 }
 
 /** U3.1 — the world-space box (metres, scene coords) of every leaf section (compartment), recentred

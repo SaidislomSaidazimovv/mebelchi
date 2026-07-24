@@ -815,6 +815,21 @@ export interface Room {
   readonly walls: readonly Wall[];
   /** Corner bend direction; absent = "left" (each wall turns 90° counter-clockwise from the previous). */
   readonly turn?: "left" | "right";
+  /**
+   * M12.1 — the room's surfaces, for showing a client the furniture in a room rather than in a void.
+   * Ids come from the app's own `ROOM_MATERIALS` palette, NOT from `BOARDS`: a room is not made of ЛДСП
+   * and must never reach the cut list, the estimate or the CNC file. Both optional — absent = the plain
+   * neutral surfaces shipped before, so every existing model renders byte-identically.
+   */
+  readonly floorMaterial?: string;
+  readonly wallMaterial?: string;
+  /** M12.3 — an optional rug lying on the floor, centred under the furniture. Render-only, like the room. */
+  readonly rug?: {
+    readonly w_mm10: mm10;
+    readonly d_mm10: mm10;
+    /** Palette id (`RUG_COLORS`); absent = the default weave. */
+    readonly color?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------

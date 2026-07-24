@@ -81,6 +81,15 @@ const STATES = [
   { id: "swatch", label: "material tanlash", run: async (p) => { await click(p, "Materiallar", 600);
       await p.evaluate(() => { const r = [...document.querySelectorAll("button")].filter((x) => /ЛДСП|ХДФ/.test(x.textContent || "")); r[0]?.click(); }); await wait(800); } },
   { id: "tree", label: "detallar ro'yxati", run: async (p) => { await click(p, "Detallar ro'yxati", 700); } },
+  // M12 — the room panel is the newest and densest sheet in the app (two material grids, a rug row and
+  // its colours). It has to obey the same rules as everything else.
+  { id: "room", label: "«Xona» varag'i", run: async (p) => {
+      await p.evaluate(() => window.__karkas.getState().setRoom("L", [3000, 2400])); await wait(600);
+      await click(p, "^Xona$", 800); } },
+  { id: "room-rug", label: "«Xona» varag'i + gilam", run: async (p) => {
+      await p.evaluate(() => { const s = window.__karkas.getState(); s.setRoom("L", [3000, 2400]);
+        s.setRoomRug({ w_mm: 2000, d_mm: 3000, color: "#8f9c8a" }); }); await wait(700);
+      await click(p, "^Xona$", 800); } },
   { id: "parts", label: "«Detallar» tabi", run: async (p) => { await click(p, "^Detallar$", 900); } },
 ];
 

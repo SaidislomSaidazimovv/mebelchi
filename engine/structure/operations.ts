@@ -1423,6 +1423,43 @@ export function snapRunToWall(model: StructuralModel, runId: RunId, wallId: Wall
 }
 
 /**
+ * M12.6 — stand ONE block against a wall: back on the wall line, opening into the room. This is what
+ * `layRunAlongWall` does for the first member of a run, lifted out for the commonest case of all — a
+ * single cabinet, which has no run at all (a Run only exists once two blocks are grouped, so
+ * `snapRunToWall` is a silent no-op on a lone cabinet, which is exactly the state a master is in when he
+ * first turns a room on).
+ *
+ * Without it the room is drawn around world origin while the cabinet also sits at origin, so the wall
+ * lands across the cabinet's FRONT and the piece appears to face the wall. Pure/immutable; a no-op (same
+ * ref) without a room, without that wall, or if the block is a member of a run — a run owns its members'
+ * placement and must not be fought.
+ */
+export function snapBlockToWall(model: StructuralModel, blockId: BlockId, wallId: WallId): StructuralModel {
+  const room = model.room;
+  if (!room) return model;
+  const block = model.blocks.find((b) => b.id === blockId);
+  if (!block) return model;
+  if ((model.runs ?? []).some((r) => r.members.some((m) => m.blockId === blockId))) return model;
+  const seg = roomWallSegments(room).find((s) => s.wallId === wallId);
+  if (!seg) return model;
+
+  const [ox, oz] = seg.origin, [dx, dz] = seg.dir;
+  const n = wallInteriorNormal(seg.dir, room.turn ?? "left");
+  const rotY = rotYForNormal(n);
+  const w = block.box.w, d = block.box.d;
+  // Centred along the wall's own length, and pushed half its depth into the room so its BACK is on the line.
+  const along = seg.length_mm10 / 2;
+  const cx = ox + dx * along + n[0] * (d / 2);
+  const cz = oz + dz * along + n[1] * (d / 2);
+  const x = Math.round(cx - w / 2), z = Math.round(cz - d / 2);
+  if (block.box.x === x && block.box.z === z && (block.rotY_deg ?? 0) === rotY) return model; // already there
+  return {
+    ...model,
+    blocks: model.blocks.map((b) => (b.id !== blockId ? b : { ...b, box: { ...b.box, x, z }, rotY_deg: rotY })),
+  };
+}
+
+/**
  * Phase 5.r3 — position an existing L-corner block (footprint set, hand = room.turn) at the L room's inside
  * corner: both leg-backs flush on the two walls, openings into the room, via `box` + `rotY_deg` (the scene
  * turns it — cut list square-on). Then inset the run on the wall whose ORIGIN is the corner (wall 1) so it
