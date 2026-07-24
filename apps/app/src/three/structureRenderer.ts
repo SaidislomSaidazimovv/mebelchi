@@ -940,7 +940,7 @@ export function buildGizmo(
   size: [number, number, number],
   // `axes` limits which arrows appear: a shelf spans its bay, so only its HEIGHT is really its own and
   // offering X/Z arrows would promise a move the solver would immediately undo.
-  opts: { resize?: boolean; rotate?: boolean; axes?: readonly ("x" | "y" | "z")[]; biDir?: boolean; rotateAxes?: readonly ("x" | "y" | "z")[] } = {},
+  opts: { resize?: boolean; rotate?: boolean; arrows?: boolean; axes?: readonly ("x" | "y" | "z")[]; biDir?: boolean; rotateAxes?: readonly ("x" | "y" | "z")[] } = {},
 ): THREE.Group {
   const withResize = opts.resize !== false; // a whole cabinet is move-only — it already resizes by face-drag
   const withRotate = opts.rotate !== false; // only a free board turns from its own gizmo (see KarkasEditor)
@@ -982,7 +982,9 @@ export function buildGizmo(
     const base = a.half + hs * 1.8; // arrows begin past the handle (and past its hit proxy)
     // A move arrow drawn only up the + direction reads as «this only goes up», which is wrong for a
     // shelf: it slides both ways inside its bay. `biDir` mirrors the arrow so the gesture is honest.
-    for (const sign of opts.biDir ? [1, -1] : [1]) {
+    // U11.1 — `arrows: false` drops the move arrows while KEEPING the resize handles. Clearing `axes`
+    // would have done neither: both live in this one loop, so an empty axis list removes the handles too.
+    for (const sign of opts.arrows === false ? [] : opts.biDir ? [1, -1] : [1]) {
       const dir = a.dir.clone().multiplyScalar(sign);
       const rot = new THREE.Quaternion().setFromUnitVectors(up, dir);
       const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftR, shaftR, shaftL, 12), mat());
