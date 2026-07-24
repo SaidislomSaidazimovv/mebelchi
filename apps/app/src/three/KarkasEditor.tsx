@@ -486,9 +486,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
   const updateProjectBlock = useStore((s) => s.updateProjectBlock);
   const editingBlockId = useKarkas((s) => s.editingBlockId);
   const fromCabinet = useKarkas((s) => s.fromCabinet);
-  // «Ichini ko'rish» — fade the fronts so the interior shows. Default ON in the editor (like imos's
-  // always-transparent Article Designer) so you always see the structure you're building.
-  const [insideView, setInsideView] = useState(true);
+  // «Ichini ko'rish» — fade the fronts (opacity 0.16) so the interior shows. Default OFF: the editor
+  // opens on the FINISHED piece — solid doors/drawer faces — the way a client (or a catalog render) must
+  // see it. Faded-by-default read as unfinished, see-through «white fronts». The usta toggles this ON
+  // when they need to design the interior (shelves / drawer boxes behind the facades).
+  const [insideView, setInsideView] = useState(false);
   const insideRef = useRef(insideView);
   insideRef.current = insideView;
   // #7 — imos Visual Styles: realistic / wireframe / shaded. Ref so the group-rebuild effect reads
