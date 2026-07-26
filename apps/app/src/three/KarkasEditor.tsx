@@ -3166,6 +3166,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const carcassRoles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "carcass_plinth", "carcass_worktop"];
         if (!part || !carcassRoles.includes(part.role ?? "")) return null;
         const slot: "carcass" | "back" | "worktop" = part.role === "carcass_back" ? "back" : part.role === "carcass_worktop" ? "worktop" : "carcass";
+        // U5 — these three are BLOCK-level (turn / plinth / worktop). They lived only on the mobile ⋮
+        // sheet (mobileProps), so a desktop user selecting a carcass board could not reach them. Same
+        // handlers as mobile — no new state, and the cut list is untouched (plinth/worktop are additive
+        // parts, rotation is render-only).
+        const dblk = blockOfPart(model, selectedId);
         return (
           <div style={selBar}>
             <span style={mono}>{part.name}</span>
@@ -3175,6 +3180,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             <span style={{ ...mono, fontSize: 10, color: "#8a8a8a", marginLeft: 6 }}>butun karkasga</span>
+            {/* U5 — block-level turn / plinth / worktop, now on the desktop bar too (were mobile-only) */}
+            {dblk && (
+              <>
+                <span style={mono}>Burilish:</span>
+                <DimField label="°" value={Math.round(dblk.rotY_deg ?? 0)} onCommit={(d) => rotateBlockTo(dblk.id, ((d % 360) + 360) % 360, true)} min={0} suffix="°" />
+                <span style={mono}>Sokol:</span>
+                <DimField label="mm" value={Math.round((dblk.plinth_mm10 ?? 0) / 10)} onCommit={(mm) => setPlinth(dblk.id, mm * 10)} min={0} units={units} />
+                <button style={{ ...act, ...(dblk.worktop ? { borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" } : {}) }} onClick={() => setWorktop(dblk.id, !dblk.worktop)} type="button" aria-pressed={!!dblk.worktop} title="Stoleshnitsa (ustki taxta)">▬ Stoleshnitsa{dblk.worktop ? " ✓" : ""}</button>
+              </>
+            )}
             {/* 4.a — L-corner: make/unmake + size the return leg (block-level, desktop) */}
             <button style={{ ...act, ...(isLCorner ? { borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" } : {}) }} onClick={toggleLCorner} type="button" title="Shkafni L-burchakka o'girish / qaytarish">⌐ {isLCorner ? "L-burchak ✓" : "L-burchak"}</button>
             {isLCorner && (
