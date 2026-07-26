@@ -2652,6 +2652,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <DimField label="×" value={selComp.organizer?.dividers ?? 0} onCommit={setDividers} min={0} suffix="×" />
               </label>
             )}
+            {/* U6 — drawer-in-drawer on the mobile ⋮ sheet too (was desktop-bar-only). */}
+            {selComp?.drawer && (
+              <button type="button" className="mob-props-toggle" onClick={nestDrawerInSelected} title="Bu yashik ichiga yana bir yashik">🗄＋ Ichki yashik</button>
+            )}
             {/* 1.3c — handle on the mobile quick bar too (mobile-primary): drives the Ø4.5 holes + price */}
             {(selComp?.role === "facade" || selComp?.drawer) && (
               <label className="mob-props-f"><span>Dastak</span>
@@ -2748,6 +2752,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <button type="button" className="mob-props-toggle" onClick={() => setPartView("locked", !selComp.locked)}
                   title="Qulflash — tasodifan o'zgartirilmasin">{selComp.locked ? "🔒 Qulflangan" : "🔓 Ochiq"}</button>
               </>
+            )}
+            {/* U6 — load-bearing (Yuk) declaration on the mobile ⋮ sheet too (was desktop-bar-only). */}
+            {selComp && (
+              <button type="button" className={"mob-props-toggle" + (selComp.loadBearing ? " is-on" : "")} aria-pressed={!!selComp.loadBearing} onClick={toggleLoadBearing} title="Yuk-ko'taruvchi detal">⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}</button>
             )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
