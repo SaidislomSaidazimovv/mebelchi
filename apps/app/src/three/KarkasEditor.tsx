@@ -2622,6 +2622,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
               </label>
             )}
+            {/* U6 — per-part material override on the mobile ⋮ sheet too (was desktop-bar-only). */}
+            {selComp && (
+              <label className="mob-props-f"><span>Material</span>
+                <select value={selComp.material ?? ""} onChange={(e) => setMaterial(e.target.value || null)}>
+                  <option value="">Rol bo'yicha</option>
+                  {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </label>
+            )}
             {selComp?.role === "internal_shelf" && (
               <>
                 <label className="mob-props-f"><span>Burchak</span>
