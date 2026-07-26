@@ -2666,6 +2666,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 </select>
               </label>
             )}
+            {/* U6 — hinge side (Petlya) on the mobile ⋮ sheet too (was desktop-bar-only). A lift door has
+                no side hinge, so it is hidden there — same rule as the desktop bar. */}
+            {selComp?.role === "facade" && !selComp.lift && (
+              <label className="mob-props-f"><span>Petlya</span>
+                <select value={selComp.hingeEdge === "right" ? "right" : "left"} onChange={(e) => setHinge(e.target.value as "left" | "right")}>
+                  <option value="left">◧ Chap</option>
+                  <option value="right">◨ O'ng</option>
+                </select>
+              </label>
+            )}
             {/* 2.1c — lift (podyomnik) on the mobile quick bar too: a top-opening door counts a lift not
                 hinges + drills no side cups. Doors only. */}
             {selComp?.role === "facade" && (
