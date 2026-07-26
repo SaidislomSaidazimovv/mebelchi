@@ -1868,6 +1868,71 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
       if (scaled !== v) resize(other, scaled);
     }
   };
+  // U1 — the Bo'lish / Burchak / O'yiq editors, extracted to ONE definition so they mount in BOTH places:
+  // the desktop tool bar (inside .mob-legacy, always shown on desktop) AND, on a phone, a floating
+  // compact-sheet over the 3D. On mobile the ＋-panel toggle only set activePanel, but the editor rows
+  // lived in .mob-legacy which needs the ⋯ «Asboblar» sheet (toolsOpen) — so they were unreachable.
+  // Exactly one of the two mount points is ever live (see the guards), so there is no double render.
+  const divideEditorEl = showDivide ? (
+    <div style={selBar}>
+      <span style={mono}>Yo'nalish:</span>
+      <button style={{ ...pill, ...(divAxis === "x" ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f" } : {}) }} onClick={() => setDivAxis("x")} type="button">↔ Ustun</button>
+      <button style={{ ...pill, ...(divAxis === "y" ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f" } : {}) }} onClick={() => setDivAxis("y")} type="button">↕ Qavat</button>
+      <label style={dimField}><input style={dimInput} value={divN} inputMode="numeric" onChange={(e) => setDivN(e.target.value.replace(/[^\d]/g, ""))} /></label>
+      <button style={act} onClick={() => divideBy(divAxis, parseInt(divN, 10) || 2)} type="button">Teng bo'lish</button>
+      <span style={{ ...mono, marginLeft: 10 }}>Polka:</span>
+      <label style={dimField}><input style={dimInput} value={shelfN} inputMode="numeric" onChange={(e) => setShelfN(e.target.value.replace(/[^\d]/g, ""))} /></label>
+      <button style={act} onClick={() => addShelves(parseInt(shelfN, 10) || 1)} type="button">＋ Qo'shish</button>
+    </div>
+  ) : null;
+  const cornersEditorEl = (showCorners && selectedId && !selectedId.includes("__div_")) ? (
+    <div style={selBar}>
+      <span style={mono}>Yumaloqlash (mm):</span>
+      <button style={{ ...pill, ...(chainCorners ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f" } : {}) }} onClick={() => setChainCorners((v) => !v)} type="button" title="4 burchakni birga o'zgartirish">♾ ×4</button>
+      {chainCorners ? (
+        <DimField label="R" value={Math.round((selFeatures?.corners?.[0] ?? 0) / 10)} onCommit={(mm) => setCornerRadius("all", mm * 10)} min={0} units={units} />
+      ) : (
+        (["◜ TL", "◝ TR", "◞ BR", "◟ BL"] as const).map((lbl, i) => (
+          <DimField key={lbl} label={lbl} value={Math.round((selFeatures?.corners?.[i] ?? 0) / 10)} onCommit={(mm) => setCornerRadius(i as 0 | 1 | 2 | 3, mm * 10)} min={0} units={units} />
+        ))
+      )}
+      {selFeatures?.corners?.some((r) => r > 0) && (
+        <button style={act} onClick={() => setCornerRadius("all", 0)} type="button">✕ Tozalash</button>
+      )}
+    </div>
+  ) : null;
+  const cutoutEditorEl = (showCutout && selectedId && !selectedId.includes("__div_")) ? (() => {
+    const cut = selFeatures?.cutouts?.[0] ?? null;
+    const panelL = selPart?.length_mm10 ?? 0;
+    const panelW = selPart?.width_mm10 ?? 0;
+    const upd = (patch: Partial<PanelCutoutT>) => cut && addOrUpdateCutout({ ...cut, ...patch });
+    return (
+      <div style={selBar}>
+        {!cut ? (
+          <button style={act} type="button" onClick={() => {
+            const w = Math.max(200, Math.round(panelL * 0.4)), h = Math.max(200, Math.round(panelW * 0.4));
+            const l = Math.round((panelL - w) / 2), t = Math.round((panelW - h) / 2);
+            addOrUpdateCutout({ id: "cut1", w_mm10: w, h_mm10: h, offset: [l, t, l, t], locked: [false, false, false, false] });
+          }}>＋ O'yiq qo'shish</button>
+        ) : (
+          <>
+            <span style={mono}>O'lcham:</span>
+            <DimField label="Ш" value={Math.round(cut.w_mm10 / 10)} onCommit={(v) => upd({ w_mm10: v * 10 })} units={units} />
+            <DimField label="В" value={Math.round(cut.h_mm10 / 10)} onCommit={(v) => upd({ h_mm10: v * 10 })} units={units} />
+            <span style={{ ...mono, marginLeft: 6 }}>Otstup:</span>
+            {(["Л", "В", "П", "Н"] as const).map((lbl, i) => (
+              <span key={lbl} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                <DimField label={lbl} value={Math.round(cut.offset[i] / 10)} min={0} units={units} onCommit={(v) => { const o = [...cut.offset] as [number, number, number, number]; o[i] = v * 10; upd({ offset: o }); }} />
+                <button type="button" title="Qulflash — resize'da bu otstup saqlanadi" style={{ ...pill, padding: "2px 5px", ...(cut.locked[i] ? { borderColor: "#d98a00", background: "#ffe7b3" } : {}) }} onClick={() => { const l = [...cut.locked] as [boolean, boolean, boolean, boolean]; l[i] = !l[i]; upd({ locked: l }); }}>{cut.locked[i] ? "🔒" : "🔓"}</button>
+              </span>
+            ))}
+            <button style={act} type="button" title="Markazga tortish" onClick={() => { const l = Math.round((panelL - cut.w_mm10) / 2), t = Math.round((panelW - cut.h_mm10) / 2); upd({ offset: [l, t, l, t] }); }}>⊹ Markaz</button>
+            <button style={act} type="button" onClick={() => removeCutout(cut.id)}>✕ O'chirish</button>
+          </>
+        )}
+      </div>
+    );
+  })() : null;
   return (
     <KeypadCtx.Provider value={compact ? (o) => setKeypad(o) : null}>
     <SwatchCtx.Provider value={setSwatchTarget}>
@@ -2220,7 +2285,7 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                     <button className="mob-addbtn" type="button" onClick={() => add("door", { glazedGrid: { lights: 3 } })}>＋ Vitrina</button>
                     <button className="mob-addbtn" type="button" onClick={() => add("drawer")}>＋ Yashik</button>
                     <button className="mob-addbtn" type="button" onClick={() => add("divider")}>＋ Razdelitel</button>
-                    <button className={"mob-addbtn" + (showDivide ? " is-active" : "")} type="button" onClick={() => togglePanel("divide")}>⊟ Bo'lish</button>
+                    <button className={"mob-addbtn" + (showDivide ? " is-active" : "")} type="button" onClick={() => { togglePanel("divide"); if (compact) setRpanel("none"); }}>⊟ Bo'lish</button>
                     {/* Phase 3.d — built-in appliances (Техника): one button per kind, adds + selects it */}
                     {(Object.keys(APPLIANCE) as (keyof typeof APPLIANCE)[]).map((kind) => (
                       <button key={kind} className="mob-addbtn" type="button" style={{ borderColor: "#6b7280", color: "#374151" }} onClick={() => { add("appliance", { appliance: kind }); if (compact) setRpanel("none"); }}>🔌 {APPLIANCE[kind].name}</button>
@@ -2263,8 +2328,8 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 </div>
                 {selectedId && !selectedId.includes("__div_") && (
                   <div className="mob-addgrid" style={{ marginTop: 10 }}>
-                    <button className={"mob-addbtn" + (showCorners ? " is-active" : "")} type="button" onClick={() => togglePanel("corners")}><PrimIcon kind="corner" size={17} /> Burchak</button>
-                    <button className={"mob-addbtn" + (showCutout ? " is-active" : "")} type="button" onClick={() => togglePanel("cutout")}><PrimIcon kind="cutout" size={17} /> O'yiq</button>
+                    <button className={"mob-addbtn" + (showCorners ? " is-active" : "")} type="button" onClick={() => { togglePanel("corners"); if (compact) setRpanel("none"); }}><PrimIcon kind="corner" size={17} /> Burchak</button>
+                    <button className={"mob-addbtn" + (showCutout ? " is-active" : "")} type="button" onClick={() => { togglePanel("cutout"); if (compact) setRpanel("none"); }}><PrimIcon kind="cutout" size={17} /> O'yiq</button>
                     <button className={"mob-addbtn" + (showKromka ? " is-active" : "")} type="button" onClick={() => togglePanel("kromka")}><PrimIcon kind="kromka" size={17} /> Jiyak</button>
                   </div>
                 )}
@@ -2622,6 +2687,15 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <DimField label="T" value={Math.round((selComp.thickness_mm10 ?? 160) / 10)} onCommit={setThickness} />
               </label>
             )}
+            {/* U6 — per-part material override on the mobile ⋮ sheet too (was desktop-bar-only). */}
+            {selComp && (
+              <label className="mob-props-f"><span>Material</span>
+                <select value={selComp.material ?? ""} onChange={(e) => setMaterial(e.target.value || null)}>
+                  <option value="">Rol bo'yicha</option>
+                  {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </label>
+            )}
             {selComp?.role === "internal_shelf" && (
               <>
                 <label className="mob-props-f"><span>Burchak</span>
@@ -2643,6 +2717,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <DimField label="×" value={selComp.organizer?.dividers ?? 0} onCommit={setDividers} min={0} suffix="×" />
               </label>
             )}
+            {/* U6 — drawer-in-drawer on the mobile ⋮ sheet too (was desktop-bar-only). */}
+            {selComp?.drawer && (
+              <button type="button" className="mob-props-toggle" onClick={nestDrawerInSelected} title="Bu yashik ichiga yana bir yashik">🗄＋ Ichki yashik</button>
+            )}
             {/* 1.3c — handle on the mobile quick bar too (mobile-primary): drives the Ø4.5 holes + price */}
             {(selComp?.role === "facade" || selComp?.drawer) && (
               <label className="mob-props-f"><span>Dastak</span>
@@ -2654,6 +2732,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                   <option value="round_knob">Guruch tugma</option>
                   <option value="long_pull">Cho'zinchoq pull</option>
                   <option value="gola">Gola profil</option>
+                </select>
+              </label>
+            )}
+            {/* U6 — hinge side (Petlya) on the mobile ⋮ sheet too (was desktop-bar-only). A lift door has
+                no side hinge, so it is hidden there — same rule as the desktop bar. */}
+            {selComp?.role === "facade" && !selComp.lift && (
+              <label className="mob-props-f"><span>Petlya</span>
+                <select value={selComp.hingeEdge === "right" ? "right" : "left"} onChange={(e) => setHinge(e.target.value as "left" | "right")}>
+                  <option value="left">◧ Chap</option>
+                  <option value="right">◨ O'ng</option>
                 </select>
               </label>
             )}
@@ -2729,6 +2817,10 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
                 <button type="button" className="mob-props-toggle" onClick={() => setPartView("locked", !selComp.locked)}
                   title="Qulflash — tasodifan o'zgartirilmasin">{selComp.locked ? "🔒 Qulflangan" : "🔓 Ochiq"}</button>
               </>
+            )}
+            {/* U6 — load-bearing (Yuk) declaration on the mobile ⋮ sheet too (was desktop-bar-only). */}
+            {selComp && (
+              <button type="button" className={"mob-props-toggle" + (selComp.loadBearing ? " is-on" : "")} aria-pressed={!!selComp.loadBearing} onClick={toggleLoadBearing} title="Yuk-ko'taruvchi detal">⚖ {selComp.loadBearing ? "Yuk ✓" : "Yuk-ko'taruvchi"}</button>
             )}
             {/* Turning a lone cabinet had no home at all once the rotate ring moved to Blok mode (whose
                 menu needs >1 block). A typed angle is better than the ring anyway: exact, and it cannot
@@ -2973,70 +3065,14 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
           ))}
         </div>
       )}
-      {/* C3 — numeric divide + shelf count (imos AS_O_Number). x = columns, y = rows/floors. */}
-      {showDivide && (
-        <div style={selBar}>
-          <span style={mono}>Yo'nalish:</span>
-          <button style={{ ...pill, ...(divAxis === "x" ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f" } : {}) }} onClick={() => setDivAxis("x")} type="button">↔ Ustun</button>
-          <button style={{ ...pill, ...(divAxis === "y" ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f" } : {}) }} onClick={() => setDivAxis("y")} type="button">↕ Qavat</button>
-          <label style={dimField}><input style={dimInput} value={divN} inputMode="numeric" onChange={(e) => setDivN(e.target.value.replace(/[^\d]/g, ""))} /></label>
-          <button style={act} onClick={() => divideBy(divAxis, parseInt(divN, 10) || 2)} type="button">Teng bo'lish</button>
-          <span style={{ ...mono, marginLeft: 10 }}>Polka:</span>
-          <label style={dimField}><input style={dimInput} value={shelfN} inputMode="numeric" onChange={(e) => setShelfN(e.target.value.replace(/[^\d]/g, ""))} /></label>
-          <button style={act} onClick={() => addShelves(parseInt(shelfN, 10) || 1)} type="button">＋ Qo'shish</button>
-        </div>
-      )}
+      {/* C3 — numeric divide + shelf count. Editor extracted to divideEditorEl: mounts here on desktop,
+          floats over the 3D on a phone (U1). Same for cornersEditorEl / cutoutEditorEl below. */}
+      {divideEditorEl}
       {/* Step 4b (fixtures 04b-round) — corner rounding: chain ×4 (one radius) or per-corner TL/TR/BR/BL */}
-      {showCorners && selectedId && !selectedId.includes("__div_") && (
-        <div style={selBar}>
-          <span style={mono}>Yumaloqlash (mm):</span>
-          <button style={{ ...pill, ...(chainCorners ? { borderColor: "#00a961", background: "#e3f3ea", color: "#006b3f" } : {}) }} onClick={() => setChainCorners((v) => !v)} type="button" title="4 burchakni birga o'zgartirish">♾ ×4</button>
-          {chainCorners ? (
-            <DimField label="R" value={Math.round((selFeatures?.corners?.[0] ?? 0) / 10)} onCommit={(mm) => setCornerRadius("all", mm * 10)} min={0} units={units} />
-          ) : (
-            (["◜ TL", "◝ TR", "◞ BR", "◟ BL"] as const).map((lbl, i) => (
-              <DimField key={lbl} label={lbl} value={Math.round((selFeatures?.corners?.[i] ?? 0) / 10)} onCommit={(mm) => setCornerRadius(i as 0 | 1 | 2 | 3, mm * 10)} min={0} units={units} />
-            ))
-          )}
-          {selFeatures?.corners?.some((r) => r > 0) && (
-            <button style={act} onClick={() => setCornerRadius("all", 0)} type="button">✕ Tozalash</button>
-          )}
-        </div>
-      )}
+      {cornersEditorEl}
       {/* Step 4b (fixture 04b-cutout) — a rectangular aperture (sink / hob / boiler): size + per-edge
           offset pills with 🔒 locks (a locked offset survives a panel resize) + center-snap. One per panel. */}
-      {showCutout && selectedId && !selectedId.includes("__div_") && (() => {
-        const cut = selFeatures?.cutouts?.[0] ?? null;
-        const panelL = selPart?.length_mm10 ?? 0;
-        const panelW = selPart?.width_mm10 ?? 0;
-        const upd = (patch: Partial<PanelCutoutT>) => cut && addOrUpdateCutout({ ...cut, ...patch });
-        return (
-          <div style={selBar}>
-            {!cut ? (
-              <button style={act} type="button" onClick={() => {
-                const w = Math.max(200, Math.round(panelL * 0.4)), h = Math.max(200, Math.round(panelW * 0.4));
-                const l = Math.round((panelL - w) / 2), t = Math.round((panelW - h) / 2);
-                addOrUpdateCutout({ id: "cut1", w_mm10: w, h_mm10: h, offset: [l, t, l, t], locked: [false, false, false, false] });
-              }}>＋ O'yiq qo'shish</button>
-            ) : (
-              <>
-                <span style={mono}>O'lcham:</span>
-                <DimField label="Ш" value={Math.round(cut.w_mm10 / 10)} onCommit={(v) => upd({ w_mm10: v * 10 })} units={units} />
-                <DimField label="В" value={Math.round(cut.h_mm10 / 10)} onCommit={(v) => upd({ h_mm10: v * 10 })} units={units} />
-                <span style={{ ...mono, marginLeft: 6 }}>Otstup:</span>
-                {(["Л", "В", "П", "Н"] as const).map((lbl, i) => (
-                  <span key={lbl} style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <DimField label={lbl} value={Math.round(cut.offset[i] / 10)} min={0} units={units} onCommit={(v) => { const o = [...cut.offset] as [number, number, number, number]; o[i] = v * 10; upd({ offset: o }); }} />
-                    <button type="button" title="Qulflash — resize'da bu otstup saqlanadi" style={{ ...pill, padding: "2px 5px", ...(cut.locked[i] ? { borderColor: "#d98a00", background: "#ffe7b3" } : {}) }} onClick={() => { const l = [...cut.locked] as [boolean, boolean, boolean, boolean]; l[i] = !l[i]; upd({ locked: l }); }}>{cut.locked[i] ? "🔒" : "🔓"}</button>
-                  </span>
-                ))}
-                <button style={act} type="button" title="Markazga tortish" onClick={() => { const l = Math.round((panelL - cut.w_mm10) / 2), t = Math.round((panelW - cut.h_mm10) / 2); upd({ offset: [l, t, l, t] }); }}>⊹ Markaz</button>
-                <button style={act} type="button" onClick={() => removeCutout(cut.id)}>✕ O'chirish</button>
-              </>
-            )}
-          </div>
-        );
-      })()}
+      {cutoutEditorEl}
       {/* Phase 6 — selected-component actions: doubling / glazing status + load-bearing declaration */}
       {selComp && (
         <div style={selBar}>
@@ -3166,6 +3202,11 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
         const carcassRoles = ["carcass_side", "carcass_top", "carcass_bottom", "carcass_back", "carcass_plinth", "carcass_worktop"];
         if (!part || !carcassRoles.includes(part.role ?? "")) return null;
         const slot: "carcass" | "back" | "worktop" = part.role === "carcass_back" ? "back" : part.role === "carcass_worktop" ? "worktop" : "carcass";
+        // U5 — these three are BLOCK-level (turn / plinth / worktop). They lived only on the mobile ⋮
+        // sheet (mobileProps), so a desktop user selecting a carcass board could not reach them. Same
+        // handlers as mobile — no new state, and the cut list is untouched (plinth/worktop are additive
+        // parts, rotation is render-only).
+        const dblk = blockOfPart(model, selectedId);
         return (
           <div style={selBar}>
             <span style={mono}>{part.name}</span>
@@ -3175,6 +3216,16 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
               {BOARDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             <span style={{ ...mono, fontSize: 10, color: "#8a8a8a", marginLeft: 6 }}>butun karkasga</span>
+            {/* U5 — block-level turn / plinth / worktop, now on the desktop bar too (were mobile-only) */}
+            {dblk && (
+              <>
+                <span style={mono}>Burilish:</span>
+                <DimField label="°" value={Math.round(dblk.rotY_deg ?? 0)} onCommit={(d) => rotateBlockTo(dblk.id, ((d % 360) + 360) % 360, true)} min={0} suffix="°" />
+                <span style={mono}>Sokol:</span>
+                <DimField label="mm" value={Math.round((dblk.plinth_mm10 ?? 0) / 10)} onCommit={(mm) => setPlinth(dblk.id, mm * 10)} min={0} units={units} />
+                <button style={{ ...act, ...(dblk.worktop ? { borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" } : {}) }} onClick={() => setWorktop(dblk.id, !dblk.worktop)} type="button" aria-pressed={!!dblk.worktop} title="Stoleshnitsa (ustki taxta)">▬ Stoleshnitsa{dblk.worktop ? " ✓" : ""}</button>
+              </>
+            )}
             {/* 4.a — L-corner: make/unmake + size the return leg (block-level, desktop) */}
             <button style={{ ...act, ...(isLCorner ? { borderColor: "#1f5570", background: "#e0e8f7", color: "#1f478a" } : {}) }} onClick={toggleLCorner} type="button" title="Shkafni L-burchakka o'girish / qaytarish">⌐ {isLCorner ? "L-burchak ✓" : "L-burchak"}</button>
             {isLCorner && (
@@ -3254,6 +3305,19 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
             style={{ position: "absolute", left: b.x, top: b.y, transform: "translate(-50%,-50%)", zIndex: 42, width: 26, height: 26, borderRadius: 13, cursor: "pointer", border: "2px solid #fff", background: b.k ? (edgeVarById(b.k)?.hex ?? "#999") : "rgba(120,120,120,0.55)", boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}
           />
         ) : null))}
+        {/* U1 — on a phone the Bo'lish / Burchak / O'yiq editor floats over the 3D as a compact-sheet.
+            The ＋-panel toggle closes the add sheet, so this becomes visible with the model still in view.
+            It reuses the SAME element objects as the desktop bar; the guards make it mutually exclusive
+            with the .mob-legacy mount, so an editor is never rendered twice. */}
+        {compact && !toolsOpen && rpanel === "none" && (divideEditorEl || cornersEditorEl || cutoutEditorEl) && (
+          <div style={{ position: "absolute", background: "#fff", color: PAPER_INK, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", ...compactSheet }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px 2px" }}>
+              <b style={{ fontSize: 13, color: "#1f5570" }}>{showDivide ? "⊟ Bo'lish" : showCorners ? "◗ Burchak" : "▧ O'yiq"}</b>
+              <button onClick={() => setActivePanel(null)} type="button" aria-label="Yopish" style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 22, color: "#888", lineHeight: 1, padding: 6, minWidth: 40, minHeight: 40, marginRight: -6, marginTop: -4 }}>✕</button>
+            </div>
+            {divideEditorEl}{cornersEditorEl}{cutoutEditorEl}
+          </div>
+        )}
         {/* Step 5 — materials legend + isolate filter (v4 §3, "see everything by material") */}
         {showMaterials && (
           <div style={{ position: "absolute", left: 10, top: 10, zIndex: 44, background: "#fff", color: PAPER_INK, borderRadius: 12, boxShadow: "0 3px 16px rgba(0,0,0,0.2)", padding: 10, minWidth: 210, maxHeight: "70%", overflow: "auto", ...compactSheet }}>
