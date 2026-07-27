@@ -31,16 +31,15 @@ function assemble(
   return { id, length, width, thickness, bands, sawLength, sawWidth, kromkaLength };
 }
 
-function piece(p: Panel): CutPiece {
-  if (p.role === "back") {
-    return assemble(p.id, p.width, p.height, p.depth, [0, 0, 0, 0]);
-  }
-  if (p.role === "top" || p.role === "bottom") {
-    return assemble(p.id, p.width, p.depth, p.height, [KROMKA_VISIBLE, 0, 0, 0]);
-  }
-  return assemble(p.id, p.height, p.depth, p.width, [KROMKA_VISIBLE, 0, 0, 0]);
-}
-
 export function solveCutList(panels: Panel[]): CutPiece[] {
-  return panels.map(piece);
+  return panels.map((p) => {
+    const bands = p.bands ?? [KROMKA_VISIBLE, 0, 0, 0];
+    if (p.role === "back") {
+      return assemble(p.id, p.width, p.height, p.depth, bands);
+    }
+    if (p.role === "top" || p.role === "bottom") {
+      return assemble(p.id, p.width, p.depth, p.height, bands);
+    }
+    return assemble(p.id, p.height, p.depth, p.width, bands);
+  });
 }
