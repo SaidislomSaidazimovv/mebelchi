@@ -62,3 +62,63 @@ body {
 .stage3d canvas {
   display: block;
 }
+
+.cutlist {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 320px;
+  max-width: calc(100% - 24px);
+  max-height: 46%;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #e2e6ec;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(27, 36, 48, 0.12);
+  backdrop-filter: blur(4px);
+}
+
+.cutlist-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 11px 14px 6px;
+}
+
+.cutlist-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.cutlist-sub {
+  font-size: 11px;
+  color: #6b7787;
+}
+
+.cutlist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.cutlist-table th {
+  text-align: left;
+  font-weight: 600;
+  color: #6b7787;
+  font-size: 11px;
+  padding: 4px 14px;
+  border-bottom: 1px solid #eceff3;
+}
+
+.cutlist-table td {
+  padding: 6px 14px;
+  border-bottom: 1px solid #f1f3f6;
+  font-variant-numeric: tabular-nums;
+}
+
+.cutlist-foot {
+  padding: 8px 14px 11px;
+  font-size: 12px;
+  color: #1b2430;
+  font-weight: 600;
+}

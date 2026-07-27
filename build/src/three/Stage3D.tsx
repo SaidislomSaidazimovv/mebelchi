@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { readyBlock, solveBlockPanels } from "../engine/block";
+import type { Panel } from "../engine/block";
 import { buildBlockGroup } from "./renderBlock";
 
-export function Stage3D() {
+export function Stage3D({ panels }: { panels: Panel[] }) {
   const mountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -32,7 +32,7 @@ export function Stage3D() {
     fill.position.set(-1.6, 1, -1.2);
     scene.add(fill);
 
-    const group = buildBlockGroup(solveBlockPanels(readyBlock()));
+    const group = buildBlockGroup(panels);
     scene.add(group);
 
     const bounds = new THREE.Box3().setFromObject(group);
@@ -97,7 +97,7 @@ export function Stage3D() {
         mount.removeChild(renderer.domElement);
       }
     };
-  }, []);
+  }, [panels]);
 
   return <div ref={mountRef} className="stage3d" />;
 }

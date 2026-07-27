@@ -7,3 +7,7 @@ export function mm(millimeters: number): number {
 export function mm10ToMeters(value: number): number {
   return value / 10000;
 }
+
+export function mm10ToMm(value: number): number {
+  return value / 10;
+}

@@ -2,6 +2,8 @@ import { mm } from "./units";
 
 export const LDSP = "ldsp";
 
+export type PanelRole = "side" | "top" | "bottom" | "back";
+
 export interface Block {
   width: number;
   height: number;
@@ -12,6 +14,7 @@ export interface Block {
 
 export interface Panel {
   id: string;
+  role: PanelRole;
   x: number;
   y: number;
   z: number;
@@ -40,10 +43,10 @@ export function solveBlockPanels(block: Block): Panel[] {
   const innerWidth = w - t * 2;
   const innerHeight = h - t * 2;
   return [
-    { id: "side_left", x: 0, y: 0, z: 0, width: t, height: h, depth: d, material: m },
-    { id: "side_right", x: w - t, y: 0, z: 0, width: t, height: h, depth: d, material: m },
-    { id: "bottom", x: t, y: 0, z: 0, width: innerWidth, height: t, depth: d, material: m },
-    { id: "top", x: t, y: h - t, z: 0, width: innerWidth, height: t, depth: d, material: m },
-    { id: "back", x: t, y: t, z: 0, width: innerWidth, height: innerHeight, depth: t, material: m },
+    { id: "side_left", role: "side", x: 0, y: 0, z: 0, width: t, height: h, depth: d, material: m },
+    { id: "side_right", role: "side", x: w - t, y: 0, z: 0, width: t, height: h, depth: d, material: m },
+    { id: "bottom", role: "bottom", x: t, y: 0, z: 0, width: innerWidth, height: t, depth: d, material: m },
+    { id: "top", role: "top", x: t, y: h - t, z: 0, width: innerWidth, height: t, depth: d, material: m },
+    { id: "back", role: "back", x: t, y: t, z: 0, width: innerWidth, height: innerHeight, depth: t, material: m },
   ];
 }
