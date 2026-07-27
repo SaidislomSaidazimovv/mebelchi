@@ -48,7 +48,17 @@ body {
 }
 
 .studio-stage {
+  position: relative;
   flex: 1;
   min-height: 0;
   background: radial-gradient(120% 80% at 50% 0%, #ffffff 0%, #eef1f5 60%);
+}
+
+.stage3d {
+  position: absolute;
+  inset: 0;
+}
+
+.stage3d canvas {
+  display: block;
 }
