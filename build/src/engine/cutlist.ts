@@ -1,45 +1,52 @@
-import { mm } from "./units";
-import type { Panel } from "./block";
-
-export const KROMKA_VISIBLE = mm(1);
+import { Part } from "./types";
+import { mm10 } from "./units";
 
 export interface CutPiece {
   id: string;
+  name: string;
+  role: string;
   length: number;
   width: number;
   thickness: number;
-  bands: [number, number, number, number];
+  bands: [number, number, number, number]; // top, right, bottom, left
   sawLength: number;
   sawWidth: number;
   kromkaLength: number;
+  operationsCount: number;
 }
 
-function assemble(
-  id: string,
-  length: number,
-  width: number,
-  thickness: number,
-  bands: [number, number, number, number],
-): CutPiece {
-  const sawLength = length - bands[2] - bands[3];
-  const sawWidth = width - bands[0] - bands[1];
-  const kromkaLength =
-    (bands[0] ? length : 0) +
-    (bands[1] ? length : 0) +
-    (bands[2] ? width : 0) +
-    (bands[3] ? width : 0);
-  return { id, length, width, thickness, bands, sawLength, sawWidth, kromkaLength };
-}
+export function adaptPartsToCutPieces(parts: Part[]): CutPiece[] {
+  return parts.map(p => {
+    // panelDecomposition.ts -> resolveEdges() quyidagi formatda qaytaradi: [front, back, left, right]
+    const bands = p.edges;
+    
+    // Arra o'lchamlari (Saw sizes)
+    // front (0) va back (1) kromkalar detalning ENI (width) ga ta'sir qiladi
+    // left (2) va right (3) kromkalar detalning UZUNLIGI (length) ga ta'sir qiladi
+    const sawWidth = p.width_mm10 - bands[0] - bands[1];
+    const sawLength = p.length_mm10 - bands[2] - bands[3];
+    
+    // Jami kerak bo'ladigan kromka uzunligi (mm10 da)
+    // front (0) va back (1) qirralarining fizik uzunligi p.length_mm10 ga teng!
+    // left (2) va right (3) qirralarining fizik uzunligi p.width_mm10 ga teng!
+    const kromkaLength = 
+      (bands[0] > 0 ? p.length_mm10 : 0) +
+      (bands[1] > 0 ? p.length_mm10 : 0) +
+      (bands[2] > 0 ? p.width_mm10 : 0) +
+      (bands[3] > 0 ? p.width_mm10 : 0);
 
-export function solveCutList(panels: Panel[]): CutPiece[] {
-  return panels.map((p) => {
-    const bands = p.bands ?? [KROMKA_VISIBLE, 0, 0, 0];
-    if (p.role === "back") {
-      return assemble(p.id, p.width, p.height, p.depth, bands);
-    }
-    if (p.role === "top" || p.role === "bottom") {
-      return assemble(p.id, p.width, p.depth, p.height, bands);
-    }
-    return assemble(p.id, p.height, p.depth, p.width, bands);
+    return {
+      id: p.id,
+      name: p.name,
+      role: p.role,
+      length: p.length_mm10,
+      width: p.width_mm10,
+      thickness: p.thickness_mm10,
+      bands,
+      sawLength,
+      sawWidth,
+      kromkaLength,
+      operationsCount: p.operations?.length ?? 0
+    };
   });
 }
