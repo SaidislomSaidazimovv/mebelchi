@@ -40,8 +40,12 @@ export function panelDecomposition(project: DesignProject, profile: Construction
     return profile.grain;
   };
 
-  const resolveEdges = (role: PartRole): [mm10, mm10, mm10, mm10] => {
-    const k = profile.defaults.kromkaByRole?.[role];
+  const resolveEdges = (role: PartRole, cabinetType?: CabinetType): [mm10, mm10, mm10, mm10] => {
+    let typeKromka = profile.defaults.kromkaByRole;
+    if (cabinetType && profile.byType[cabinetType]?.kromkaByRole) {
+      typeKromka = profile.byType[cabinetType]!.kromkaByRole!;
+    }
+    const k = typeKromka?.[role] || profile.defaults.kromkaByRole?.[role];
     if (!k) return [0, 0, 0, 0];
     const getT = (slot: KromkaSlot | null) => slot ? (profile.kromka.slots[slot]?.thickness_mm10 ?? 0) : 0;
     return [getT(k.front), getT(k.back), getT(k.left), getT(k.right)];
@@ -56,6 +60,9 @@ export function panelDecomposition(project: DesignProject, profile: Construction
 
       const t = profile.material.carcass_mm10;
       let placement = profile.defaults.bottomPlacement;
+      if (node.cabinetType && profile.byType[node.cabinetType]?.bottomPlacement) {
+        placement = profile.byType[node.cabinetType]!.bottomPlacement!;
+      }
       const placementOverride = project.overrides.find(o => o.nodeId === node.nodeId && o.field === "bottomPlacement");
       if (placementOverride && typeof placementOverride.value === "string") {
         placement = placementOverride.value as "vkladnoe" | "nakladnoe";
@@ -115,7 +122,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
           width_mm10: d,
           thickness_mm10: t,
           grain: resolveGrain("side"),
-          edges: resolveEdges("side"),
+          edges: resolveEdges("side", node.cabinetType),
           operations: [...sideOps],
         });
       }
@@ -129,7 +136,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
           width_mm10: d,
           thickness_mm10: t,
           grain: resolveGrain("side"),
-          edges: resolveEdges("side"),
+          edges: resolveEdges("side", node.cabinetType),
           operations: [...sideOps],
         });
       } else {
@@ -142,7 +149,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
           width_mm10: sharedDividerD,
           thickness_mm10: t,
           grain: resolveGrain("divider"),
-          edges: resolveEdges("divider"),
+          edges: resolveEdges("divider", node.cabinetType),
           operations: [], 
         });
       }
@@ -193,11 +200,14 @@ export function panelDecomposition(project: DesignProject, profile: Construction
           width_mm10: d,
           thickness_mm10: t,
           grain: resolveGrain("bottom"),
-          edges: resolveEdges("bottom"),
+          edges: resolveEdges("bottom", node.cabinetType),
           operations: [...bottomOps],
         });
 
         let topStyle = profile.defaults.topStyle;
+        if (node.cabinetType && profile.byType[node.cabinetType]?.topStyle) {
+          topStyle = profile.byType[node.cabinetType]!.topStyle!;
+        }
         const override = project.overrides.find(o => o.nodeId === node.nodeId && o.field === "topStyle");
         if (override && typeof override.value === "string") {
           topStyle = override.value as "full" | "stretchers" | "none";
@@ -212,7 +222,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
             width_mm10: d,
             thickness_mm10: t,
             grain: resolveGrain("top"),
-            edges: resolveEdges("top"),
+            edges: resolveEdges("top", node.cabinetType),
             operations: [...topOps],
           });
         } else if (topStyle === "stretchers") {
@@ -243,7 +253,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
             width_mm10: sw,
             thickness_mm10: t,
             grain: resolveGrain("stretcher"),
-            edges: resolveEdges("stretcher"),
+            edges: resolveEdges("stretcher", node.cabinetType),
             operations: [],
           });
           resultParts.push({
@@ -254,7 +264,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
             width_mm10: sw,
             thickness_mm10: t,
             grain: resolveGrain("stretcher"),
-            edges: resolveEdges("stretcher"),
+            edges: resolveEdges("stretcher", node.cabinetType),
             operations: [...stretcherOps],
           });
         }
@@ -279,7 +289,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
             width_mm10: backW,
             thickness_mm10: backT,
             grain: resolveGrain("back"),
-            edges: resolveEdges("back"),
+            edges: resolveEdges("back", node.cabinetType),
             operations: [],
           });
         }
@@ -294,7 +304,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
             width_mm10: plinthH,
             thickness_mm10: t,
             grain: resolveGrain("plinth"),
-            edges: resolveEdges("plinth"),
+            edges: resolveEdges("plinth", node.cabinetType),
             operations: [],
           });
           if (plinth.style === "box") {
@@ -306,7 +316,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
               width_mm10: plinthH,
               thickness_mm10: t,
               grain: resolveGrain("plinth"),
-              edges: resolveEdges("plinth"),
+              edges: resolveEdges("plinth", node.cabinetType),
               operations: [],
             });
           }
@@ -323,7 +333,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
             width_mm10: d + frontOverhang,
             thickness_mm10: profile.material.worktop_mm10 ?? 0,
             grain: resolveGrain("worktop"),
-            edges: resolveEdges("worktop"),
+            edges: resolveEdges("worktop", node.cabinetType),
             operations: [],
           });
         }
@@ -352,7 +362,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
           width_mm10: innerD,
           thickness_mm10: t,
           grain: resolveGrain("divider"),
-          edges: resolveEdges("divider"),
+          edges: resolveEdges("divider", node.cabinetType),
           operations: [],
         });
       });
@@ -368,7 +378,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
             width_mm10: shelfD,
             thickness_mm10: t,
             grain: resolveGrain("shelf"),
-            edges: resolveEdges("shelf"),
+            edges: resolveEdges("shelf", node.cabinetType),
             operations: [],
           });
         }
@@ -384,6 +394,9 @@ export function panelDecomposition(project: DesignProject, profile: Construction
     const t = profile.material.carcass_mm10;
 
     let placement = profile.defaults.bottomPlacement;
+    if (firstNode.cabinetType && profile.byType[firstNode.cabinetType]?.bottomPlacement) {
+      placement = profile.byType[firstNode.cabinetType]!.bottomPlacement!;
+    }
     const placementOverride = project.overrides.find(o => o.nodeId === firstNode.nodeId && o.field === "bottomPlacement");
     if (placementOverride && typeof placementOverride.value === "string") {
       placement = placementOverride.value as "vkladnoe" | "nakladnoe";
@@ -451,11 +464,14 @@ export function panelDecomposition(project: DesignProject, profile: Construction
       width_mm10: d,
       thickness_mm10: t,
       grain: resolveGrain("bottom"),
-      edges: resolveEdges("bottom"),
+      edges: resolveEdges("bottom", firstNode.cabinetType),
       operations: [...bottomOps],
     });
 
     let topStyle = profile.defaults.topStyle;
+    if (firstNode.cabinetType && profile.byType[firstNode.cabinetType]?.topStyle) {
+      topStyle = profile.byType[firstNode.cabinetType]!.topStyle!;
+    }
     const override = project.overrides.find(o => o.nodeId === firstNode.nodeId && o.field === "topStyle");
     if (override && typeof override.value === "string") {
       topStyle = override.value as "full" | "stretchers" | "none";
@@ -470,7 +486,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
         width_mm10: d,
         thickness_mm10: t,
         grain: resolveGrain("top"),
-        edges: resolveEdges("top"),
+        edges: resolveEdges("top", firstNode.cabinetType),
         operations: [...topOps],
       });
     } else if (topStyle === "stretchers") {
@@ -502,7 +518,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
         width_mm10: sw,
         thickness_mm10: t,
         grain: resolveGrain("stretcher"),
-        edges: resolveEdges("stretcher"),
+        edges: resolveEdges("stretcher", firstNode.cabinetType),
         operations: [],
       });
       resultParts.push({
@@ -513,7 +529,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
         width_mm10: sw,
         thickness_mm10: t,
         grain: resolveGrain("stretcher"),
-        edges: resolveEdges("stretcher"),
+        edges: resolveEdges("stretcher", firstNode.cabinetType),
         operations: [...stretcherOps],
       });
     }
@@ -539,7 +555,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
         width_mm10: backW,
         thickness_mm10: backT,
         grain: resolveGrain("back"),
-        edges: resolveEdges("back"),
+        edges: resolveEdges("back", firstNode.cabinetType),
         operations: [],
       });
     }
@@ -554,7 +570,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
         width_mm10: plinthH,
         thickness_mm10: t,
         grain: resolveGrain("plinth"),
-        edges: resolveEdges("plinth"),
+        edges: resolveEdges("plinth", firstNode.cabinetType),
         operations: [],
       });
       if (plinth.style === "box") {
@@ -566,7 +582,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
           width_mm10: plinthH,
           thickness_mm10: t,
           grain: resolveGrain("plinth"),
-          edges: resolveEdges("plinth"),
+          edges: resolveEdges("plinth", firstNode.cabinetType),
           operations: [],
         });
       }
@@ -583,7 +599,7 @@ export function panelDecomposition(project: DesignProject, profile: Construction
         width_mm10: d + frontOverhang,
         thickness_mm10: profile.material.worktop_mm10 ?? 0,
         grain: resolveGrain("worktop"),
-        edges: resolveEdges("worktop"),
+        edges: resolveEdges("worktop", firstNode.cabinetType),
         operations: [],
       });
     }

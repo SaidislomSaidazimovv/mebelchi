@@ -15,7 +15,7 @@ export function adaptPartsToPanels(
 ): Panel[] {
   const panels: Panel[] = [];
   const t = profile.material.carcass_mm10 ?? 160;
-  const plinthH = profile.defaults.plinth?.height_mm10 ?? 0;
+  const plinthH = profile.defaults.plinth?.style === "none" ? 0 : (profile.defaults.plinth?.height_mm10 ?? 0);
   const backZone = profile.defaults.backZone_mm10 ?? 0;
   
   // Asosiy shkaf o'lchamlarini topib olamiz (hozircha 1-shkaf asosida)
@@ -128,9 +128,16 @@ export function adaptPartsToPanels(
 
     // ORQA PANEL
     if (p.role === "back") {
-      x = t / 2; 
-      y = plinthH + t / 2;
-      z = cabD - backZone;
+      const backTreatment = profile.defaults.back.treatment;
+      if (backTreatment === "overlay") {
+        x = 0;
+        y = placement === "nakladnoe" ? plinthH + t : plinthH;
+        z = cabD;
+      } else {
+        x = t / 2; 
+        y = plinthH + t / 2;
+        z = cabD - backZone;
+      }
     }
 
     panels.push({
@@ -143,8 +150,8 @@ export function adaptPartsToPanels(
       width: w,
       height: h,
       depth: d,
-      material: "ldsp",
-      bands: [0, 0, 0, 0]
+      material: p.role === "back" ? "hdf" : "ldsp",
+      bands: p.edges
     });
   });
 
