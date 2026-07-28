@@ -26,11 +26,11 @@ export function buildBlockGroup(
   const midZ = 2800;
 
   for (const p of panels) {
-    const geometry = new THREE.BoxGeometry(
-      mm10ToMeters(p.width),
-      mm10ToMeters(p.height),
-      mm10ToMeters(p.depth),
-    );
+    const w = Math.max(mm10ToMeters(p.width), 0.001);
+    const h = Math.max(mm10ToMeters(p.height), 0.001);
+    const d = Math.max(mm10ToMeters(p.depth), 0.001);
+    
+    const geometry = new THREE.BoxGeometry(w, h, d);
     const px = mm10ToMeters(p.x + p.width / 2 - midX);
     const py = mm10ToMeters(p.y + p.height / 2);
     const pz = mm10ToMeters(p.z + p.depth / 2 - midZ);
