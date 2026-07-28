@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mm10ToMeters } from "../engine/units";
 import type { Panel, Hole } from "../engine/block";
-import { ldspMaterial, edgeMaterial } from "./materials";
+import { ldspMaterial, edgeMaterial, hdfMaterial } from "./materials";
 
 export function buildBlockGroup(
   panels: Panel[],
@@ -9,7 +9,8 @@ export function buildBlockGroup(
   selectedPanelId: string | null,
 ): THREE.Group {
   const group = new THREE.Group();
-  const material = ldspMaterial();
+  const ldspMat = ldspMaterial();
+  const hdfMat = hdfMaterial();
   const edge = edgeMaterial();
   const holeMat = new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.95 });
 
@@ -36,10 +37,39 @@ export function buildBlockGroup(
     const pz = mm10ToMeters(p.z + p.depth / 2 - midZ);
 
     const isSelected = p.id === selectedPanelId;
-    const meshMat = isSelected ? selectedMaterial : material;
+    const baseMat = p.material === "hdf" ? hdfMat : ldspMat;
+    const meshMat = isSelected ? selectedMaterial : baseMat;
     const edgeMatToUse = isSelected ? selectedEdgeMaterial : edge;
 
-    const mesh = new THREE.Mesh(geometry, meshMat);
+    const k1Mat = new THREE.MeshStandardMaterial({ color: 0xe67e22, roughness: 0.8 });
+    const k2Mat = new THREE.MeshStandardMaterial({ color: 0x27ae60, roughness: 0.8 });
+    const getBMat = (thick: number) => {
+      if (thick <= 0) return meshMat;
+      if (thick <= 5) return k2Mat; // Thin banding (<= 0.5mm)
+      return k1Mat; // Thick banding (> 0.5mm)
+    };
+
+    let faceMaterials: THREE.Material | THREE.Material[] = meshMat;
+    if (p.bands && !isSelected) {
+      const matFront = getBMat(p.bands[0] ?? 0);
+      const matBack = getBMat(p.bands[1] ?? 0);
+      const matLeft = getBMat(p.bands[2] ?? 0);
+      const matRight = getBMat(p.bands[3] ?? 0);
+
+      if (p.role === "side" || p.role === "divider") {
+        faceMaterials = [ meshMat, meshMat, matLeft, matRight, matFront, matBack ];
+      } else if (p.role === "plinth") {
+        faceMaterials = [ matRight, matLeft, matFront, matBack, meshMat, meshMat ];
+      } else if (p.role === "back") {
+        faceMaterials = [ matFront, matBack, matLeft, matRight, meshMat, meshMat ];
+      } else {
+        faceMaterials = [ matRight, matLeft, meshMat, meshMat, matFront, matBack ];
+      }
+    } else if (isSelected) {
+      faceMaterials = meshMat;
+    }
+
+    const mesh = new THREE.Mesh(geometry, faceMaterials);
     mesh.name = p.id;
     mesh.position.set(px, py, pz);
     if (p.rx) mesh.rotation.x = p.rx;

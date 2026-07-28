@@ -287,8 +287,8 @@ export function Stage3D({
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
-      {overlayPos && selectedPanel && (
-        <div className="floating-dims-card" style={{ left: overlayPos.x, top: overlayPos.y }}>
+      {selectedPanel && (
+        <div className="floating-dims-card" style={{ position: "absolute", top: "16px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "12px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", border: "1px solid #e5e7eb", display: "flex", gap: "24px", zIndex: 10 }}>
           <div className="float-field">
             <span className="float-lbl">En (X)</span>
             <input
