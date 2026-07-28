@@ -9,8 +9,7 @@ export function CutList({ pieces }: { pieces: CutPiece[] }) {
   return (
     <aside className="cutlist">
       <div className="cutlist-head">
-        <span className="cutlist-title">Kesim ro'yxati (Eman XLSX tayyor)</span>
-        <span className="cutlist-sub">100% Fizik aniqlik</span>
+        <span className="cutlist-title">Kesim ro'yxati</span>
       </div>
       <table className="cutlist-table" style={{ fontSize: "13px" }}>
         <thead>
