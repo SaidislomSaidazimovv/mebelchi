@@ -19,6 +19,7 @@ const realRows = () => groupSpecs(estimate(solveStructure(buildBookshelf(), tk),
 
 const row = (o: Partial<GroupedSpec> = {}): GroupedSpec => ({
   id: "p1", ids: ["p1"], qty: 1, name: "Polka", w_mm: 300, l_mm: 560, t_mm: 16,
+  rohW_mm: 299, rohL_mm: 560, cutW_mm: 299, cutL_mm: 560,
   areaM2: 0.168, edgeM: 0.56, bands: [true, false, false, false],
   materialName: "ЛДСП Белый", priceUzs: 25200, ...o,
 });
@@ -86,8 +87,8 @@ describe("M8.3 — nothing is lost between the list and the file", () => {
 
 describe("M8.3 — the banding column says what the edge-bander must do", () => {
   it("names the banded edges", () => {
-    expect(bandsLabel([true, false, false, false])).toBe("ust");
-    expect(bandsLabel([true, true, false, false])).toBe("ust+tag");
+    expect(bandsLabel([true, false, false, false])).toBe("oldi");
+    expect(bandsLabel([true, true, false, false])).toBe("oldi+orqa");
   });
 
   it("says «hammasi» for all four and «yo'q» for none — a bander reads words, not dots", () => {

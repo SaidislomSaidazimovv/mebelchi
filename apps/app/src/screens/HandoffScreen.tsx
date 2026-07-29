@@ -8,7 +8,8 @@ import { useStore, HW_GRADE_LABEL } from "../store";
 import { useT } from "../i18n/useT";
 import { production, productionCSV } from "../model/cncExport";
 import { panelsDXF } from "../model/dxfExport";
-import { blockCutList } from "../three/estimate";
+import { unifiedCutList } from "../three/handoffCutList";
+import { bandsLabel } from "../three/specCsv";
 import { machiningReport, runSWJ008 } from "../model/machining";
 import { DrawingSheet } from "../components/DrawingSheet";
 import { TopPlanSheet } from "../components/TopPlanSheet";
@@ -48,9 +49,8 @@ export function HandoffScreen() {
   const [allHw, setAllHw] = useState(false);
   const PREVIEW = 4;
   const prod = useMemo(() => production(cabs), [cabs]);
-  // placed karkas blocks — their cut list joins the factory package (D2)
-  const blockRows = useMemo(() => projectBlocks.map((b) => ({ name: b.name, rows: blockCutList(b.karkasJson) })).filter((b) => b.rows.length > 0), [projectBlocks]);
-  const blockPanelCount = blockRows.reduce((s, b) => s + b.rows.length, 0);
+  const unified = useMemo(() => unifiedCutList(cabs, projectBlocks), [cabs, projectBlocks]);
+  const unifiedCount = unified.rows.reduce((n, r) => n + r.qty, 0);
   // run the drilling solver + safety gate over the whole run (the machine-ready plan)
   const machining = useMemo(() => machiningReport(cabs), [cabs]);
   // shared module numbering (same order as the cut list) so a module has ONE number
@@ -196,15 +196,17 @@ export function HandoffScreen() {
         clone.setAttribute("height", String(vb.height));
         return new XMLSerializer().serializeToString(clone);
       });
-    const spec = prod && prod.panels.length
+    const spec = unified.rows.length
       ? {
-          columns: ["#", "Detal", "Material", "O'lcham (L×W×T)", "Kromka"],
-          rows: prod.panels.map((r, i) => [
+          columns: ["#", "Detal", "Material", "Tayyor", "Xom", "Arra", "Kromka"],
+          rows: unified.rows.map((r, i) => [
             String(i + 1),
-            r.part,
-            r.material,
-            `${r.lengthMm}×${r.widthMm}×${r.thicknessMm}`,
-            r.edge,
+            r.qty > 1 ? `${r.name} ×${r.qty}` : r.name,
+            r.materialName,
+            `${r.l_mm}×${r.w_mm}×${r.t_mm}`,
+            `${r.rohL_mm}×${r.rohW_mm}`,
+            `${r.cutL_mm}×${r.cutW_mm}`,
+            bandsLabel(r.bands),
           ])
         }
       : undefined;
@@ -215,7 +217,7 @@ export function HandoffScreen() {
         title: "Mebelchi",
         project,
         date: today,
-        partsCount: prod ? prod.panels.length : undefined,
+        partsCount: unifiedCount || undefined,
         spec,
         svgs,
       });
@@ -332,7 +334,7 @@ export function HandoffScreen() {
       <button className="ho-download" style={{ marginTop: 18 }} onClick={printPDF} type="button">{t.handoff.dlPdf}</button>
 
       <div className="ho-stats">
-        <div className="ho-stat"><span className="ho-stat-n">{prod.panels.length + blockPanelCount}</span><span className="ho-stat-l">{t.handoff.parts}</span></div>
+        <div className="ho-stat"><span className="ho-stat-n">{unifiedCount}</span><span className="ho-stat-l">{t.handoff.parts}</span></div>
         <div className="ho-stat"><span className="ho-stat-n">{prod.boardM2}</span><span className="ho-stat-l">{t.handoff.boardM2}</span></div>
         <div className="ho-stat"><span className="ho-stat-n">{prod.moduleCount}</span><span className="ho-stat-l">{t.handoff.modules}</span></div>
       </div>
@@ -374,40 +376,22 @@ export function HandoffScreen() {
           <span className="ho-c-mat">{t.handoff.colMat}</span>
           <span className="ho-c-dim">{t.handoff.colDim}</span>
         </div>
-        {(allPanels ? prod.panels : prod.panels.slice(0, PREVIEW)).map((r, i) => (
-          <div className="ho-row" key={i}>
-            <span className="ho-c-part">{r.part}<span className="ho-c-mod">{r.module}</span></span>
-            <span className="ho-c-mat">{r.material}</span>
-            <span className="ho-c-dim">{r.lengthMm}×{r.widthMm}×{r.thicknessMm}</span>
+        {(allPanels ? unified.rows : unified.rows.slice(0, PREVIEW)).map((r) => (
+          <div className="ho-row" key={r.ids[0]}>
+            <span className="ho-c-part">{r.qty > 1 ? `${r.name} ×${r.qty}` : r.name}</span>
+            <span className="ho-c-mat">{r.materialName}</span>
+            <span className="ho-c-dim">{r.l_mm}×{r.w_mm}×{r.t_mm}</span>
           </div>
         ))}
       </div>
-      {prod.panels.length > PREVIEW && (
+      {unified.rows.length > PREVIEW && (
         <button className="ho-more" onClick={() => setAllPanels((v) => !v)} type="button">
-          {allPanels ? t.handoff.collapse : t.handoff.showAll(prod.panels.length)}
+          {allPanels ? t.handoff.collapse : t.handoff.showAll(unified.rows.length)}
         </button>
       )}
-
-      {/* karkas blocks — their solved cut list, so the factory package is complete (D2) */}
-      {blockRows.map((b) => (
-        <div key={b.name}>
-          <div className="cost-sec-title">🧩 {b.name}</div>
-          <div className="ho-table">
-            <div className="ho-row ho-head">
-              <span className="ho-c-part">{t.handoff.colPart}</span>
-              <span className="ho-c-mat">{t.handoff.colMat}</span>
-              <span className="ho-c-dim">{t.handoff.colDim}</span>
-            </div>
-            {b.rows.map((r, i) => (
-              <div className="ho-row" key={i}>
-                <span className="ho-c-part">{r.part}</span>
-                <span className="ho-c-mat">{r.material}</span>
-                <span className="ho-c-dim">{r.lengthMm}×{r.widthMm}×{r.thicknessMm}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
+      {unified.fallback.length > 0 && (
+        <div style={{ fontSize: 12, color: "#a06a00", marginTop: 6 }}>⚠ {unified.fallback.length} modul eski hisobda (fallback)</div>
+      )}
 
       <div className="cost-sec-title">{t.handoff.hwList}</div>
       <div className="ho-items">

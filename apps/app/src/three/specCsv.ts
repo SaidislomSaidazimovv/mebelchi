@@ -26,7 +26,7 @@ function num(n: number, dp = 0): string {
 
 /** Which edges carry banding, as the workshop says it: «oldi», «orqa», «chap», «o'ng». */
 export function bandsLabel(bands: readonly boolean[]): string {
-  const names = ["ust", "tag", "o'ng", "chap"]; // solve.ts edge order: top · bottom · right · left
+  const names = ["oldi", "orqa", "o'ng", "chap"];
   const on = names.filter((_, i) => bands[i]);
   return on.length === 0 ? "yo'q" : on.length === 4 ? "hammasi" : on.join("+");
 }

@@ -9,6 +9,7 @@ import type { Part } from "../../../../engine/contracts/types.js";
 import type { StructuralModel, Section, ApplianceKind } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { edgeLengths } from "../../../../engine/structure/features.js";
+import { threeSizes } from "../../../../engine/structure/sizes.js";
 import {
   partBoard,
   edgeById,
@@ -36,6 +37,10 @@ export interface PartSpec {
   w_mm: number;
   l_mm: number;
   t_mm: number;
+  rohW_mm: number;
+  rohL_mm: number;
+  cutW_mm: number;
+  cutL_mm: number;
   areaM2: number;
   edgeM: number;
   bands: [boolean, boolean, boolean, boolean];
@@ -126,6 +131,7 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
     const w = M(p.width_mm10);
     const l = M(p.length_mm10);
     const areaM2 = panel ? w * l : 0;
+    const sizes = threeSizes(p.length_mm10, p.width_mm10, p.edges, 0);
     const bands: [boolean, boolean, boolean, boolean] = [p.edges[0] > 0, p.edges[1] > 0, p.edges[2] > 0, p.edges[3] > 0];
     // Banded-edge running length. The face→edge mapping comes from the engine's edgeLengths() so there
     // is ONE source of truth: SWJ008 order [front, back, side, side] — front/back run along the LENGTH,
@@ -141,6 +147,10 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
       ...(p.note ? { note: p.note } : {}),
       w_mm: MM(p.width_mm10),
       l_mm: MM(p.length_mm10),
+      rohW_mm: MM(sizes.rohWidth),
+      rohL_mm: MM(sizes.rohLength),
+      cutW_mm: MM(sizes.zuschnittWidth),
+      cutL_mm: MM(sizes.zuschnittLength),
       t_mm: round1(p.thickness_mm10 / 10),
       areaM2,
       edgeM,
