@@ -160,7 +160,6 @@ export function DrawingSheet({ cabs, wallLen, ceiling, numberOf, project, view, 
 
   return (
     <svg id={svgId} viewBox={`0 0 ${W} ${H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>
-      <rect x={SW} y={SW} width={W - SW * 2} height={H - SW * 2} fill="none" stroke={INK} strokeWidth={SW} />
       {els}
     </svg>
   );

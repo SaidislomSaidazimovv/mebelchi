@@ -8,7 +8,7 @@ import { useStore, HW_GRADE_LABEL } from "../store";
 import { useT } from "../i18n/useT";
 import { production, productionCSV } from "../model/cncExport";
 import { panelsDXF } from "../model/dxfExport";
-import { unifiedCutList, unifiedHardware } from "../three/handoffCutList";
+import { unifiedCutList, unifiedHardware, unifiedDrilledParts, positionMap } from "../three/handoffCutList";
 import { bandsLabel } from "../three/specCsv";
 import { BOARDS, EDGES } from "../three/materials";
 import { machiningReport, runSWJ008 } from "../model/machining";
@@ -61,6 +61,8 @@ export function HandoffScreen() {
     const edges = [...new Set(unified.rows.map((r) => r.edgeName).filter((n): n is string => !!n))].map((n) => ({ name: n, code: eId.get(n) ?? "—" }));
     return [...decors, ...edges];
   }, [unified]);
+  const drilled = useMemo(() => unifiedDrilledParts(cabs, projectBlocks), [cabs, projectBlocks]);
+  const posMap = useMemo(() => positionMap(unified.rows), [unified]);
   // run the drilling solver + safety gate over the whole run (the machine-ready plan)
   const machining = useMemo(() => machiningReport(cabs), [cabs]);
   // shared module numbering (same order as the cut list) so a module has ONE number
@@ -275,8 +277,8 @@ export function HandoffScreen() {
         <TopPlanSheet svgId="draw-top" points={points} cabs={cabs} openings={openings} waterWall={waterWall} layout={layout} numberOf={numberOf} runIds={new Set(drawRun.cabs.map((c) => c.id))} project={project} view="Вид сверху" date={today} />
         <WorktopSheet svgId="draw-wt" cabs={drawRun.cabs} wallLen={drawRun.wallLen} project={project} view="Столешница" date={today} />
         <SectionSheet svgId="draw-section" cabs={drawRun.cabs} project={project} view="Разрез" date={today} />
-        {machining && Array.from({ length: Math.max(1, Math.ceil(drillGroups(machining.parts).length / DRILL_PER_PAGE)) }).map((_, i) => (
-          <DrillSheet key={i} svgId={`draw-drill-${i}`} parts={machining.parts} project={project} date={today} page={i} />
+        {drilled.length > 0 && Array.from({ length: Math.max(1, Math.ceil(drillGroups(drilled).length / DRILL_PER_PAGE)) }).map((_, i) => (
+          <DrillSheet key={i} svgId={`draw-drill-${i}`} parts={drilled} project={project} date={today} page={i} posOf={posMap} />
         ))}
       </div>
 

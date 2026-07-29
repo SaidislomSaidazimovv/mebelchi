@@ -11,10 +11,10 @@ const DIM = "#555";
 
 /** Visual class per drill diameter (mm10): colour, schematic radius, RU label. */
 const HOLE: Record<number, { color: string; r: number; ru: string }> = {
-  350: { color: "#9b59b6", r: 14, ru: "Ø35 петля (паз 13)" },
-  150: { color: "#e8833a", r: 9, ru: "Ø15 эксцентрик (12.5)" },
-  80: { color: "#3a7de8", r: 7, ru: "Ø8 шкант (34)" },
-  50: { color: "#2faf5a", r: 6, ru: "Ø5 полкодержатель (11)" },
+  350: { color: "#9b59b6", r: 14, ru: "Ø35 петля" },
+  150: { color: "#e8833a", r: 9, ru: "Ø15 эксцентрик" },
+  80: { color: "#3a7de8", r: 7, ru: "Ø8 шкант" },
+  50: { color: "#2faf5a", r: 6, ru: "Ø5 полка" },
   30: { color: "#9aa0a6", r: 4, ru: "Ø3 разметка" },
 };
 const FALLBACK = { color: "#444", r: 5, ru: "прочее" };
@@ -38,6 +38,7 @@ interface Props {
   date: string;
   svgId?: string;
   page?: number;
+  posOf?: Map<string, number>;
 }
 
 export const DRILL_PER_PAGE = 12;
@@ -56,7 +57,7 @@ export function drillGroups(parts: Part[]): { part: Part; qty: number }[] {
   return groups;
 }
 
-export function DrillSheet({ parts, project, date, svgId, page }: Props) {
+export function DrillSheet({ parts, project, date, svgId, page, posOf }: Props) {
   const allGroups = drillGroups(parts);
   const groups = page != null ? allGroups.slice(page * DRILL_PER_PAGE, (page + 1) * DRILL_PER_PAGE) : allGroups;
   const machined = allGroups.map((g) => g.part);
@@ -74,13 +75,14 @@ export function DrillSheet({ parts, project, date, svgId, page }: Props) {
   const legend = [350, 150, 80, 50, 30].filter((d) => present.has(d));
   const dcode = (d: number) => `D${legend.indexOf(d) + 1}`;
   els.push(<text key="lt" x={PAD} y={130} fontSize={104} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">Карта сверловки</text>);
+  const legStep = (W - PAD * 2) / Math.max(1, legend.length);
   legend.forEach((d, i) => {
-    const lx = PAD + i * 940;
+    const lx = PAD + i * legStep;
     const ly = 230;
     const c = cls(d);
-    els.push(<circle key={`lc${d}`} cx={lx + 24} cy={ly - 18} r={c.r + 4} fill={c.color} />);
-    els.push(<text key={`ld${d}`} x={lx + 66} y={ly} fontSize={62} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">{dcode(d)}</text>);
-    els.push(<text key={`ll${d}`} x={lx + 170} y={ly} fontSize={62} fill={DIM} fontFamily="Inter, sans-serif">{c.ru}</text>);
+    els.push(<circle key={`lc${d}`} cx={lx + 20} cy={ly - 18} r={c.r + 4} fill={c.color} />);
+    els.push(<text key={`ld${d}`} x={lx + 54} y={ly} fontSize={44} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">{dcode(d)}</text>);
+    els.push(<text key={`ll${d}`} x={lx + 134} y={ly} fontSize={44} fill={DIM} fontFamily="Inter, sans-serif">{c.ru}</text>);
   });
 
   // ---- panels ----
@@ -101,6 +103,12 @@ export function DrillSheet({ parts, project, date, svgId, page }: Props) {
 
     // panel outline
     els.push(<rect key={`pr${idx}`} x={px0} y={py0} width={pw} height={ph} fill="#fff" stroke={INK} strokeWidth={SW} />);
+
+    const pos = posOf?.get(p.id);
+    if (pos != null) {
+      els.push(<circle key={`pc${idx}`} cx={px0 + 46} cy={py0 + 46} r={42} fill="#d98a1e" />);
+      els.push(<text key={`pn${idx}`} x={px0 + 46} y={py0 + 64} fontSize={54} fontWeight={800} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{pos}</text>);
+    }
 
     // holes
     const labeled = new Set<number>();
@@ -151,7 +159,6 @@ export function DrillSheet({ parts, project, date, svgId, page }: Props) {
 
   return (
     <svg id={svgId} viewBox={`0 0 ${W} ${H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>
-      <rect x={SW} y={SW} width={W - SW * 2} height={H - SW * 2} fill="none" stroke={INK} strokeWidth={SW} />
       {els}
     </svg>
   );

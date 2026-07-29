@@ -1,6 +1,8 @@
 import type { Cabinet } from "../model/cabinet";
 import type { StructuralModel } from "../../../../engine/contracts/structure.js";
+import type { Part } from "../../../../engine/contracts/types.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
+import { solveModelToParts } from "../../../../engine/cnc.js";
 import { estimate, groupSpecs, hardwareEstimate, type PartSpec, type GroupedSpec } from "./estimate";
 import { cellToKarkasBlock } from "./cellToKarkas";
 import { planThickness, withPlanDefaults, type MaterialPlan } from "./materials";
@@ -15,6 +17,8 @@ export interface UnifiedCutList {
   rows: GroupedSpec[];
   fallback: string[];
 }
+
+const prefixIds = (parts: Part[], prefix: string): Part[] => parts.map((p) => ({ ...p, id: `${prefix}:${p.id}` }));
 
 const fallbackSpecs = (cab: Cabinet): PartSpec[] => {
   const prod = production([cab]);
@@ -41,18 +45,18 @@ const fallbackSpecs = (cab: Cabinet): PartSpec[] => {
 const cabinetSpecs = (cab: Cabinet): { specs: PartSpec[]; ok: boolean } => {
   try {
     const { model, plan } = cellToKarkasBlock(cab);
-    return { specs: estimate(solveStructure(model, planThickness(plan)), plan).parts, ok: true };
+    return { specs: estimate(prefixIds(solveStructure(model, planThickness(plan)), cab.id), plan).parts, ok: true };
   } catch {
     return { specs: fallbackSpecs(cab), ok: false };
   }
 };
 
-const blockSpecs = (karkasJson: string): PartSpec[] => {
+const blockSpecs = (karkasJson: string, prefix: string): PartSpec[] => {
   try {
     const { model, plan } = JSON.parse(karkasJson) as { model?: StructuralModel; plan?: MaterialPlan };
     if (!model?.blocks?.length) return [];
     const p = withPlanDefaults(plan);
-    return estimate(solveStructure(model, planThickness(p)), p).parts;
+    return estimate(prefixIds(solveStructure(model, planThickness(p)), prefix), p).parts;
   } catch {
     return [];
   }
@@ -67,7 +71,7 @@ export function unifiedCutList(cabs: Cabinet[], blocks: ProjectBlockInput[]): Un
     specs.push(...r.specs);
     if (!r.ok) fallback.push(cab.id);
   }
-  for (const b of blocks) specs.push(...blockSpecs(b.karkasJson));
+  blocks.forEach((b, i) => specs.push(...blockSpecs(b.karkasJson, `blk${i}`)));
   return { rows: groupSpecs(specs), fallback };
 }
 
@@ -103,4 +107,28 @@ export function unifiedHardware(cabs: Cabinet[], blocks: ProjectBlockInput[]): U
     } catch { continue; }
   }
   return { lines: [...byName].map(([name, qty]) => ({ name, qty })), fallback };
+}
+
+export function unifiedDrilledParts(cabs: Cabinet[], blocks: ProjectBlockInput[]): Part[] {
+  const parts: Part[] = [];
+  for (const cab of cabs) {
+    if (cab.furniture) continue;
+    try {
+      const { model, plan } = cellToKarkasBlock(cab);
+      parts.push(...prefixIds(solveModelToParts(model, planThickness(plan)), cab.id));
+    } catch { continue; }
+  }
+  blocks.forEach((b, i) => {
+    try {
+      const { model, plan } = JSON.parse(b.karkasJson) as { model?: StructuralModel; plan?: MaterialPlan };
+      if (model?.blocks?.length) parts.push(...prefixIds(solveModelToParts(model, planThickness(withPlanDefaults(plan))), `blk${i}`));
+    } catch { return; }
+  });
+  return parts;
+}
+
+export function positionMap(rows: GroupedSpec[]): Map<string, number> {
+  const m = new Map<string, number>();
+  rows.forEach((r, i) => r.ids.forEach((id) => m.set(id, i + 1)));
+  return m;
 }
