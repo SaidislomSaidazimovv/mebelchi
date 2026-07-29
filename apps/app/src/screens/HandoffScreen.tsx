@@ -17,6 +17,7 @@ import { TopPlanSheet } from "../components/TopPlanSheet";
 import { WorktopSheet } from "../components/WorktopSheet";
 import { SectionSheet } from "../components/SectionSheet";
 import { DrillSheet, drillGroups, DRILL_PER_PAGE } from "../components/DrillSheet";
+import { CabinetPassport } from "../components/CabinetPassport";
 import { VariantScene, type SceneApi } from "../three/VariantScene";
 import { FLOOR_COVERINGS } from "../model/floors";
 import type { Cabinet } from "../model/cabinet";
@@ -63,6 +64,23 @@ export function HandoffScreen() {
   }, [unified]);
   const drilled = useMemo(() => unifiedDrilledParts(cabs, projectBlocks), [cabs, projectBlocks]);
   const posMap = useMemo(() => positionMap(unified.rows), [unified]);
+  const passportCabs = useMemo(() => {
+    const seen = new Map<string, { cab: Cabinet; qty: number }>();
+    const out: { cab: Cabinet; qty: number }[] = [];
+    for (const c of cabs) {
+      if (c.furniture || c.appliance === "filler") continue;
+      const k = `${c.kind}|${c.w}|${c.h}|${c.depth ?? ""}|${c.fill}|${c.count}|${c.div}`;
+      const g = seen.get(k);
+      if (g) {
+        g.qty += 1;
+        continue;
+      }
+      const ng = { cab: c, qty: 1 };
+      seen.set(k, ng);
+      out.push(ng);
+    }
+    return out;
+  }, [cabs]);
   // run the drilling solver + safety gate over the whole run (the machine-ready plan)
   const machining = useMemo(() => machiningReport(cabs), [cabs]);
   // shared module numbering (same order as the cut list) so a module has ONE number
@@ -196,7 +214,8 @@ export function HandoffScreen() {
   };
   const printPDF = async () => {
     const drillIds = Array.from(document.querySelectorAll('[id^="draw-drill-"]')).map((e) => e.id);
-    const svgs = ["draw-face", "draw-top", "draw-wt", "draw-section", ...drillIds]
+    const passportIds = Array.from(document.querySelectorAll('[id^="draw-passport-"]')).map((e) => e.id);
+    const svgs = ["draw-face", "draw-top", "draw-wt", "draw-section", ...drillIds, ...passportIds]
       .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
       .filter((el): el is SVGSVGElement => !!el)
       .map((el) => {
@@ -279,6 +298,9 @@ export function HandoffScreen() {
         <SectionSheet svgId="draw-section" cabs={drawRun.cabs} project={project} view="Разрез" date={today} />
         {drilled.length > 0 && Array.from({ length: Math.max(1, Math.ceil(drillGroups(drilled).length / DRILL_PER_PAGE)) }).map((_, i) => (
           <DrillSheet key={i} svgId={`draw-drill-${i}`} parts={drilled} project={project} date={today} page={i} posOf={posMap} />
+        ))}
+        {passportCabs.map((g, i) => (
+          <CabinetPassport key={`pp${i}`} svgId={`draw-passport-${i}`} cab={g.cab} artNo={i + 1} qty={g.qty} project={project} date={today} />
         ))}
       </div>
 
