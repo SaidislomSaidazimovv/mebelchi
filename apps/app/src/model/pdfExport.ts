@@ -22,6 +22,8 @@ export interface PdfExportInput {
   date: string;
   partsCount?: number;
   spec?: PdfSpec;
+  hardware?: { name: string; qty: number }[];
+  materials?: { name: string; code: string }[];
   svgs: string[];
 }
 
@@ -113,6 +115,54 @@ function drawSpec(doc: jsPDF, spec: PdfSpec, pw: number, ph: number): void {
   }
 }
 
+function drawHardware(doc: jsPDF, hardware: { name: string; qty: number }[], pw: number, ph: number): void {
+  const margin = 12;
+  let y = margin + 8;
+  doc.setFontSize(15);
+  doc.text("Furnitura", margin, y);
+  y += 8;
+  doc.setFontSize(9);
+  doc.text("Nomi", margin, y);
+  doc.text("Soni", margin + 160, y);
+  y += 2;
+  doc.setDrawColor(20);
+  doc.line(margin, y, pw - margin, y);
+  y += 6;
+  for (const h of hardware) {
+    if (y > ph - margin) {
+      doc.addPage();
+      y = margin + 8;
+    }
+    doc.text(h.name, margin, y);
+    doc.text(String(h.qty), margin + 160, y);
+    y += 6;
+  }
+}
+
+function drawMaterials(doc: jsPDF, materials: { name: string; code: string }[], pw: number, ph: number): void {
+  const margin = 12;
+  let y = margin + 8;
+  doc.setFontSize(15);
+  doc.text("Materiallar", margin, y);
+  y += 8;
+  doc.setFontSize(9);
+  doc.text("Nomi", margin, y);
+  doc.text("Kod", margin + 160, y);
+  y += 2;
+  doc.setDrawColor(20);
+  doc.line(margin, y, pw - margin, y);
+  y += 6;
+  for (const m of materials) {
+    if (y > ph - margin) {
+      doc.addPage();
+      y = margin + 8;
+    }
+    doc.text(m.name, margin, y);
+    doc.text(m.code, margin + 160, y);
+    y += 6;
+  }
+}
+
 async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: number, ph: number): Promise<void> {
   holder.innerHTML = svg;
   const el = holder.querySelector("svg") as SVGSVGElement | null;
@@ -158,6 +208,14 @@ export async function buildDrawingsPdf(input: PdfExportInput): Promise<jsPDF> {
   if (input.spec && input.spec.rows.length) {
     doc.addPage();
     drawSpec(doc, input.spec, pw, ph);
+  }
+  if (input.hardware && input.hardware.length) {
+    doc.addPage();
+    drawHardware(doc, input.hardware, pw, ph);
+  }
+  if (input.materials && input.materials.length) {
+    doc.addPage();
+    drawMaterials(doc, input.materials, pw, ph);
   }
 
   const holder = document.createElement("div");

@@ -1,7 +1,7 @@
 import type { Cabinet } from "../model/cabinet";
 import type { StructuralModel } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
-import { estimate, groupSpecs, type PartSpec, type GroupedSpec } from "./estimate";
+import { estimate, groupSpecs, hardwareEstimate, type PartSpec, type GroupedSpec } from "./estimate";
 import { cellToKarkasBlock } from "./cellToKarkas";
 import { planThickness, withPlanDefaults, type MaterialPlan } from "./materials";
 import { production } from "../model/cncExport";
@@ -69,4 +69,38 @@ export function unifiedCutList(cabs: Cabinet[], blocks: ProjectBlockInput[]): Un
   }
   for (const b of blocks) specs.push(...blockSpecs(b.karkasJson));
   return { rows: groupSpecs(specs), fallback };
+}
+
+export interface HwLine {
+  name: string;
+  qty: number;
+}
+
+export interface UnifiedHardware {
+  lines: HwLine[];
+  fallback: string[];
+}
+
+export function unifiedHardware(cabs: Cabinet[], blocks: ProjectBlockInput[]): UnifiedHardware {
+  const byName = new Map<string, number>();
+  const fallback: string[] = [];
+  const add = (name: string, qty: number) => { if (qty > 0) byName.set(name, (byName.get(name) ?? 0) + qty); };
+  for (const cab of cabs) {
+    if (cab.furniture) continue;
+    try {
+      const { model } = cellToKarkasBlock(cab);
+      for (const h of hardwareEstimate(model).lines) add(h.name, h.qty);
+    } catch {
+      const prod = production([cab]);
+      if (prod) for (const h of prod.hardware) add(h.name, h.qty);
+      fallback.push(cab.id);
+    }
+  }
+  for (const b of blocks) {
+    try {
+      const { model } = JSON.parse(b.karkasJson) as { model?: StructuralModel };
+      if (model?.blocks?.length) for (const h of hardwareEstimate(model).lines) add(h.name, h.qty);
+    } catch { continue; }
+  }
+  return { lines: [...byName].map(([name, qty]) => ({ name, qty })), fallback };
 }

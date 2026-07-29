@@ -8,8 +8,9 @@ import { useStore, HW_GRADE_LABEL } from "../store";
 import { useT } from "../i18n/useT";
 import { production, productionCSV } from "../model/cncExport";
 import { panelsDXF } from "../model/dxfExport";
-import { unifiedCutList } from "../three/handoffCutList";
+import { unifiedCutList, unifiedHardware } from "../three/handoffCutList";
 import { bandsLabel } from "../three/specCsv";
+import { BOARDS, EDGES } from "../three/materials";
 import { machiningReport, runSWJ008 } from "../model/machining";
 import { DrawingSheet } from "../components/DrawingSheet";
 import { TopPlanSheet } from "../components/TopPlanSheet";
@@ -51,6 +52,14 @@ export function HandoffScreen() {
   const prod = useMemo(() => production(cabs), [cabs]);
   const unified = useMemo(() => unifiedCutList(cabs, projectBlocks), [cabs, projectBlocks]);
   const unifiedCount = unified.rows.reduce((n, r) => n + r.qty, 0);
+  const hw = useMemo(() => unifiedHardware(cabs, projectBlocks), [cabs, projectBlocks]);
+  const materials = useMemo(() => {
+    const bId = new Map(BOARDS.map((b) => [b.name, b.id]));
+    const eId = new Map(EDGES.map((e) => [e.name, e.id]));
+    const decors = [...new Set(unified.rows.map((r) => r.materialName))].map((n) => ({ name: n, code: bId.get(n) ?? "—" }));
+    const edges = [...new Set(unified.rows.map((r) => r.edgeName).filter((n): n is string => !!n))].map((n) => ({ name: n, code: eId.get(n) ?? "—" }));
+    return [...decors, ...edges];
+  }, [unified]);
   // run the drilling solver + safety gate over the whole run (the machine-ready plan)
   const machining = useMemo(() => machiningReport(cabs), [cabs]);
   // shared module numbering (same order as the cut list) so a module has ONE number
@@ -220,6 +229,8 @@ export function HandoffScreen() {
         date: today,
         partsCount: unifiedCount || undefined,
         spec,
+        hardware: hw.lines,
+        materials,
         svgs,
       });
     } catch {
@@ -396,16 +407,16 @@ export function HandoffScreen() {
 
       <div className="cost-sec-title">{t.handoff.hwList}</div>
       <div className="ho-items">
-        {(allHw ? prod.hardware : prod.hardware.slice(0, PREVIEW)).map((h) => (
+        {(allHw ? hw.lines : hw.lines.slice(0, PREVIEW)).map((h) => (
           <div className="cost-item" key={h.name}>
             <span className="cost-item-name">{h.name}</span>
             <span className="cost-item-amt">{h.qty} {t.handoff.pcs}</span>
           </div>
         ))}
       </div>
-      {prod.hardware.length > PREVIEW && (
+      {hw.lines.length > PREVIEW && (
         <button className="ho-more" onClick={() => setAllHw((v) => !v)} type="button">
-          {allHw ? t.handoff.collapse : t.handoff.showAll(prod.hardware.length)}
+          {allHw ? t.handoff.collapse : t.handoff.showAll(hw.lines.length)}
         </button>
       )}
 
