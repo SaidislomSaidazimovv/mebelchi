@@ -4,9 +4,15 @@ import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
 
+export interface PdfSpecRow {
+  cells: string[];
+  bands?: boolean[];
+  edgeName?: string;
+}
+
 export interface PdfSpec {
   columns: string[];
-  rows: string[][];
+  rows: PdfSpecRow[];
 }
 
 export interface PdfExportInput {
@@ -55,10 +61,25 @@ function drawTitle(doc: jsPDF, input: PdfExportInput, pw: number, ph: number): v
   }
 }
 
+function drawKantenbild(doc: jsPDF, x: number, y: number, w: number, h: number, bands: readonly boolean[]): void {
+  doc.setDrawColor(150);
+  doc.setLineWidth(0.15);
+  doc.rect(x, y, w, h);
+  doc.setDrawColor(138, 109, 31);
+  doc.setLineWidth(0.7);
+  if (bands[0]) doc.line(x, y, x + w, y);
+  if (bands[1]) doc.line(x, y + h, x + w, y + h);
+  if (bands[2]) doc.line(x + w, y, x + w, y + h);
+  if (bands[3]) doc.line(x, y, x, y + h);
+  doc.setLineWidth(0.2);
+  doc.setDrawColor(20);
+}
+
 function drawSpec(doc: jsPDF, spec: PdfSpec, pw: number, ph: number): void {
   const margin = 12;
   const tableW = pw - margin * 2;
   const colW = tableW / spec.columns.length;
+  const last = spec.columns.length - 1;
   let y = margin + 8;
   doc.setFontSize(15);
   doc.text("Spetsifikatsiya", margin, y);
@@ -68,14 +89,27 @@ function drawSpec(doc: jsPDF, spec: PdfSpec, pw: number, ph: number): void {
   y += 2;
   doc.setDrawColor(20);
   doc.line(margin, y, pw - margin, y);
-  y += 4;
+  y += 5;
   for (const row of spec.rows) {
     if (y > ph - margin) {
       doc.addPage();
       y = margin + 8;
     }
-    row.forEach((cell, i) => doc.text(cell, margin + i * colW + 1, y));
-    y += 5;
+    doc.setFontSize(8);
+    row.cells.forEach((cell, i) => {
+      if (i === last && row.bands) return;
+      doc.text(cell, margin + i * colW + 1, y);
+    });
+    if (row.bands) {
+      const kx = margin + last * colW + 1;
+      drawKantenbild(doc, kx, y - 3, 4, 3, row.bands);
+      if (row.edgeName) {
+        doc.setFontSize(6);
+        doc.text(row.edgeName, kx + 5.5, y - 0.5);
+        doc.setFontSize(8);
+      }
+    }
+    y += 6.5;
   }
 }
 

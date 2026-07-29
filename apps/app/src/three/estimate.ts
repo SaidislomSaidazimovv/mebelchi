@@ -48,6 +48,7 @@ export interface PartSpec {
   /** M7.3 — the usta's note on this part, shown under its row in the cut list. */
   note?: string;
   materialName: string; // decor this part is cut from under the plan
+  edgeName?: string;
   priceUzs: number; // this part's board + edge cost
 }
 
@@ -157,6 +158,7 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
       bands,
       role: p.role,
       materialName: board?.name ?? "—",
+      edgeName: bands.some((b) => b) ? edgeById(plan.edge)?.name : undefined,
       priceUzs,
     };
   };

@@ -199,15 +199,19 @@ export function HandoffScreen() {
     const spec = unified.rows.length
       ? {
           columns: ["#", "Detal", "Material", "Tayyor", "Xom", "Arra", "Kromka"],
-          rows: unified.rows.map((r, i) => [
-            String(i + 1),
-            r.qty > 1 ? `${r.name} ×${r.qty}` : r.name,
-            r.materialName,
-            `${r.l_mm}×${r.w_mm}×${r.t_mm}`,
-            `${r.rohL_mm}×${r.rohW_mm}`,
-            `${r.cutL_mm}×${r.cutW_mm}`,
-            bandsLabel(r.bands),
-          ])
+          rows: unified.rows.map((r, i) => ({
+            cells: [
+              String(i + 1),
+              r.qty > 1 ? `${r.name} ×${r.qty}` : r.name,
+              r.materialName,
+              `${r.l_mm}×${r.w_mm}×${r.t_mm}`,
+              `${r.rohL_mm}×${r.rohW_mm}`,
+              `${r.cutL_mm}×${r.cutW_mm}`,
+              bandsLabel(r.bands),
+            ],
+            bands: r.bands,
+            edgeName: r.edgeName,
+          }))
         }
       : undefined;
     try {
