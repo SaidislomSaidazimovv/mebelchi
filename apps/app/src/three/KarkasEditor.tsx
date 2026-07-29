@@ -710,17 +710,20 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     } catch { return ""; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, plan]);
-  const printDrawing = () => {
+  const printDrawing = async () => {
     if (!drawingSvg) { alert("Chizma tayyorlanmadi."); return; }
-    const w = window.open("", "_blank");
-    if (!w) { alert("Chizma oynasi ochilmadi — popup ruxsatini bering."); return; }
-    w.document.write(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chizma — Karkas blok</title><style>` +
-      "@page{size:A4 landscape;margin:0}html,body{margin:0;padding:0}svg{display:block;width:100vw;height:100vh}" +
-      "</style></head><body>" + drawingSvg +
-      "<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>",
-    );
-    w.document.close();
+    try {
+      const { exportDrawingsPdf } = await import("../model/pdfExport");
+      await exportDrawingsPdf({
+        fileName: "karkas-chizma.pdf",
+        title: "Mebelchi",
+        project: "Karkas blok",
+        date: new Date().toISOString().slice(0, 10),
+        svgs: [drawingSvg],
+      });
+    } catch {
+      alert("Chizma tayyorlanmadi.");
+    }
   };
 
   // Save the whole project (model + material plan) as a .json download.

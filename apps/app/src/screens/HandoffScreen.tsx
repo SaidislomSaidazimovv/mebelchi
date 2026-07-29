@@ -185,10 +185,7 @@ export function HandoffScreen() {
     downloadAll();
     flash(t.handoff.tShareUnavail);
   };
-  // multi-page PDF: open a print window with every drawing on its own A4 page (the user
-  // saves it as PDF). Library-free; the native app would use a Capacitor print/share plugin.
-  const printPDF = () => {
-    const img3d = sceneApi.current?.captureDataUrl();
+  const printPDF = async () => {
     const svgs = ["draw-face", "draw-top", "draw-wt", "draw-drill"]
       .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
       .filter((el): el is SVGSVGElement => !!el)
@@ -199,25 +196,32 @@ export function HandoffScreen() {
         clone.setAttribute("height", String(vb.height));
         return new XMLSerializer().serializeToString(clone);
       });
-    const w = window.open("", "_blank");
-    if (!w) {
+    const spec = prod && prod.panels.length
+      ? {
+          columns: ["#", "Detal", "Material", "O'lcham (L×W×T)", "Kromka"],
+          rows: prod.panels.map((r, i) => [
+            String(i + 1),
+            r.part,
+            r.material,
+            `${r.lengthMm}×${r.widthMm}×${r.thicknessMm}`,
+            r.edge,
+          ])
+        }
+      : undefined;
+    try {
+      const { exportDrawingsPdf } = await import("../model/pdfExport");
+      await exportDrawingsPdf({
+        fileName: `Mebelchi-${project}.pdf`,
+        title: "Mebelchi",
+        project,
+        date: today,
+        partsCount: prod ? prod.panels.length : undefined,
+        spec,
+        svgs,
+      });
+    } catch {
       flash(t.handoff.tPopup);
-      return;
     }
-    const page3d = img3d
-      ? `<div class="pg"><div class="s3d"><img src="${img3d}"/><div class="cap">Mebelchi · ${project} · ${t.handoff.view3d} · ${today}</div></div></div>`
-      : "";
-    w.document.write(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Mebelchi — ${project}</title><style>` +
-        "@page{size:A4 landscape;margin:8mm}html,body{margin:0;padding:0;font-family:Inter,sans-serif}" +
-        ".pg{page-break-after:always;page-break-inside:avoid;break-inside:avoid;display:flex;flex-direction:column;align-items:center;justify-content:center;height:96vh;box-sizing:border-box;overflow:hidden}" +
-        ".pg:last-child{page-break-after:auto}.pg svg{max-width:100%;max-height:96vh;height:auto}" +
-        ".s3d{max-width:100%;max-height:96vh;display:flex;flex-direction:column;align-items:center}.s3d img{max-width:100%;max-height:84vh;width:auto;height:auto;display:block;border:2px solid #222}.cap{align-self:stretch;text-align:center;padding:12px;font-weight:600;border:2px solid #222;border-top:none}</style></head><body>" +
-        page3d +
-        svgs.map((s) => `<div class="pg">${s}</div>`).join("") +
-        "<script>window.onload=function(){setTimeout(function(){window.print()},350)}<\/script></body></html>",
-    );
-    w.document.close();
   };
 
   const downloadPNG = (svgId: string, file: string) => {
