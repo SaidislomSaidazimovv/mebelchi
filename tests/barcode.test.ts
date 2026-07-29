@@ -47,11 +47,11 @@ function decode(text: string): string {
   expect(codes[codes.length - 1]).toBe(106);
 
   let sum = 104;
-  for (let i = 1; i < codes.length - 2; i++) sum += codes[i] * i;
+  for (let i = 1; i < codes.length - 2; i++) sum += (codes[i] ?? 0) * i;
   expect(sum % 103).toBe(codes[codes.length - 2]);
 
   let out = "";
-  for (let i = 1; i < codes.length - 2; i++) out += String.fromCharCode(codes[i] + 32);
+  for (let i = 1; i < codes.length - 2; i++) out += String.fromCharCode((codes[i] ?? 0) + 32);
   return out;
 }
 

@@ -24,7 +24,7 @@ export function code128(text: string): Barcode {
     codes.push(c >= 32 && c <= 126 ? c - 32 : 0);
   }
   let sum = 104;
-  for (let i = 1; i < codes.length; i++) sum += codes[i] * i;
+  for (let i = 1; i < codes.length; i++) sum += (codes[i] ?? 0) * i;
   codes.push(sum % 103);
   codes.push(106);
 
@@ -32,6 +32,7 @@ export function code128(text: string): Barcode {
   let x = 0;
   for (const code of codes) {
     const pat = C128[code];
+    if (!pat) continue;
     for (let i = 0; i < pat.length; i++) {
       const w = pat.charCodeAt(i) - 48;
       if (i % 2 === 0) bars.push({ x, w });

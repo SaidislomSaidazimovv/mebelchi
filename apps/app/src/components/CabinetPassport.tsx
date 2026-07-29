@@ -1,11 +1,13 @@
 import { cellToKarkasBlock } from "../three/cellToKarkas";
 import { solveStructure } from "../../../../engine/structure/solve.js";
+import { solveLayout } from "../../../../engine/structure/layout.js";
 import { estimate, groupSpecs, hardwareEstimate } from "../three/estimate";
 import { planThickness, BOARDS, EDGES } from "../three/materials";
 import { bandsLabel } from "../three/specCsv";
-import { shelfPositions, type Cabinet } from "../model/cabinet";
+import { type Cabinet } from "../model/cabinet";
 import { GEOM } from "../model/layout";
 import { code128 } from "../model/barcode";
+import { buildExploded } from "../three/exploded";
 
 const INK = "#222";
 const DIM = "#555";
@@ -43,11 +45,14 @@ export function CabinetPassport({ cab, artNo, qty, project, date, svgId }: Props
   const decors = [...new Set(parts.map((p) => p.materialName))];
   const edges = [...new Set(parts.map((p) => p.edgeName).filter((n): n is string => !!n))];
 
+  const placements = solveLayout(model, planThickness(plan));
+  const posOf = new Map<string, number>();
+  parts.forEach((g, i) => g.ids.forEach((id) => posOf.set(id, i + 1)));
+
   const w = cab.w;
   const hc = carcassH(cab);
   const d = cabDepth(cab);
   const kindRu = cab.kind === "base" ? "Напольный" : cab.kind === "tall" ? "Пенал" : "Навесной";
-  const drawers = cab.fill === "drawers" ? Math.max(1, cab.count ?? 1) : 0;
 
   const leftW = 680;
   const rightX = M + leftW + 60;
@@ -73,33 +78,13 @@ export function CabinetPassport({ cab, artNo, qty, project, date, svgId }: Props
 
   els.push(<line key="hl" x1={M} y1={HEAD - 20} x2={PAGE_W - M} y2={HEAD - 20} stroke={INK} strokeWidth={SW} />);
 
-  const drawView = (label: string, boxW: number, boxH: number, y0: number, draw: (x: number, y: number, bw: number, bh: number) => void) => {
-    els.push(<text key={`vl${label}`} x={M} y={y0 + 30} fontSize={44} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">{label}</text>);
-    const scale = Math.min((leftW - 200) / boxW, (VIEW_H - 120) / boxH);
-    const bw = boxW * scale;
-    const bh = boxH * scale;
-    const x = M + 120 + (leftW - 200 - bw) / 2;
-    const y = y0 + 70 + (VIEW_H - 120 - bh) / 2;
-    draw(x, y, bw, bh);
-    els.push(<text key={`vw${label}`} x={x + bw / 2} y={y + bh + 54} fontSize={40} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{Math.round(label === "Фасад" ? w : d)}</text>);
-    els.push(<text key={`vh${label}`} x={x - 34} y={y + bh / 2} fontSize={40} fill={DIM} textAnchor="middle" transform={`rotate(-90 ${x - 34} ${y + bh / 2})`} fontFamily="Inter, sans-serif">{Math.round(hc)}</text>);
-  };
-
-  drawView("Фасад", w, hc, HEAD + 40, (x, y, bw, bh) => {
-    els.push(<rect key="fb" x={x} y={y} width={bw} height={bh} fill="#fff" stroke={INK} strokeWidth={SW} />);
-    if (drawers > 0) {
-      for (let i = 1; i < drawers; i++) els.push(<line key={`fd${i}`} x1={x} y1={y + (bh * i) / drawers} x2={x + bw} y2={y + (bh * i) / drawers} stroke={INK} strokeWidth={SW * 0.6} />);
-      for (let i = 0; i < drawers; i++) els.push(<line key={`fh${i}`} x1={x + bw / 2 - 40} y1={y + (bh * (i + 0.5)) / drawers} x2={x + bw / 2 + 40} y2={y + (bh * (i + 0.5)) / drawers} stroke={INK} strokeWidth={SW * 1.4} />);
-    } else {
-      els.push(<line key="fhd" x1={x + bw - 44} y1={y + bh / 2 - 60} x2={x + bw - 44} y2={y + bh / 2 + 60} stroke={INK} strokeWidth={SW * 1.4} />);
-    }
-  });
-
-  drawView("Разрез", d, hc, HEAD + 40 + VIEW_H + 80, (x, y, bw, bh) => {
-    const t = Math.max(4, 16 * (bh / hc));
-    els.push(<rect key="sb" x={x} y={y} width={bw} height={bh} fill="#fff" stroke={INK} strokeWidth={SW} />);
-    els.push(<line key="sbk" x1={x + t} y1={y} x2={x + t} y2={y + bh} stroke={INK} strokeWidth={SW * 0.8} />);
-    if (cab.fill === "shelves") shelfPositions(cab.count ?? 0).forEach((f, i) => els.push(<line key={`ss${i}`} x1={x + t} y1={y + bh - f * bh} x2={x + bw - t * 0.5} y2={y + bh - f * bh} stroke={INK} strokeWidth={SW * 0.7} />));
+  els.push(<text key="exl" x={M} y={HEAD + 56} fontSize={44} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">Сборка</text>);
+  const ex = buildExploded(placements, posOf, leftW, viewsH - 60, M, HEAD + 76);
+  ex.faces.forEach((f, i) => els.push(<polygon key={`ef${i}`} points={f.pts} fill={INK} fillOpacity={f.tone} stroke={INK} strokeWidth={SW * 0.5} strokeLinejoin="round" />));
+  ex.labels.forEach((l) => {
+    els.push(<line key={`ell${l.n}`} x1={l.ax} y1={l.ay} x2={l.bx} y2={l.by} stroke={NUM} strokeWidth={SW * 0.5} />);
+    els.push(<circle key={`elc${l.n}`} cx={l.bx} cy={l.by} r={24} fill={NUM} />);
+    els.push(<text key={`elt${l.n}`} x={l.bx} y={l.by + 10} fontSize={28} fontWeight={700} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{l.n}</text>);
   });
 
   let ry = HEAD + 40;
@@ -138,6 +123,11 @@ export function CabinetPassport({ cab, artNo, qty, project, date, svgId }: Props
   });
 
   const H = Math.max(ry, HEAD + viewsH) + 80 + TITLE;
+
+  const paperF = Math.min(297 / PAGE_W, 210 / H);
+  const scaleX = Math.max(1, Math.round(1 / (10 * ex.scale * paperF)));
+  els.push(<text key="scl" x={M + 250} y={HEAD + 56} fontSize={36} fill={DIM} fontFamily="Inter, sans-serif">Масштаб 1:{scaleX}</text>);
+
   const tbTop = H - TITLE;
   const tbMid = tbTop + TITLE * 0.44;
   const cw4 = (PAGE_W - M * 2) / 4;
