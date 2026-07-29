@@ -5,6 +5,7 @@ import { planThickness, BOARDS, EDGES } from "../three/materials";
 import { bandsLabel } from "../three/specCsv";
 import { shelfPositions, type Cabinet } from "../model/cabinet";
 import { GEOM } from "../model/layout";
+import { code128 } from "../model/barcode";
 
 const INK = "#222";
 const DIM = "#555";
@@ -60,6 +61,16 @@ export function CabinetPassport({ cab, artNo, qty, project, date, svgId }: Props
   els.push(<text key="ann" x={M + 46} y={108} fontSize={54} fontWeight={800} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{artNo}</text>);
   els.push(<text key="ttl" x={M + 130} y={80} fontSize={68} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">{kindRu} {w}{qty > 1 ? ` · ×${qty}` : ""}</text>);
   els.push(<text key="dims" x={M + 130} y={148} fontSize={48} fill={DIM} fontFamily="Inter, sans-serif">В{Math.round(hc)} × Ш{Math.round(w)} × Г{Math.round(d)} мм</text>);
+  const bcVal = `MEBELCHI-${String(artNo).padStart(2, "0")}`;
+  const bc = code128(bcVal);
+  const bcMod = 2.4;
+  const bcH = 88;
+  const bcW = bc.modules * bcMod;
+  const bcX = PAGE_W - M - bcW;
+  const bcY = 34;
+  bc.bars.forEach((b, i) => els.push(<rect key={`bc${i}`} x={bcX + b.x * bcMod} y={bcY} width={b.w * bcMod} height={bcH} fill={INK} />));
+  els.push(<text key="bcv" x={bcX + bcW / 2} y={bcY + bcH + 32} fontSize={30} fill={INK} textAnchor="middle" letterSpacing={2} fontFamily="Inter, sans-serif">{bcVal}</text>);
+
   els.push(<line key="hl" x1={M} y1={HEAD - 20} x2={PAGE_W - M} y2={HEAD - 20} stroke={INK} strokeWidth={SW} />);
 
   const drawView = (label: string, boxW: number, boxH: number, y0: number, draw: (x: number, y: number, bw: number, bh: number) => void) => {
