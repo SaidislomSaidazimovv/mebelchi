@@ -49,13 +49,15 @@ export function DrillSheet({ parts, project, date, svgId }: Props) {
   const present = new Set<number>();
   for (const p of machined) for (const op of p.operations) if (op.op === "drill") present.add(op.diameter_mm10);
   const legend = [350, 150, 80, 50, 30].filter((d) => present.has(d));
+  const dcode = (d: number) => `D${legend.indexOf(d) + 1}`;
   els.push(<text key="lt" x={PAD} y={130} fontSize={104} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">Карта сверловки · X-Ray</text>);
   legend.forEach((d, i) => {
-    const lx = PAD + i * 900;
+    const lx = PAD + i * 940;
     const ly = 230;
     const c = cls(d);
     els.push(<circle key={`lc${d}`} cx={lx + 24} cy={ly - 18} r={c.r + 4} fill={c.color} />);
-    els.push(<text key={`ll${d}`} x={lx + 70} y={ly} fontSize={62} fill={DIM} fontFamily="Inter, sans-serif">{c.ru}</text>);
+    els.push(<text key={`ld${d}`} x={lx + 66} y={ly} fontSize={62} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">{dcode(d)}</text>);
+    els.push(<text key={`ll${d}`} x={lx + 170} y={ly} fontSize={62} fill={DIM} fontFamily="Inter, sans-serif">{c.ru}</text>);
   });
 
   // ---- panels ----
@@ -77,6 +79,7 @@ export function DrillSheet({ parts, project, date, svgId }: Props) {
     els.push(<rect key={`pr${idx}`} x={px0} y={py0} width={pw} height={ph} fill="#fff" stroke={INK} strokeWidth={SW} />);
 
     // holes
+    const labeled = new Set<number>();
     p.operations.forEach((op, j) => {
       if (op.op !== "drill") return;
       const d = op as DrillOp;
@@ -85,12 +88,16 @@ export function DrillSheet({ parts, project, date, svgId }: Props) {
       // engine origin = bottom-left of Face A; flip Y for screen (y-down)
       const hx = px0 + (d.x_mm10 / 10) * scale;
       const hy = py0 + ph - (d.y_mm10 / 10) * scale;
+      const ex = d.face === "edge3" ? px0 + pw : d.face === "edge4" ? px0 : hx;
       if (!isEdge) {
         els.push(<circle key={`h${idx}_${j}`} cx={hx} cy={hy} r={c.r} fill={c.color} fillOpacity={0.85} stroke="#0003" strokeWidth={1.5} />);
       } else {
         // edge drill: a tick sitting on the panel perimeter (edge3 = right, edge4 = left)
-        const ex = d.face === "edge3" ? px0 + pw : d.face === "edge4" ? px0 : hx;
         els.push(<rect key={`e${idx}_${j}`} x={ex - 9} y={hy - 16} width={18} height={32} fill={c.color} stroke="#0003" strokeWidth={1.5} />);
+      }
+      if (d.diameter_mm10 !== 30 && !labeled.has(d.diameter_mm10)) {
+        labeled.add(d.diameter_mm10);
+        els.push(<text key={`hd${idx}_${j}`} x={(isEdge ? ex : hx) + c.r + 4} y={hy - c.r} fontSize={44} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">{dcode(d.diameter_mm10)}</text>);
       }
     });
 

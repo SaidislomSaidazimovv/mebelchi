@@ -15,6 +15,7 @@ import { machiningReport, runSWJ008 } from "../model/machining";
 import { DrawingSheet } from "../components/DrawingSheet";
 import { TopPlanSheet } from "../components/TopPlanSheet";
 import { WorktopSheet } from "../components/WorktopSheet";
+import { SectionSheet } from "../components/SectionSheet";
 import { DrillSheet } from "../components/DrillSheet";
 import { VariantScene, type SceneApi } from "../three/VariantScene";
 import { FLOOR_COVERINGS } from "../model/floors";
@@ -192,7 +193,7 @@ export function HandoffScreen() {
     flash(t.handoff.tShareUnavail);
   };
   const printPDF = async () => {
-    const svgs = ["draw-face", "draw-top", "draw-wt", "draw-drill"]
+    const svgs = ["draw-face", "draw-top", "draw-wt", "draw-section", "draw-drill"]
       .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
       .filter((el): el is SVGSVGElement => !!el)
       .map((el) => {
@@ -332,6 +333,12 @@ export function HandoffScreen() {
         <WorktopSheet svgId="draw-wt" cabs={drawRun.cabs} wallLen={drawRun.wallLen} project={project} view={t.handoff.vWorktop} date={today} />
       </div>
       <button className="ho-download ho-download-2" onClick={() => downloadPNG("draw-wt", "mebelchi-worktop.png")} type="button">{t.handoff.dlWorktop}</button>
+
+      <div className="cost-sec-title">Разрез</div>
+      <div className="ho-draw">
+        <SectionSheet svgId="draw-section" cabs={drawRun.cabs} project={project} view="Разрез · Сечение" date={today} />
+      </div>
+      <button className="ho-download ho-download-2" onClick={() => downloadPNG("draw-section", "mebelchi-section.png")} type="button">Скачать разрез</button>
 
       {machining && (
         <>
