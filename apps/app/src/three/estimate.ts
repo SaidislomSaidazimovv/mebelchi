@@ -13,6 +13,7 @@ import { threeSizes } from "../../../../engine/structure/sizes.js";
 import {
   partBoard,
   edgeById,
+  planSlotForRole,
   DEFAULT_PLAN,
   withPlanDefaults,
   HARDWARE,
@@ -28,6 +29,7 @@ import {
 const M = (mm10: number): number => mm10 / 10000; // mm10 → metres
 const MM = (mm10: number): number => Math.round(mm10 / 10); // mm10 → whole mm
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+const CARCASS_EDGE_ID = "abs_05";
 const sum = (ns: number[]): number => ns.reduce((a, b) => a + b, 0);
 
 /** One row of the cut list. Dimensions in mm; area in m²; banded flags per SWJ008 edge face 1..4. */
@@ -142,6 +144,7 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
     const edgeM = panel ? edgeLengths(p.length_mm10, p.width_mm10).reduce((sum, len, i) => sum + (bands[i] ? M(len) : 0), 0) : 0;
     const board = partBoard(plan, p.role, p.materialId);
     const priceUzs = panel ? areaM2 * (board?.pricePerM2 ?? 0) + edgeM * edgeRate : 0;
+    const edgeId = planSlotForRole(p.role) === "facade" ? plan.edge : CARCASS_EDGE_ID;
     return {
       id: p.id,
       name: p.name,
@@ -158,7 +161,7 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
       bands,
       role: p.role,
       materialName: board?.name ?? "—",
-      edgeName: bands.some((b) => b) ? edgeById(plan.edge)?.name : undefined,
+      edgeName: bands.some((b) => b) ? edgeById(edgeId)?.name : undefined,
       priceUzs,
     };
   };
