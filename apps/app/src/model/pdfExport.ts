@@ -168,7 +168,11 @@ async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: n
   const el = holder.querySelector("svg") as SVGSVGElement | null;
   if (!el) return;
   el.setAttribute("font-family", "Roboto");
-  el.querySelectorAll("text").forEach((t) => t.setAttribute("font-family", "Roboto"));
+  el.querySelectorAll("text").forEach((t) => {
+    t.setAttribute("font-family", "Roboto");
+    t.removeAttribute("font-weight");
+    t.style.removeProperty("font-weight");
+  });
   const vb = el.viewBox.baseVal;
   const aw = vb && vb.width ? vb.width : el.clientWidth || pw;
   const ah = vb && vb.height ? vb.height : el.clientHeight || ph;
@@ -179,8 +183,18 @@ async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: n
     h = ph;
     w = ph * ratio;
   }
-  doc.addPage();
-  await svg2pdf(el, doc, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
+  if (w >= pw * 0.3) {
+    doc.addPage();
+    await svg2pdf(el, doc, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
+    return;
+  }
+  const fw = pw;
+  const fh = pw / ratio;
+  const npages = Math.ceil(fh / ph);
+  for (let i = 0; i < npages; i++) {
+    doc.addPage();
+    await svg2pdf(el, doc, { x: 0, y: -i * ph, width: fw, height: fh });
+  }
 }
 
 async function deliver(doc: jsPDF, fileName: string): Promise<void> {

@@ -20,6 +20,10 @@ const HOLE: Record<number, { color: string; r: number; ru: string }> = {
 const FALLBACK = { color: "#444", r: 5, ru: "прочее" };
 const cls = (d: number) => HOLE[d] ?? FALLBACK;
 
+const NAME_RU: Record<string, string> = { "side-left": "Бок левый", "side-right": "Бок правый", bottom: "Дно", top: "Крышка", back: "Задняя стенка", door: "Дверь" };
+const nameRu = (n: string): string =>
+  NAME_RU[n] ?? (/^shelf-\d+$/.test(n) ? `Полка ${n.split("-")[1]}` : /^divider-\d+$/.test(n) ? `Перегородка ${n.split("-")[1]}` : n);
+
 const COLS = 3;
 const CELL = 640; // box each panel scales into (mm units)
 const PAD = 150;
@@ -33,13 +37,32 @@ interface Props {
   project: string;
   date: string;
   svgId?: string;
+  page?: number;
 }
 
-export function DrillSheet({ parts, project, date, svgId }: Props) {
+export const DRILL_PER_PAGE = 12;
+
+export function drillGroups(parts: Part[]): { part: Part; qty: number }[] {
   const machined = parts.filter((p) => p.operations.length > 0);
+  const sig = (p: Part) => `${p.name}|${p.length_mm10}|${p.width_mm10}|${p.thickness_mm10}|${p.operations.map((o) => (o.op === "drill" ? `d${(o as DrillOp).diameter_mm10}:${(o as DrillOp).x_mm10}:${(o as DrillOp).y_mm10}:${(o as DrillOp).face}` : o.op)).slice().sort().join(";")}`;
+  const groups: { part: Part; qty: number }[] = [];
+  const gseen = new Map<string, { part: Part; qty: number }>();
+  for (const p of machined) {
+    const k = sig(p);
+    const g = gseen.get(k);
+    if (g) g.qty += 1;
+    else { const ng = { part: p, qty: 1 }; gseen.set(k, ng); groups.push(ng); }
+  }
+  return groups;
+}
+
+export function DrillSheet({ parts, project, date, svgId, page }: Props) {
+  const allGroups = drillGroups(parts);
+  const groups = page != null ? allGroups.slice(page * DRILL_PER_PAGE, (page + 1) * DRILL_PER_PAGE) : allGroups;
+  const machined = allGroups.map((g) => g.part);
   const cellW = CELL + PAD;
   const cellH = CELL + LABEL + PAD;
-  const rows = Math.max(1, Math.ceil(machined.length / COLS));
+  const rows = Math.max(1, Math.ceil(groups.length / COLS));
   const W = COLS * cellW + PAD;
   const H = LEGEND + rows * cellH + TITLE;
 
@@ -50,7 +73,7 @@ export function DrillSheet({ parts, project, date, svgId }: Props) {
   for (const p of machined) for (const op of p.operations) if (op.op === "drill") present.add(op.diameter_mm10);
   const legend = [350, 150, 80, 50, 30].filter((d) => present.has(d));
   const dcode = (d: number) => `D${legend.indexOf(d) + 1}`;
-  els.push(<text key="lt" x={PAD} y={130} fontSize={104} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">Карта сверловки · X-Ray</text>);
+  els.push(<text key="lt" x={PAD} y={130} fontSize={104} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">Карта сверловки</text>);
   legend.forEach((d, i) => {
     const lx = PAD + i * 940;
     const ly = 230;
@@ -61,7 +84,8 @@ export function DrillSheet({ parts, project, date, svgId }: Props) {
   });
 
   // ---- panels ----
-  machined.forEach((p, idx) => {
+  groups.forEach((g, idx) => {
+    const p = g.part;
     const col = idx % COLS;
     const row = Math.floor(idx / COLS);
     const ox = PAD + col * cellW;
@@ -103,8 +127,8 @@ export function DrillSheet({ parts, project, date, svgId }: Props) {
 
     // label
     els.push(
-      <text key={`pl${idx}`} x={ox + CELL / 2} y={oy + CELL + 78} fontSize={62} fill={INK} fontWeight={600} textAnchor="middle" fontFamily="Inter, sans-serif">
-        {p.name} · {p.operations.length} отв · {Math.round(len)}×{Math.round(wid)}
+      <text key={`pl${idx}`} x={ox + CELL / 2} y={oy + CELL + 78} fontSize={44} fill={INK} fontWeight={600} textAnchor="middle" fontFamily="Inter, sans-serif">
+        {nameRu(p.name)}{g.qty > 1 ? ` ×${g.qty}` : ""} · {p.operations.length} отв · {Math.round(len)}×{Math.round(wid)}
       </text>,
     );
   });

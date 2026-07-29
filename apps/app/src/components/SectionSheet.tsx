@@ -77,7 +77,7 @@ export function SectionSheet({ cabs, project, view, date, svgId }: Props) {
       });
     }
     els.push(<text key={`dh${idx}`} x={x0 - 34} y={y0 + bh / 2} fontSize={FS} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif" transform={`rotate(-90 ${x0 - 34} ${y0 + bh / 2})`}>{Math.round(hc)}</text>);
-    els.push(<text key={`dd${idx}`} x={x0 + bw / 2} y={y0 + bh + 74} fontSize={FS} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{Math.round(d)}</text>);
+    els.push(<text key={`dd${idx}`} x={x0 + bw / 2} y={y0 - 24} fontSize={FS} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{Math.round(d)}</text>);
 
     const kindRu = c.kind === "base" ? "Напольный" : c.kind === "tall" ? "Пенал" : "Навесной";
     els.push(<text key={`lb${idx}`} x={ox + CELL_W / 2} y={oy + CELL_H + 110} fontSize={70} fontWeight={600} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{kindRu} {c.w} · В{Math.round(hc)}×Г{Math.round(d)}{g.qty > 1 ? ` · ×${g.qty}` : ""}</text>);

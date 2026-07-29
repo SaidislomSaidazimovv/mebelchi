@@ -16,7 +16,7 @@ import { DrawingSheet } from "../components/DrawingSheet";
 import { TopPlanSheet } from "../components/TopPlanSheet";
 import { WorktopSheet } from "../components/WorktopSheet";
 import { SectionSheet } from "../components/SectionSheet";
-import { DrillSheet } from "../components/DrillSheet";
+import { DrillSheet, drillGroups, DRILL_PER_PAGE } from "../components/DrillSheet";
 import { VariantScene, type SceneApi } from "../three/VariantScene";
 import { FLOOR_COVERINGS } from "../model/floors";
 import type { Cabinet } from "../model/cabinet";
@@ -193,7 +193,8 @@ export function HandoffScreen() {
     flash(t.handoff.tShareUnavail);
   };
   const printPDF = async () => {
-    const svgs = ["draw-face", "draw-top", "draw-wt", "draw-section", "draw-drill"]
+    const drillIds = Array.from(document.querySelectorAll('[id^="draw-drill-"]')).map((e) => e.id);
+    const svgs = ["draw-face", "draw-top", "draw-wt", "draw-section", ...drillIds]
       .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
       .filter((el): el is SVGSVGElement => !!el)
       .map((el) => {
@@ -239,51 +240,6 @@ export function HandoffScreen() {
     }
   };
 
-  const downloadPNG = (svgId: string, file: string) => {
-    const el = document.getElementById(svgId) as unknown as SVGSVGElement | null;
-    if (!el) return;
-    const vb = el.viewBox.baseVal;
-    const clone = el.cloneNode(true) as SVGSVGElement;
-    clone.setAttribute("width", String(vb.width));
-    clone.setAttribute("height", String(vb.height));
-    const xml = new XMLSerializer().serializeToString(clone);
-    const img = new Image();
-    img.onload = () => {
-      const targetW = 1800;
-      const canvas = document.createElement("canvas");
-      canvas.width = targetW;
-      canvas.height = Math.round((targetW * vb.height) / vb.width);
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = file;
-        a.click();
-        URL.revokeObjectURL(a.href);
-        flash(t.handoff.tDrawDl);
-      }, "image/png");
-    };
-    img.onerror = () => flash(t.handoff.tImgFail);
-    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(xml)));
-  };
-  const download3D = () => {
-    const url = sceneApi.current?.captureDataUrl();
-    if (!url) {
-      flash(t.handoff.t3dNotReady);
-      return;
-    }
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "mebelchi-3d.png";
-    a.click();
-    flash(t.handoff.t3dDl);
-  };
-
   return (
     <section className="screen ho-screen">
       <div className="qnum">{t.handoff.num}</div>
@@ -314,41 +270,15 @@ export function HandoffScreen() {
           onApi={onApi}
         />
       </div>
-      <button className="ho-download ho-download-2" onClick={download3D} type="button">{t.handoff.dl3d}</button>
-
-      <div className="cost-sec-title">{t.handoff.drawFace}</div>
-      <div className="ho-draw">
-        <DrawingSheet svgId="draw-face" cabs={drawRun.cabs} wallLen={drawRun.wallLen} ceiling={ceiling} numberOf={numberOf} project={project} view={t.handoff.vFace} date={today} />
+      <div style={{ position: "absolute", left: -99999, top: 0, width: 1400 }} aria-hidden="true">
+        <DrawingSheet svgId="draw-face" cabs={drawRun.cabs} wallLen={drawRun.wallLen} ceiling={ceiling} numberOf={numberOf} project={project} view="Фасад" date={today} />
+        <TopPlanSheet svgId="draw-top" points={points} cabs={cabs} openings={openings} waterWall={waterWall} layout={layout} numberOf={numberOf} runIds={new Set(drawRun.cabs.map((c) => c.id))} project={project} view="Вид сверху" date={today} />
+        <WorktopSheet svgId="draw-wt" cabs={drawRun.cabs} wallLen={drawRun.wallLen} project={project} view="Столешница" date={today} />
+        <SectionSheet svgId="draw-section" cabs={drawRun.cabs} project={project} view="Разрез" date={today} />
+        {machining && Array.from({ length: Math.max(1, Math.ceil(drillGroups(machining.parts).length / DRILL_PER_PAGE)) }).map((_, i) => (
+          <DrillSheet key={i} svgId={`draw-drill-${i}`} parts={machining.parts} project={project} date={today} page={i} />
+        ))}
       </div>
-      <button className="ho-download ho-download-2" onClick={() => downloadPNG("draw-face", "mebelchi-facade.png")} type="button">{t.handoff.dlFace}</button>
-
-      <div className="cost-sec-title">{t.handoff.drawTop}</div>
-      <div className="ho-draw">
-        <TopPlanSheet svgId="draw-top" points={points} cabs={cabs} openings={openings} waterWall={waterWall} layout={layout} numberOf={numberOf} runIds={new Set(drawRun.cabs.map((c) => c.id))} project={project} view={t.handoff.vTop} date={today} />
-      </div>
-      <button className="ho-download ho-download-2" onClick={() => downloadPNG("draw-top", "mebelchi-topplan.png")} type="button">{t.handoff.dlTop}</button>
-
-      <div className="cost-sec-title">{t.handoff.drawWorktop}</div>
-      <div className="ho-draw">
-        <WorktopSheet svgId="draw-wt" cabs={drawRun.cabs} wallLen={drawRun.wallLen} project={project} view={t.handoff.vWorktop} date={today} />
-      </div>
-      <button className="ho-download ho-download-2" onClick={() => downloadPNG("draw-wt", "mebelchi-worktop.png")} type="button">{t.handoff.dlWorktop}</button>
-
-      <div className="cost-sec-title">Разрез</div>
-      <div className="ho-draw">
-        <SectionSheet svgId="draw-section" cabs={drawRun.cabs} project={project} view="Разрез · Сечение" date={today} />
-      </div>
-      <button className="ho-download ho-download-2" onClick={() => downloadPNG("draw-section", "mebelchi-section.png")} type="button">Скачать разрез</button>
-
-      {machining && (
-        <>
-          <div className="cost-sec-title">{t.handoff.drawDrill}</div>
-          <div className="ho-draw">
-            <DrillSheet svgId="draw-drill" parts={machining.parts} project={project} date={today} />
-          </div>
-          <button className="ho-download ho-download-2" onClick={() => downloadPNG("draw-drill", "mebelchi-drill.png")} type="button">{t.handoff.dlDrill}</button>
-        </>
-      )}
 
       <button className="ho-download" style={{ marginTop: 18 }} onClick={printPDF} type="button">{t.handoff.dlPdf}</button>
 
