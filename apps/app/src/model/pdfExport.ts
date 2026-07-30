@@ -151,14 +151,14 @@ function drawHardware(doc: jsPDF, hardware: { name: string; qty: number }[], pw:
 
 function drawMaterials(doc: jsPDF, materials: { name: string; code: string }[], pw: number, ph: number): void {
   const margin = 12;
-  const nameW = 160 - margin - 4;
-  const codeW = pw - margin - (margin + 160) - 2;
+  const nameX = margin + 22;
+  const nameW = pw - nameX - margin;
   const header = (y0: number): number => {
     doc.setFontSize(15);
     doc.text("Материалы", margin, y0);
     doc.setFontSize(9);
-    doc.text("Наименование", margin, y0 + 8);
-    doc.text("Код", margin + 160, y0 + 8);
+    doc.text("Код", margin, y0 + 8);
+    doc.text("Наименование", nameX, y0 + 8);
     doc.setDrawColor(20);
     doc.line(margin, y0 + 10, pw - margin, y0 + 10);
     return y0 + 16;
@@ -170,8 +170,8 @@ function drawMaterials(doc: jsPDF, materials: { name: string; code: string }[], 
       y = header(margin + 8);
     }
     doc.setFontSize(9);
-    doc.text(fitText(doc, m.name, nameW), margin, y);
-    doc.text(fitText(doc, m.code, codeW), margin + 160, y);
+    doc.text(fitText(doc, m.code, 20), margin, y);
+    doc.text(fitText(doc, m.name, nameW), nameX, y);
     y += 6;
   }
 }

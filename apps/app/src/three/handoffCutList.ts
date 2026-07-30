@@ -10,6 +10,7 @@ import { production } from "../model/cncExport";
 import { bandsLabel } from "./specCsv";
 import type { NestPart } from "./nesting";
 import type { LabelItem } from "../components/LabelSheet";
+import type { MaterialCoding } from "./materialCode";
 
 export interface ProjectBlockInput {
   name: string;
@@ -136,7 +137,7 @@ export function positionMap(rows: GroupedSpec[]): Map<string, number> {
   return m;
 }
 
-export function unifiedLabelItems(cabs: Cabinet[], blocks: ProjectBlockInput[]): LabelItem[] {
+export function unifiedLabelItems(cabs: Cabinet[], blocks: ProjectBlockInput[], coding: MaterialCoding): LabelItem[] {
   const kindRu = (c: Cabinet) => (c.kind === "base" ? "Напольный" : c.kind === "tall" ? "Пенал" : "Навесной");
   const cabName = new Map<string, string>();
   for (const c of cabs) if (!c.furniture) cabName.set(c.id, `${kindRu(c)} ${c.w}`);
@@ -152,7 +153,7 @@ export function unifiedLabelItems(cabs: Cabinet[], blocks: ProjectBlockInput[]):
         l_mm: r.l_mm,
         w_mm: r.w_mm,
         t_mm: r.t_mm,
-        material: r.materialName,
+        material: `${coding.matOf(r.materialName, r.t_mm)} · ${r.materialName}`,
         kromka: bandsLabel(r.bands),
         bands: r.bands,
         cabinet: cabName.get(prefix) ?? "",
