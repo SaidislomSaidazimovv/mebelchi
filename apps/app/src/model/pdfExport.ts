@@ -25,6 +25,7 @@ export interface PdfExportInput {
   hardware?: { name: string; qty: number }[];
   materials?: { name: string; code: string }[];
   svgs: string[];
+  noTitle?: boolean;
 }
 
 let fontPromise: Promise<string> | null = null;
@@ -175,7 +176,7 @@ function drawMaterials(doc: jsPDF, materials: { name: string; code: string }[], 
   }
 }
 
-async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: number, ph: number): Promise<void> {
+async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: number, ph: number, newPage = true): Promise<void> {
   holder.innerHTML = svg;
   const el = holder.querySelector("svg") as SVGSVGElement | null;
   if (!el) return;
@@ -196,7 +197,7 @@ async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: n
     w = ph * ratio;
   }
   if (w >= pw * 0.3) {
-    doc.addPage();
+    if (newPage) doc.addPage();
     await svg2pdf(el, doc, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
     return;
   }
@@ -204,7 +205,7 @@ async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: n
   const fh = pw / ratio;
   const npages = Math.ceil(fh / ph);
   for (let i = 0; i < npages; i++) {
-    doc.addPage();
+    if (newPage || i > 0) doc.addPage();
     await svg2pdf(el, doc, { x: 0, y: -i * ph, width: fw, height: fh });
   }
 }
@@ -230,18 +231,25 @@ export async function buildDrawingsPdf(input: PdfExportInput): Promise<jsPDF> {
   const pw = doc.internal.pageSize.getWidth();
   const ph = doc.internal.pageSize.getHeight();
 
-  drawTitle(doc, input, pw, ph);
+  let firstFree = true;
+  if (!input.noTitle) {
+    drawTitle(doc, input, pw, ph);
+    firstFree = false;
+  }
   if (input.spec && input.spec.rows.length) {
     doc.addPage();
     drawSpec(doc, input.spec, pw, ph);
+    firstFree = false;
   }
   if (input.hardware && input.hardware.length) {
     doc.addPage();
     drawHardware(doc, input.hardware, pw, ph);
+    firstFree = false;
   }
   if (input.materials && input.materials.length) {
     doc.addPage();
     drawMaterials(doc, input.materials, pw, ph);
+    firstFree = false;
   }
 
   const holder = document.createElement("div");
@@ -249,7 +257,8 @@ export async function buildDrawingsPdf(input: PdfExportInput): Promise<jsPDF> {
   document.body.appendChild(holder);
   try {
     for (const svg of input.svgs) {
-      await addSvgPage(doc, holder, svg, pw, ph);
+      await addSvgPage(doc, holder, svg, pw, ph, !firstFree);
+      firstFree = false;
     }
   } finally {
     document.body.removeChild(holder);

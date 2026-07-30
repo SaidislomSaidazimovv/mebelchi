@@ -8,7 +8,9 @@ import { useStore, HW_GRADE_LABEL } from "../store";
 import { useT } from "../i18n/useT";
 import { production, productionCSV } from "../model/cncExport";
 import { panelsDXF } from "../model/dxfExport";
-import { unifiedCutList, unifiedHardware, unifiedDrilledParts, positionMap } from "../three/handoffCutList";
+import { unifiedCutList, unifiedHardware, unifiedDrilledParts, positionMap, unifiedNestParts } from "../three/handoffCutList";
+import { nest, DEFAULT_NEST } from "../three/nesting";
+import { CutSummary, CutSheetPage, cutSheetPages } from "../components/CutSheet";
 import { bandsLabel } from "../three/specCsv";
 import { BOARDS, EDGES } from "../three/materials";
 import { machiningReport, runSWJ008 } from "../model/machining";
@@ -64,6 +66,8 @@ export function HandoffScreen() {
   }, [unified]);
   const drilled = useMemo(() => unifiedDrilledParts(cabs, projectBlocks), [cabs, projectBlocks]);
   const posMap = useMemo(() => positionMap(unified.rows), [unified]);
+  const nestRes = useMemo(() => nest(unifiedNestParts(cabs, projectBlocks)), [cabs, projectBlocks]);
+  const cutPages = useMemo(() => cutSheetPages(nestRes), [nestRes]);
   const passportCabs = useMemo(() => {
     const seen = new Map<string, { cab: Cabinet; qty: number }>();
     const out: { cab: Cabinet; qty: number }[] = [];
@@ -260,6 +264,25 @@ export function HandoffScreen() {
       flash(t.handoff.tPopup);
     }
   };
+  const printCutPDF = async () => {
+    const ids = ["draw-cut-summary", ...cutPages.map((_, i) => `draw-cut-${i}`)];
+    const svgs = ids
+      .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
+      .filter((el): el is SVGSVGElement => !!el)
+      .map((el) => {
+        const vb = el.viewBox.baseVal;
+        const clone = el.cloneNode(true) as SVGSVGElement;
+        clone.setAttribute("width", String(vb.width));
+        clone.setAttribute("height", String(vb.height));
+        return new XMLSerializer().serializeToString(clone);
+      });
+    try {
+      const { exportDrawingsPdf } = await import("../model/pdfExport");
+      await exportDrawingsPdf({ fileName: `Mebelchi-Раскрой-${project}.pdf`, title: "Раскрой", project, date: today, svgs, noTitle: true });
+    } catch {
+      flash(t.handoff.tPopup);
+    }
+  };
 
   return (
     <section className="screen ho-screen">
@@ -302,9 +325,14 @@ export function HandoffScreen() {
         {passportCabs.map((g, i) => (
           <CabinetPassport key={`pp${i}`} svgId={`draw-passport-${i}`} cab={g.cab} artNo={i + 1} qty={g.qty} project={project} date={today} />
         ))}
+        {cutPages.length > 0 && <CutSummary svgId="draw-cut-summary" result={nestRes} cfg={DEFAULT_NEST} project={project} date={today} />}
+        {cutPages.map((p, i) => (
+          <CutSheetPage key={`cut${i}`} svgId={`draw-cut-${i}`} material={p.material} sheet={p.sheet} no={p.no} cfg={DEFAULT_NEST} project={project} date={today} />
+        ))}
       </div>
 
       <button className="ho-download" style={{ marginTop: 18 }} onClick={printPDF} type="button">{t.handoff.dlPdf}</button>
+      {cutPages.length > 0 && <button className="ho-download ho-download-2" onClick={printCutPDF} type="button">{t.handoff.cutPdf}</button>}
 
       <div className="ho-stats">
         <div className="ho-stat"><span className="ho-stat-n">{unifiedCount}</span><span className="ho-stat-l">{t.handoff.parts}</span></div>
