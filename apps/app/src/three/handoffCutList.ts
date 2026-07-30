@@ -7,7 +7,9 @@ import { estimate, groupSpecs, hardwareEstimate, type PartSpec, type GroupedSpec
 import { cellToKarkasBlock } from "./cellToKarkas";
 import { planThickness, withPlanDefaults, BOARDS, type MaterialPlan } from "./materials";
 import { production } from "../model/cncExport";
+import { bandsLabel } from "./specCsv";
 import type { NestPart } from "./nesting";
+import type { LabelItem } from "../components/LabelSheet";
 
 export interface ProjectBlockInput {
   name: string;
@@ -132,6 +134,32 @@ export function positionMap(rows: GroupedSpec[]): Map<string, number> {
   const m = new Map<string, number>();
   rows.forEach((r, i) => r.ids.forEach((id) => m.set(id, i + 1)));
   return m;
+}
+
+export function unifiedLabelItems(cabs: Cabinet[], blocks: ProjectBlockInput[]): LabelItem[] {
+  const kindRu = (c: Cabinet) => (c.kind === "base" ? "Напольный" : c.kind === "tall" ? "Пенал" : "Навесной");
+  const cabName = new Map<string, string>();
+  for (const c of cabs) if (!c.furniture) cabName.set(c.id, `${kindRu(c)} ${c.w}`);
+  blocks.forEach((b, i) => cabName.set(`blk${i}`, b.name));
+  const out: LabelItem[] = [];
+  unifiedCutList(cabs, blocks).rows.forEach((r, i) => {
+    for (const id of r.ids) {
+      const ci = id.indexOf(":");
+      const prefix = ci > 0 ? id.slice(0, ci) : id;
+      out.push({
+        no: i + 1,
+        name: r.name,
+        l_mm: r.l_mm,
+        w_mm: r.w_mm,
+        t_mm: r.t_mm,
+        material: r.materialName,
+        kromka: bandsLabel(r.bands),
+        bands: r.bands,
+        cabinet: cabName.get(prefix) ?? "",
+      });
+    }
+  });
+  return out;
 }
 
 export function unifiedNestParts(cabs: Cabinet[], blocks: ProjectBlockInput[]): NestPart[] {
