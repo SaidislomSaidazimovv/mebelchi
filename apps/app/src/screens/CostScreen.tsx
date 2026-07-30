@@ -11,6 +11,7 @@ import { useT } from "../i18n/useT";
 import { costBreakdown } from "../model/toProject";
 import { useMoney } from "../useMoney";
 import { blockPriceUzs } from "../three/estimate";
+import { sellingPrice } from "../model/pricing";
 import type { Cabinet } from "../model/cabinet";
 import type { QuoteGroup } from "@mebelchi/schema";
 
@@ -49,6 +50,8 @@ export function CostScreen() {
   const perCab = data?.perCab ?? [];
   const real = cabs.filter((c) => !c.furniture);
   const grandTotal = (quote?.total ?? 0) + blocksTotal;
+  const marginPct = settings.marginPct;
+  const sellTotal = sellingPrice(grandTotal, marginPct);
   const maxGroup = quote ? Math.max(...GROUP_ORDER.map((g) => quote.groups[g]), 1) : 1;
   const items = perCab
     .map((p) => ({ ...p, cab: real.find((c) => c.id === p.id) }))
@@ -69,8 +72,9 @@ export function CostScreen() {
         </div>
       )}
 
-      <div className="cost-total">{money(grandTotal)}</div>
+      <div className="cost-total">{money(sellTotal)}</div>
       <div className="cost-total-sub">{t.cost.totalSub((quote?.itemCount ?? 0) + blocks.length)}</div>
+      <div className="cost-total-sub">{t.cost.costLabel}: {money(grandTotal)} · {t.cost.marginLabel} {marginPct}%</div>
 
       {quote && (
         <div className="cost-groups">
@@ -96,7 +100,7 @@ export function CostScreen() {
               {cabLabel(cab)}
               <span className="cost-item-dim"> · {Math.round(cab.w / 10)}×{Math.round(cab.h / 10)} {t.labels.cm}</span>
             </span>
-            <span className="cost-item-amt">{money(cost)}</span>
+            <span className="cost-item-amt">{money(sellingPrice(cost, marginPct))}</span>
           </div>
         ))}
       </div>
@@ -109,7 +113,7 @@ export function CostScreen() {
             {blocks.map((b) => (
               <div className="cost-item" key={b.id}>
                 <span className="cost-item-name">{b.name}</span>
-                <span className="cost-item-amt">{money(b.cost)}</span>
+                <span className="cost-item-amt">{money(sellingPrice(b.cost, marginPct))}</span>
               </div>
             ))}
           </div>

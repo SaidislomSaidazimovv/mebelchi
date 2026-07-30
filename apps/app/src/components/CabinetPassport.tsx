@@ -2,12 +2,14 @@ import { cellToKarkasBlock } from "../three/cellToKarkas";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { estimate, groupSpecs, hardwareEstimate } from "../three/estimate";
-import { planThickness, BOARDS, EDGES } from "../three/materials";
+import { planThickness, boardHexByName, edgeHexByName } from "../three/materials";
 import { bandsLabel } from "../three/specCsv";
 import { type Cabinet } from "../model/cabinet";
 import { GEOM } from "../model/layout";
 import { code128 } from "../model/barcode";
 import { buildExploded } from "../three/exploded";
+import type { MaterialCoding } from "../three/materialCode";
+import { rowsWeightKg } from "../three/weight";
 
 const INK = "#222";
 const DIM = "#555";
@@ -33,17 +35,15 @@ interface Props {
   qty: number;
   project: string;
   date: string;
+  coding: MaterialCoding;
   svgId?: string;
 }
 
-export function CabinetPassport({ cab, artNo, qty, project, date, svgId }: Props) {
+export function CabinetPassport({ cab, artNo, qty, project, date, coding, svgId }: Props) {
   const { model, plan } = cellToKarkasBlock(cab);
   const parts = groupSpecs(estimate(solveStructure(model, planThickness(plan)), plan).parts);
+  const weightKg = rowsWeightKg(parts);
   const hw = hardwareEstimate(model).lines;
-  const bId = new Map(BOARDS.map((b) => [b.name, b.id]));
-  const eId = new Map(EDGES.map((e) => [e.name, e.id]));
-  const decors = [...new Set(parts.map((p) => p.materialName))];
-  const edges = [...new Set(parts.map((p) => p.edgeName).filter((n): n is string => !!n))];
 
   const placements = solveLayout(model, planThickness(plan));
   const posOf = new Map<string, number>();
@@ -65,7 +65,7 @@ export function CabinetPassport({ cab, artNo, qty, project, date, svgId }: Props
   els.push(<circle key="anc" cx={M + 46} cy={90} r={46} fill={NUM} />);
   els.push(<text key="ann" x={M + 46} y={108} fontSize={54} fontWeight={800} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{artNo}</text>);
   els.push(<text key="ttl" x={M + 130} y={80} fontSize={68} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">{kindRu} {w}{qty > 1 ? ` · ×${qty}` : ""}</text>);
-  els.push(<text key="dims" x={M + 130} y={148} fontSize={48} fill={DIM} fontFamily="Inter, sans-serif">В{Math.round(hc)} × Ш{Math.round(w)} × Г{Math.round(d)} мм</text>);
+  els.push(<text key="dims" x={M + 130} y={148} fontSize={48} fill={DIM} fontFamily="Inter, sans-serif">В{Math.round(hc)} × Ш{Math.round(w)} × Г{Math.round(d)} мм · {weightKg.toFixed(1)} кг</text>);
   const bcVal = `MEBELCHI-${String(artNo).padStart(2, "0")}`;
   const bc = code128(bcVal);
   const bcMod = 2.4;
@@ -115,10 +115,13 @@ export function CabinetPassport({ cab, artNo, qty, project, date, svgId }: Props
   });
 
   ry += 70;
-  tableHead("Материалы", [["Наименование", 0], ["Код", 880]]);
-  [...decors.map((n) => ({ n, c: bId.get(n) ?? "—" })), ...edges.map((n) => ({ n, c: eId.get(n) ?? "—" }))].forEach((m, i) => {
-    els.push(<text key={`m${i}`} x={rightX} y={ry} fontSize={36} fill={INK} fontFamily="Inter, sans-serif">{m.n}</text>);
-    els.push(<text key={`mc${i}`} x={rightX + 880} y={ry} fontSize={36} fill={DIM} fontFamily="Inter, sans-serif">{m.c}</text>);
+  tableHead("Материалы", [["Код", 0], ["Наименование", 200]]);
+  const usedMats = coding.mats.filter((m) => parts.some((p) => p.materialName === m.name && p.t_mm === m.t_mm));
+  const usedEdges = coding.edges.filter((e) => parts.some((p) => p.edgeName === e.name));
+  [...usedMats.map((m) => ({ c: m.code, n: m.full, hex: boardHexByName(m.name) })), ...usedEdges.map((e) => ({ c: e.code, n: e.full, hex: edgeHexByName(e.name) }))].forEach((m, i) => {
+    els.push(<text key={`mc${i}`} x={rightX} y={ry} fontSize={36} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">{m.c}</text>);
+    if (m.hex) els.push(<rect key={`msw${i}`} x={rightX + 120} y={ry - 30} width={40} height={40} fill={m.hex} stroke={INK} strokeWidth={2} />);
+    els.push(<text key={`m${i}`} x={rightX + 200} y={ry} fontSize={36} fill={DIM} fontFamily="Inter, sans-serif">{m.n}</text>);
     ry += ROW;
   });
 

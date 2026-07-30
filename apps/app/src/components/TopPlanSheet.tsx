@@ -144,7 +144,7 @@ export function TopPlanSheet({ points, cabs, openings, waterWall, layout, number
   }
 
   // ---- overall room dimensions (width along bottom, depth along left) ----
-  const dimY = py(b.maxY) + 230;
+  const dimY = py(b.maxY) + 440;
   els.push(<line key="dw" x1={px(b.minX)} y1={dimY} x2={px(b.maxX)} y2={dimY} stroke={DIM} strokeWidth={SW * 0.6} />);
   [b.minX, b.maxX].forEach((x) => els.push(<line key={`dwt${x}`} x1={px(x)} y1={dimY - 26} x2={px(x)} y2={dimY + 26} stroke={DIM} strokeWidth={SW * 0.6} />));
   els.push(<text key="dwx" x={px((b.minX + b.maxX) / 2)} y={dimY - 40} fontSize={FS} fill={DIM} fontWeight={600} textAnchor="middle" fontFamily="Inter, sans-serif">{Math.round(b.w)}</text>);

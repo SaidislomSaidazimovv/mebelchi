@@ -8,9 +8,14 @@ import { useStore, HW_GRADE_LABEL } from "../store";
 import { useT } from "../i18n/useT";
 import { production, productionCSV } from "../model/cncExport";
 import { panelsDXF } from "../model/dxfExport";
-import { unifiedCutList, unifiedHardware, unifiedDrilledParts, positionMap } from "../three/handoffCutList";
+import { unifiedCutList, unifiedHardware, unifiedDrilledParts, positionMap, unifiedNestParts, unifiedLabelItems } from "../three/handoffCutList";
+import { nest, DEFAULT_NEST } from "../three/nesting";
+import { CutSummary, CutSheetPage, cutSheetPages } from "../components/CutSheet";
+import { LabelSheet, labelPageCount } from "../components/LabelSheet";
 import { bandsLabel } from "../three/specCsv";
-import { BOARDS, EDGES } from "../three/materials";
+import { buildMaterialCoding } from "../three/materialCode";
+import { rowsWeightKg, partWeightKg } from "../three/weight";
+import { boardHexByName, edgeHexByName } from "../three/materials";
 import { machiningReport, runSWJ008 } from "../model/machining";
 import { DrawingSheet } from "../components/DrawingSheet";
 import { TopPlanSheet } from "../components/TopPlanSheet";
@@ -55,15 +60,26 @@ export function HandoffScreen() {
   const unified = useMemo(() => unifiedCutList(cabs, projectBlocks), [cabs, projectBlocks]);
   const unifiedCount = unified.rows.reduce((n, r) => n + r.qty, 0);
   const hw = useMemo(() => unifiedHardware(cabs, projectBlocks), [cabs, projectBlocks]);
-  const materials = useMemo(() => {
-    const bId = new Map(BOARDS.map((b) => [b.name, b.id]));
-    const eId = new Map(EDGES.map((e) => [e.name, e.id]));
-    const decors = [...new Set(unified.rows.map((r) => r.materialName))].map((n) => ({ name: n, code: bId.get(n) ?? "—" }));
-    const edges = [...new Set(unified.rows.map((r) => r.edgeName).filter((n): n is string => !!n))].map((n) => ({ name: n, code: eId.get(n) ?? "—" }));
-    return [...decors, ...edges];
-  }, [unified]);
+  const coding = useMemo(() => buildMaterialCoding(unified.rows), [unified]);
+  const materials = useMemo(() => [
+    ...coding.mats.map((m) => ({ name: m.full, code: m.code, hex: boardHexByName(m.name) })),
+    ...coding.edges.map((e) => ({ name: e.full, code: e.code, hex: edgeHexByName(e.name) })),
+  ], [coding]);
   const drilled = useMemo(() => unifiedDrilledParts(cabs, projectBlocks), [cabs, projectBlocks]);
   const posMap = useMemo(() => positionMap(unified.rows), [unified]);
+  const nestRes = useMemo(() => nest(unifiedNestParts(cabs, projectBlocks)), [cabs, projectBlocks]);
+  const cutPages = useMemo(() => cutSheetPages(nestRes), [nestRes]);
+  const labelItems = useMemo(() => unifiedLabelItems(cabs, projectBlocks, coding), [cabs, projectBlocks, coding]);
+  const labelPages = useMemo(() => labelPageCount(labelItems), [labelItems]);
+  const totalKg = useMemo(() => rowsWeightKg(unified.rows), [unified]);
+  const matWeightKg = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of unified.rows) {
+      const k = `${r.materialName} ${r.t_mm}мм`;
+      m.set(k, (m.get(k) ?? 0) + partWeightKg(r.l_mm, r.w_mm, r.t_mm, r.materialName) * r.qty);
+    }
+    return m;
+  }, [unified]);
   const passportCabs = useMemo(() => {
     const seen = new Map<string, { cab: Cabinet; qty: number }>();
     const out: { cab: Cabinet; qty: number }[] = [];
@@ -232,14 +248,14 @@ export function HandoffScreen() {
             cells: [
               String(i + 1),
               r.qty > 1 ? `${r.name} ×${r.qty}` : r.name,
-              r.materialName,
+              coding.matOf(r.materialName, r.t_mm),
               `${r.l_mm}×${r.w_mm}×${r.t_mm}`,
               `${r.rohL_mm}×${r.rohW_mm}`,
               `${r.cutL_mm}×${r.cutW_mm}`,
               bandsLabel(r.bands),
             ],
             bands: r.bands,
-            edgeName: r.edgeName,
+            edgeName: r.edgeName ? coding.edgeOf(r.edgeName) : undefined,
           }))
         }
       : undefined;
@@ -256,6 +272,98 @@ export function HandoffScreen() {
         materials,
         svgs,
       });
+    } catch {
+      flash(t.handoff.tPopup);
+    }
+  };
+  const printCompactPDF = async () => {
+    const ser = (ids: string[]) => ids
+      .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
+      .filter((el): el is SVGSVGElement => !!el)
+      .map((el) => {
+        const vb = el.viewBox.baseVal;
+        const clone = el.cloneNode(true) as SVGSVGElement;
+        clone.setAttribute("width", String(vb.width));
+        clone.setAttribute("height", String(vb.height));
+        return new XMLSerializer().serializeToString(clone);
+      });
+    const drillIds = Array.from(document.querySelectorAll('[id^="draw-drill-"]')).map((e) => e.id);
+    const passportIds = Array.from(document.querySelectorAll('[id^="draw-passport-"]')).map((e) => e.id);
+    const drawings = ser(["draw-face", "draw-top", "draw-wt", "draw-section"]);
+    const drills = ser(drillIds);
+    const passports = ser(passportIds);
+    const spec = unified.rows.length
+      ? {
+          columns: ["#", "Деталь", "Материал", "Готовый", "Черновой", "Распил", "Кромка"],
+          rows: unified.rows.map((r, i) => ({
+            cells: [
+              String(i + 1),
+              r.qty > 1 ? `${r.name} ×${r.qty}` : r.name,
+              coding.matOf(r.materialName, r.t_mm),
+              `${r.l_mm}×${r.w_mm}×${r.t_mm}`,
+              `${r.rohL_mm}×${r.rohW_mm}`,
+              `${r.cutL_mm}×${r.cutW_mm}`,
+              bandsLabel(r.bands),
+            ],
+            bands: r.bands,
+            edgeName: r.edgeName ? coding.edgeOf(r.edgeName) : undefined,
+          }))
+        }
+      : undefined;
+    try {
+      const { exportCompactPdf } = await import("../model/pdfExport");
+      await exportCompactPdf({
+        fileName: `Mebelchi-Ixcham-${project}.pdf`,
+        title: "Mebelchi",
+        project,
+        date: today,
+        partsCount: unifiedCount || undefined,
+        spec,
+        hardware: hw.lines,
+        materials,
+        drawings,
+        drills,
+        passports,
+        svgs: [],
+      });
+    } catch {
+      flash(t.handoff.tPopup);
+    }
+  };
+  const printCutPDF = async () => {
+    const ids = ["draw-cut-summary", ...cutPages.map((_, i) => `draw-cut-${i}`)];
+    const svgs = ids
+      .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
+      .filter((el): el is SVGSVGElement => !!el)
+      .map((el) => {
+        const vb = el.viewBox.baseVal;
+        const clone = el.cloneNode(true) as SVGSVGElement;
+        clone.setAttribute("width", String(vb.width));
+        clone.setAttribute("height", String(vb.height));
+        return new XMLSerializer().serializeToString(clone);
+      });
+    try {
+      const { exportDrawingsPdf } = await import("../model/pdfExport");
+      await exportDrawingsPdf({ fileName: `Mebelchi-Раскрой-${project}.pdf`, title: "Раскрой", project, date: today, svgs, noTitle: true });
+    } catch {
+      flash(t.handoff.tPopup);
+    }
+  };
+  const printLabelPDF = async () => {
+    const ids = Array.from({ length: labelPages }, (_, i) => `draw-label-${i}`);
+    const svgs = ids
+      .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
+      .filter((el): el is SVGSVGElement => !!el)
+      .map((el) => {
+        const vb = el.viewBox.baseVal;
+        const clone = el.cloneNode(true) as SVGSVGElement;
+        clone.setAttribute("width", String(vb.width));
+        clone.setAttribute("height", String(vb.height));
+        return new XMLSerializer().serializeToString(clone);
+      });
+    try {
+      const { exportDrawingsPdf } = await import("../model/pdfExport");
+      await exportDrawingsPdf({ fileName: `Mebelchi-Этикетки-${project}.pdf`, title: "Этикетки", project, date: today, svgs, noTitle: true });
     } catch {
       flash(t.handoff.tPopup);
     }
@@ -300,15 +408,26 @@ export function HandoffScreen() {
           <DrillSheet key={i} svgId={`draw-drill-${i}`} parts={drilled} project={project} date={today} page={i} posOf={posMap} />
         ))}
         {passportCabs.map((g, i) => (
-          <CabinetPassport key={`pp${i}`} svgId={`draw-passport-${i}`} cab={g.cab} artNo={i + 1} qty={g.qty} project={project} date={today} />
+          <CabinetPassport key={`pp${i}`} svgId={`draw-passport-${i}`} cab={g.cab} artNo={i + 1} qty={g.qty} project={project} date={today} coding={coding} />
+        ))}
+        {cutPages.length > 0 && <CutSummary svgId="draw-cut-summary" result={nestRes} cfg={DEFAULT_NEST} weightKg={totalKg} matWeightKg={matWeightKg} project={project} date={today} />}
+        {cutPages.map((p, i) => (
+          <CutSheetPage key={`cut${i}`} svgId={`draw-cut-${i}`} material={p.material} sheet={p.sheet} no={p.no} cfg={DEFAULT_NEST} project={project} date={today} />
+        ))}
+        {labelItems.length > 0 && Array.from({ length: labelPages }).map((_, i) => (
+          <LabelSheet key={`lb${i}`} svgId={`draw-label-${i}`} items={labelItems} page={i} project={project} />
         ))}
       </div>
 
       <button className="ho-download" style={{ marginTop: 18 }} onClick={printPDF} type="button">{t.handoff.dlPdf}</button>
+      <button className="ho-download ho-download-2" onClick={printCompactPDF} type="button">{t.handoff.compactPdf}</button>
+      {cutPages.length > 0 && <button className="ho-download ho-download-2" onClick={printCutPDF} type="button">{t.handoff.cutPdf}</button>}
+      {labelItems.length > 0 && <button className="ho-download ho-download-2" onClick={printLabelPDF} type="button">{t.handoff.labelPdf}</button>}
 
       <div className="ho-stats">
         <div className="ho-stat"><span className="ho-stat-n">{unifiedCount}</span><span className="ho-stat-l">{t.handoff.parts}</span></div>
         <div className="ho-stat"><span className="ho-stat-n">{prod.boardM2}</span><span className="ho-stat-l">{t.handoff.boardM2}</span></div>
+        <div className="ho-stat"><span className="ho-stat-n">{Math.round(totalKg)}</span><span className="ho-stat-l">{t.handoff.weight}</span></div>
         <div className="ho-stat"><span className="ho-stat-n">{prod.moduleCount}</span><span className="ho-stat-l">{t.handoff.modules}</span></div>
       </div>
 
