@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { useStore } from "../store";
 import { useT } from "../i18n/useT";
-import { DEFAULT_USD_RATE, type Settings } from "../model/settings";
+import { DEFAULT_USD_RATE, DEFAULT_MARGIN_PCT, type Settings } from "../model/settings";
 
 /** The free-text (string) settings fields the form edits. */
 type TextKey = "name" | "phone" | "email" | "company" | "companyPhone" | "companyAddress";
@@ -117,6 +117,18 @@ export function SettingsScreen() {
             <span className="set-hint">{t.settings.usdRateHint}</span>
           </label>
         )}
+        <label className="set-field">
+          <span className="set-label">{t.settings.margin}</span>
+          <input
+            className="set-input"
+            inputMode="numeric"
+            value={settings.marginPct ? String(settings.marginPct) : ""}
+            placeholder={String(DEFAULT_MARGIN_PCT)}
+            onChange={(e) => update({ marginPct: parseInt(e.target.value.replace(/[^0-9]/g, ""), 10) || 0 })}
+            onBlur={() => { if (!settings.marginPct) update({ marginPct: DEFAULT_MARGIN_PCT }); }}
+          />
+          <span className="set-hint">{t.settings.marginHint}</span>
+        </label>
       </div>
 
       {authUser && (

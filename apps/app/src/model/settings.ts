@@ -20,11 +20,14 @@ export interface Settings {
    *  are computed in UZS by the pricing engine). Editable in Настройки. Local-only for now
    *  (no `usd_rate` column in the Supabase `profiles` table yet). */
   usdRate: number;
+  marginPct: number;
   language: "ru" | "uz";
 }
 
 /** Fallback UZS→USD rate (~mid-2026). The designer edits this in Настройки. */
 export const DEFAULT_USD_RATE = 12600;
+
+export const DEFAULT_MARGIN_PCT = 25;
 
 export const DEFAULT_SETTINGS: Settings = {
   name: "",
@@ -35,6 +38,7 @@ export const DEFAULT_SETTINGS: Settings = {
   companyAddress: "",
   currency: "UZS",
   usdRate: DEFAULT_USD_RATE,
+  marginPct: DEFAULT_MARGIN_PCT,
   language: "uz", // Uzbekistan market default; user can switch to Русский in Настройки
 };
 
