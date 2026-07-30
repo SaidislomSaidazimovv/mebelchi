@@ -11,6 +11,8 @@ const ROW = 56;
 interface SummaryProps {
   result: NestResult;
   cfg: NestConfig;
+  weightKg: number;
+  matWeightKg: Map<string, number>;
   project: string;
   date: string;
   svgId?: string;
@@ -32,13 +34,14 @@ function titleBlock(els: React.ReactNode[], H: number, chertyozh: string, projec
   });
 }
 
-export function CutSummary({ result, cfg, project, date, svgId }: SummaryProps): React.ReactElement {
+export function CutSummary({ result, cfg, weightKg, matWeightKg, project, date, svgId }: SummaryProps): React.ReactElement {
   const t = result.totals;
   const rows: [string, string][] = [
     ["Размер листа", `${cfg.sheetL} × ${cfg.sheetW} мм`],
     ["Листов", String(t.sheets)],
     ["Деталей", String(t.parts)],
     ["Площадь деталей", `${t.partAreaM2.toFixed(2)} м²`],
+    ["Вес деталей", `${weightKg.toFixed(1)} кг`],
     ["Остаток (деловой)", `${t.offcutM2.toFixed(2)} м²`],
     ["Отходы", `${t.wastePct.toFixed(1)} %`],
     ["Длина реза", `${t.cutLenM.toFixed(1)} м`],
@@ -64,7 +67,7 @@ export function CutSummary({ result, cfg, project, date, svgId }: SummaryProps):
   y += 60;
   mats.forEach((m, i) => {
     els.push(<text key={`mk${i}`} x={M} y={y} fontSize={40} fill={INK} fontFamily="Inter, sans-serif">{m.material}</text>);
-    els.push(<text key={`mv${i}`} x={PAGE_W - M} y={y} fontSize={40} fontWeight={600} fill={INK} textAnchor="end" fontFamily="Inter, sans-serif">{m.sheets.length} лист.</text>);
+    els.push(<text key={`mv${i}`} x={PAGE_W - M} y={y} fontSize={40} fontWeight={600} fill={INK} textAnchor="end" fontFamily="Inter, sans-serif">{m.sheets.length} лист. · {(matWeightKg.get(m.material) ?? 0).toFixed(1)} кг</text>);
     els.push(<line key={`ml${i}`} x1={M} y1={y + 16} x2={PAGE_W - M} y2={y + 16} stroke={INK} strokeWidth={SW * 0.3} />);
     y += ROW;
   });

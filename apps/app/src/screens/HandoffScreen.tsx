@@ -14,6 +14,7 @@ import { CutSummary, CutSheetPage, cutSheetPages } from "../components/CutSheet"
 import { LabelSheet, labelPageCount } from "../components/LabelSheet";
 import { bandsLabel } from "../three/specCsv";
 import { buildMaterialCoding } from "../three/materialCode";
+import { rowsWeightKg, partWeightKg } from "../three/weight";
 import { machiningReport, runSWJ008 } from "../model/machining";
 import { DrawingSheet } from "../components/DrawingSheet";
 import { TopPlanSheet } from "../components/TopPlanSheet";
@@ -69,6 +70,15 @@ export function HandoffScreen() {
   const cutPages = useMemo(() => cutSheetPages(nestRes), [nestRes]);
   const labelItems = useMemo(() => unifiedLabelItems(cabs, projectBlocks, coding), [cabs, projectBlocks, coding]);
   const labelPages = useMemo(() => labelPageCount(labelItems), [labelItems]);
+  const totalKg = useMemo(() => rowsWeightKg(unified.rows), [unified]);
+  const matWeightKg = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of unified.rows) {
+      const k = `${r.materialName} ${r.t_mm}мм`;
+      m.set(k, (m.get(k) ?? 0) + partWeightKg(r.l_mm, r.w_mm, r.t_mm, r.materialName) * r.qty);
+    }
+    return m;
+  }, [unified]);
   const passportCabs = useMemo(() => {
     const seen = new Map<string, { cab: Cabinet; qty: number }>();
     const out: { cab: Cabinet; qty: number }[] = [];
@@ -345,7 +355,7 @@ export function HandoffScreen() {
         {passportCabs.map((g, i) => (
           <CabinetPassport key={`pp${i}`} svgId={`draw-passport-${i}`} cab={g.cab} artNo={i + 1} qty={g.qty} project={project} date={today} coding={coding} />
         ))}
-        {cutPages.length > 0 && <CutSummary svgId="draw-cut-summary" result={nestRes} cfg={DEFAULT_NEST} project={project} date={today} />}
+        {cutPages.length > 0 && <CutSummary svgId="draw-cut-summary" result={nestRes} cfg={DEFAULT_NEST} weightKg={totalKg} matWeightKg={matWeightKg} project={project} date={today} />}
         {cutPages.map((p, i) => (
           <CutSheetPage key={`cut${i}`} svgId={`draw-cut-${i}`} material={p.material} sheet={p.sheet} no={p.no} cfg={DEFAULT_NEST} project={project} date={today} />
         ))}
@@ -361,6 +371,7 @@ export function HandoffScreen() {
       <div className="ho-stats">
         <div className="ho-stat"><span className="ho-stat-n">{unifiedCount}</span><span className="ho-stat-l">{t.handoff.parts}</span></div>
         <div className="ho-stat"><span className="ho-stat-n">{prod.boardM2}</span><span className="ho-stat-l">{t.handoff.boardM2}</span></div>
+        <div className="ho-stat"><span className="ho-stat-n">{Math.round(totalKg)}</span><span className="ho-stat-l">{t.handoff.weight}</span></div>
         <div className="ho-stat"><span className="ho-stat-n">{prod.moduleCount}</span><span className="ho-stat-l">{t.handoff.modules}</span></div>
       </div>
 
