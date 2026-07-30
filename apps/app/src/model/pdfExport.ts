@@ -59,7 +59,7 @@ function drawTitle(doc: jsPDF, input: PdfExportInput, pw: number, ph: number): v
   doc.setFontSize(12);
   doc.text(input.date, pw / 2, cy + 14, { align: "center" });
   if (input.partsCount != null) {
-    doc.text(`Detallar: ${input.partsCount}`, pw / 2, cy + 22, { align: "center" });
+    doc.text(`Деталей: ${input.partsCount}`, pw / 2, cy + 22, { align: "center" });
   }
 }
 
@@ -77,37 +77,44 @@ function drawKantenbild(doc: jsPDF, x: number, y: number, w: number, h: number, 
   doc.setDrawColor(20);
 }
 
+function fitText(doc: jsPDF, s: string, maxW: number): string {
+  if (doc.getTextWidth(s) <= maxW) return s;
+  let t = s;
+  while (t.length > 1 && doc.getTextWidth(`${t}…`) > maxW) t = t.slice(0, -1);
+  return `${t}…`;
+}
+
 function drawSpec(doc: jsPDF, spec: PdfSpec, pw: number, ph: number): void {
   const margin = 12;
   const tableW = pw - margin * 2;
   const colW = tableW / spec.columns.length;
   const last = spec.columns.length - 1;
-  let y = margin + 8;
-  doc.setFontSize(15);
-  doc.text("Spetsifikatsiya", margin, y);
-  y += 8;
-  doc.setFontSize(8);
-  spec.columns.forEach((c, i) => doc.text(c, margin + i * colW + 1, y));
-  y += 2;
-  doc.setDrawColor(20);
-  doc.line(margin, y, pw - margin, y);
-  y += 5;
+  const header = (y0: number): number => {
+    doc.setFontSize(15);
+    doc.text("Спецификация", margin, y0);
+    doc.setFontSize(8);
+    spec.columns.forEach((c, i) => doc.text(c, margin + i * colW + 1, y0 + 8));
+    doc.setDrawColor(20);
+    doc.line(margin, y0 + 10, pw - margin, y0 + 10);
+    return y0 + 15;
+  };
+  let y = header(margin + 8);
   for (const row of spec.rows) {
     if (y > ph - margin) {
       doc.addPage();
-      y = margin + 8;
+      y = header(margin + 8);
     }
     doc.setFontSize(8);
     row.cells.forEach((cell, i) => {
       if (i === last && row.bands) return;
-      doc.text(cell, margin + i * colW + 1, y);
+      doc.text(fitText(doc, cell, colW - 2), margin + i * colW + 1, y);
     });
     if (row.bands) {
       const kx = margin + last * colW + 1;
       drawKantenbild(doc, kx, y - 3, 4, 3, row.bands);
       if (row.edgeName) {
         doc.setFontSize(6);
-        doc.text(row.edgeName, kx + 5.5, y - 0.5);
+        doc.text(fitText(doc, row.edgeName, colW - 7), kx + 5.5, y - 0.5);
         doc.setFontSize(8);
       }
     }
@@ -117,23 +124,25 @@ function drawSpec(doc: jsPDF, spec: PdfSpec, pw: number, ph: number): void {
 
 function drawHardware(doc: jsPDF, hardware: { name: string; qty: number }[], pw: number, ph: number): void {
   const margin = 12;
-  let y = margin + 8;
-  doc.setFontSize(15);
-  doc.text("Furnitura", margin, y);
-  y += 8;
-  doc.setFontSize(9);
-  doc.text("Nomi", margin, y);
-  doc.text("Soni", margin + 160, y);
-  y += 2;
-  doc.setDrawColor(20);
-  doc.line(margin, y, pw - margin, y);
-  y += 6;
+  const nameW = 160 - margin - 4;
+  const header = (y0: number): number => {
+    doc.setFontSize(15);
+    doc.text("Фурнитура", margin, y0);
+    doc.setFontSize(9);
+    doc.text("Наименование", margin, y0 + 8);
+    doc.text("Кол-во", margin + 160, y0 + 8);
+    doc.setDrawColor(20);
+    doc.line(margin, y0 + 10, pw - margin, y0 + 10);
+    return y0 + 16;
+  };
+  let y = header(margin + 8);
   for (const h of hardware) {
     if (y > ph - margin) {
       doc.addPage();
-      y = margin + 8;
+      y = header(margin + 8);
     }
-    doc.text(h.name, margin, y);
+    doc.setFontSize(9);
+    doc.text(fitText(doc, h.name, nameW), margin, y);
     doc.text(String(h.qty), margin + 160, y);
     y += 6;
   }
@@ -141,24 +150,27 @@ function drawHardware(doc: jsPDF, hardware: { name: string; qty: number }[], pw:
 
 function drawMaterials(doc: jsPDF, materials: { name: string; code: string }[], pw: number, ph: number): void {
   const margin = 12;
-  let y = margin + 8;
-  doc.setFontSize(15);
-  doc.text("Materiallar", margin, y);
-  y += 8;
-  doc.setFontSize(9);
-  doc.text("Nomi", margin, y);
-  doc.text("Kod", margin + 160, y);
-  y += 2;
-  doc.setDrawColor(20);
-  doc.line(margin, y, pw - margin, y);
-  y += 6;
+  const nameW = 160 - margin - 4;
+  const codeW = pw - margin - (margin + 160) - 2;
+  const header = (y0: number): number => {
+    doc.setFontSize(15);
+    doc.text("Материалы", margin, y0);
+    doc.setFontSize(9);
+    doc.text("Наименование", margin, y0 + 8);
+    doc.text("Код", margin + 160, y0 + 8);
+    doc.setDrawColor(20);
+    doc.line(margin, y0 + 10, pw - margin, y0 + 10);
+    return y0 + 16;
+  };
+  let y = header(margin + 8);
   for (const m of materials) {
     if (y > ph - margin) {
       doc.addPage();
-      y = margin + 8;
+      y = header(margin + 8);
     }
-    doc.text(m.name, margin, y);
-    doc.text(m.code, margin + 160, y);
+    doc.setFontSize(9);
+    doc.text(fitText(doc, m.name, nameW), margin, y);
+    doc.text(fitText(doc, m.code, codeW), margin + 160, y);
     y += 6;
   }
 }

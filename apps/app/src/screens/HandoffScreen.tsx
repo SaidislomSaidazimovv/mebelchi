@@ -227,7 +227,7 @@ export function HandoffScreen() {
       });
     const spec = unified.rows.length
       ? {
-          columns: ["#", "Detal", "Material", "Tayyor", "Xom", "Arra", "Kromka"],
+          columns: ["#", "Деталь", "Материал", "Готовый", "Черновой", "Распил", "Кромка"],
           rows: unified.rows.map((r, i) => ({
             cells: [
               String(i + 1),
@@ -295,7 +295,7 @@ export function HandoffScreen() {
         <DrawingSheet svgId="draw-face" cabs={drawRun.cabs} wallLen={drawRun.wallLen} ceiling={ceiling} numberOf={numberOf} project={project} view="Фасад" date={today} />
         <TopPlanSheet svgId="draw-top" points={points} cabs={cabs} openings={openings} waterWall={waterWall} layout={layout} numberOf={numberOf} runIds={new Set(drawRun.cabs.map((c) => c.id))} project={project} view="Вид сверху" date={today} />
         <WorktopSheet svgId="draw-wt" cabs={drawRun.cabs} wallLen={drawRun.wallLen} project={project} view="Столешница" date={today} />
-        <SectionSheet svgId="draw-section" cabs={drawRun.cabs} project={project} view="Разрез" date={today} />
+        <SectionSheet svgId="draw-section" cabs={drawRun.cabs} numberOf={numberOf} project={project} view="Разрез" date={today} />
         {drilled.length > 0 && Array.from({ length: Math.max(1, Math.ceil(drillGroups(drilled).length / DRILL_PER_PAGE)) }).map((_, i) => (
           <DrillSheet key={i} svgId={`draw-drill-${i}`} parts={drilled} project={project} date={today} page={i} posOf={posMap} />
         ))}

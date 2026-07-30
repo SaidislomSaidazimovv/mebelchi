@@ -61,7 +61,7 @@ export function WorktopSheet({ cabs, wallLen, project, view, date, svgId }: Prop
     els.push(<text key={`cl${i}`} x={px(c.cx)} y={py(cy + 26)} fontSize={70} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{Math.round(c.w)}×{Math.round(c.h)}</text>);
     els.push(<text key={`cr${i}`} x={px(c.cx - c.w / 2) - 12} y={py(cy - c.h / 2) - 16} fontSize={56} fill={DIM} textAnchor="end" fontFamily="Inter, sans-serif">R{c.r}</text>);
     // position dim: worktop left → cutout centre (above the slab)
-    const dy = py(0) - 150;
+    const dy = py(0) - 150 - i * 95;
     els.push(<line key={`pd${i}`} x1={px(0)} y1={dy} x2={px(c.cx)} y2={dy} stroke={DIM} strokeWidth={SW * 0.6} />);
     els.push(<line key={`pt0${i}`} x1={px(0)} y1={dy - 26} x2={px(0)} y2={dy + 26} stroke={DIM} strokeWidth={SW * 0.6} />);
     els.push(<line key={`pt1${i}`} x1={px(c.cx)} y1={dy - 26} x2={px(c.cx)} y2={dy + 26} stroke={DIM} strokeWidth={SW * 0.6} />);

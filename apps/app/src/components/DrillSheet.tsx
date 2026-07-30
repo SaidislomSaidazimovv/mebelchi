@@ -104,12 +104,6 @@ export function DrillSheet({ parts, project, date, svgId, page, posOf }: Props) 
     // panel outline
     els.push(<rect key={`pr${idx}`} x={px0} y={py0} width={pw} height={ph} fill="#fff" stroke={INK} strokeWidth={SW} />);
 
-    const pos = posOf?.get(p.id);
-    if (pos != null) {
-      els.push(<circle key={`pc${idx}`} cx={px0 + 46} cy={py0 + 46} r={42} fill="#d98a1e" />);
-      els.push(<text key={`pn${idx}`} x={px0 + 46} y={py0 + 64} fontSize={54} fontWeight={800} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{pos}</text>);
-    }
-
     // holes
     const labeled = new Set<number>();
     p.operations.forEach((op, j) => {
@@ -132,6 +126,14 @@ export function DrillSheet({ parts, project, date, svgId, page, posOf }: Props) 
         els.push(<text key={`hd${idx}_${j}`} x={(isEdge ? ex : hx) + c.r + 4} y={hy - c.r} fontSize={44} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">{dcode(d.diameter_mm10)}</text>);
       }
     });
+
+    const pos = posOf?.get(p.id);
+    if (pos != null) {
+      const fs = String(pos).length >= 2 ? 44 : 54;
+      els.push(<circle key={`ph${idx}`} cx={px0 + 46} cy={py0 + 46} r={47} fill="#fff" />);
+      els.push(<circle key={`pc${idx}`} cx={px0 + 46} cy={py0 + 46} r={42} fill="#d98a1e" />);
+      els.push(<text key={`pn${idx}`} x={px0 + 46} y={py0 + 46 + fs * 0.34} fontSize={fs} fontWeight={800} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{pos}</text>);
+    }
 
     // label
     els.push(

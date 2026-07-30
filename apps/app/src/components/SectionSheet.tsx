@@ -3,6 +3,7 @@ import { shelfPositions, type Cabinet } from "../model/cabinet";
 
 const INK = "#222";
 const DIM = "#555";
+const NUM = "#d98a1e";
 const COLS = 2;
 const CELL_W = 1000;
 const CELL_H = 1200;
@@ -24,25 +25,34 @@ function carcassH(c: Cabinet): number {
 interface Group {
   cab: Cabinet;
   qty: number;
+  nums: number[];
 }
 
 interface Props {
   cabs: Cabinet[];
+  numberOf?: Map<string, number>;
   project: string;
   view: string;
   date: string;
   svgId?: string;
 }
 
-export function SectionSheet({ cabs, project, view, date, svgId }: Props) {
+export function SectionSheet({ cabs, numberOf, project, view, date, svgId }: Props) {
   const mods = cabs.filter((c) => (c.kind === "base" || c.kind === "tall" || c.kind === "upper") && !c.furniture && c.appliance !== "filler");
   const seen = new Map<string, Group>();
   const groups: Group[] = [];
   for (const c of mods) {
     const k = `${c.kind}|${carcassH(c)}|${cabDepth(c)}|${c.fill}|${c.count}|${c.div ?? 0}`;
+    const n = numberOf?.get(c.id);
     const g = seen.get(k);
-    if (g) g.qty += 1;
-    else { const ng = { cab: c, qty: 1 }; seen.set(k, ng); groups.push(ng); }
+    if (g) {
+      g.qty += 1;
+      if (n != null) g.nums.push(n);
+    } else {
+      const ng = { cab: c, qty: 1, nums: n != null ? [n] : [] };
+      seen.set(k, ng);
+      groups.push(ng);
+    }
   }
 
   const rowH = CELL_H + LABEL + PAD;
@@ -81,6 +91,10 @@ export function SectionSheet({ cabs, project, view, date, svgId }: Props) {
 
     const kindRu = c.kind === "base" ? "Напольный" : c.kind === "tall" ? "Пенал" : "Навесной";
     els.push(<text key={`lb${idx}`} x={ox + CELL_W / 2} y={oy + CELL_H + 110} fontSize={70} fontWeight={600} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{kindRu} {c.w} · В{Math.round(hc)}×Г{Math.round(d)}{g.qty > 1 ? ` · ×${g.qty}` : ""}</text>);
+
+    if (g.nums.length) {
+      els.push(<text key={`nn${idx}`} x={x0 + 18} y={y0 + 58} fontSize={58} fontWeight={800} fill={NUM} fontFamily="Inter, sans-serif">№ {g.nums.slice().sort((a, b) => a - b).join(", ")}</text>);
+    }
   });
 
   const tbTop = H - TITLE;

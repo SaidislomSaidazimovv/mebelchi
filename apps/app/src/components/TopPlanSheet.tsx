@@ -86,8 +86,9 @@ export function TopPlanSheet({ points, cabs, openings, waterWall, layout, number
     );
     const num = numberOf.get(f.id);
     if (num != null && !f.upper) {
+      const nfs = String(num).length >= 2 ? 62 : 84;
       els.push(<circle key={`fn${f.id}`} cx={px(f.cx)} cy={py(f.cy)} r={70} fill={NUM} />);
-      els.push(<text key={`ft${f.id}`} x={px(f.cx)} y={py(f.cy) + 28} fontSize={84} fontWeight={700} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{num}</text>);
+      els.push(<text key={`ft${f.id}`} x={px(f.cx)} y={py(f.cy) + nfs * 0.33} fontSize={nfs} fontWeight={700} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{num}</text>);
     }
   });
 

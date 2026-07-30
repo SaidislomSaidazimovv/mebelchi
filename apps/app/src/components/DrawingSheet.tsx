@@ -44,8 +44,16 @@ export function DrawingSheet({ cabs, wallLen, ceiling, numberOf, project, view, 
   const upBottom = uppers.length ? Math.min(...uppers.map((c) => c.mountY ?? GEOM.upperBottom)) : 0;
   const upTop = uppers.length ? Math.max(...uppers.map((c) => (c.mountY ?? GEOM.upperBottom) + c.h)) : 0;
 
+  const kindRu = (c: Cabinet) => (c.kind === "base" ? "Напольный" : c.kind === "tall" ? "Пенал" : "Навесной");
+  const legItems = mods
+    .map((c, i) => ({ n: numberOf?.get(c.id) ?? i + 1, label: `${kindRu(c)} ${c.w}` }))
+    .sort((a, b) => a.n - b.n);
+
   const W = L + wallLen + R;
-  const H = T + ceiling + DIMBAND + TITLE;
+  const legCols = Math.max(1, Math.floor((W - 160) / 700));
+  const legRowN = Math.ceil(legItems.length / legCols);
+  const LEGEND = legItems.length ? 80 + legRowN * 88 + 30 : 0;
+  const H = T + ceiling + DIMBAND + LEGEND + TITLE;
   const px = (x: number) => L + x;
   const py = (y: number) => T + ceiling - y; // mm-from-floor → svg-y (floor at bottom)
 
@@ -88,8 +96,9 @@ export function DrawingSheet({ cabs, wallLen, ceiling, numberOf, project, view, 
     const bx = px(x + c.w / 2);
     const by = upper ? py(y1) - 110 : py(c.kind === "tall" ? c.h : COUNTER) - 110;
     const num = numberOf?.get(c.id) ?? i + 1;
+    const nfs = String(num).length >= 2 ? 70 : 92;
     els.push(<circle key={`${k}nc`} cx={bx} cy={by} r={78} fill={NUM} />);
-    els.push(<text key={`${k}nt`} x={bx} y={by + 30} fontSize={92} fontWeight={700} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{num}</text>);
+    els.push(<text key={`${k}nt`} x={bx} y={by + nfs * 0.33} fontSize={nfs} fontWeight={700} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{num}</text>);
   });
 
   // ---- horizontal dimension chain (floor modules) ----
@@ -142,8 +151,23 @@ export function DrawingSheet({ cabs, wallLen, ceiling, numberOf, project, view, 
   els.push(<line key="voat1" x1={ovx - 24} y1={py(ceiling)} x2={ovx + 24} y2={py(ceiling)} stroke={DIM} strokeWidth={SW * 0.6} />);
   els.push(<text key="voat" x={ovx - 34} y={py(ceiling / 2)} fontSize={FS} fill={DIM} fontWeight={600} textAnchor="middle" transform={`rotate(-90 ${ovx - 34} ${py(ceiling / 2)})`} fontFamily="Inter, sans-serif">{Math.round(ceiling)}</text>);
 
+  // ---- legend (number → module type + width) ----
+  if (legItems.length) {
+    const yLeg = T + ceiling + DIMBAND;
+    els.push(<text key="legh" x={80} y={yLeg + 54} fontSize={64} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">Экспликация</text>);
+    legItems.forEach((it, i) => {
+      const col = i % legCols;
+      const row = Math.floor(i / legCols);
+      const lx = 90 + col * 700;
+      const ly = yLeg + 108 + row * 88;
+      els.push(<circle key={`lgc${i}`} cx={lx + 32} cy={ly} r={34} fill={NUM} />);
+      els.push(<text key={`lgn${i}`} x={lx + 32} y={ly + 14} fontSize={40} fontWeight={800} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{it.n}</text>);
+      els.push(<text key={`lgt${i}`} x={lx + 84} y={ly + 15} fontSize={48} fill={INK} fontFamily="Inter, sans-serif">{it.label}</text>);
+    });
+  }
+
   // ---- title block: 4 cells (brand | project | view | date) with dividers ----
-  const tbTop = T + ceiling + DIMBAND;
+  const tbTop = T + ceiling + DIMBAND + LEGEND;
   const tbMid = tbTop + TITLE * 0.42;
   const tbm = 40;
   const cw4 = (W - tbm * 2) / 4;

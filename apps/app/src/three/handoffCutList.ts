@@ -38,7 +38,7 @@ const fallbackSpecs = (cab: Cabinet): PartSpec[] => {
     bands: [false, false, false, false] as [boolean, boolean, boolean, boolean],
     materialName: r.material,
     priceUzs: 0,
-    note: "⚠ eski hisob (fallback)",
+    note: "⚠ черновой расчёт",
   }));
 };
 

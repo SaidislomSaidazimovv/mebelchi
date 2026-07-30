@@ -77,3 +77,7 @@ TASK_3D_CONSTRUCTION.md
 # kind belongs here too — a small text report may still be committed on purpose.
 GALEREYA_50.html
 QOLLANMA_MEBEL_YASASH.html
+
+# Internal PDF audit report (2026-07-30) — founder-facing, local-only, must not appear on GitHub
+apps/app/PDF_HISOBOT.md
+apps/app/PDF_HISOBOT.html
