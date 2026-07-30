@@ -25,6 +25,9 @@ export interface PdfExportInput {
   hardware?: { name: string; qty: number }[];
   materials?: { name: string; code: string; hex?: string }[];
   svgs: string[];
+  drawings?: string[];
+  drills?: string[];
+  passports?: string[];
   noTitle?: boolean;
 }
 
@@ -218,6 +221,29 @@ async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: n
   }
 }
 
+async function addSvgCell(doc: jsPDF, holder: HTMLDivElement, svg: string, x: number, y: number, cw: number, ch: number): Promise<void> {
+  holder.innerHTML = svg;
+  const el = holder.querySelector("svg") as SVGSVGElement | null;
+  if (!el) return;
+  el.setAttribute("font-family", "Roboto");
+  el.querySelectorAll("text").forEach((t) => {
+    t.setAttribute("font-family", "Roboto");
+    t.removeAttribute("font-weight");
+    t.style.removeProperty("font-weight");
+  });
+  const vb = el.viewBox.baseVal;
+  const aw = vb && vb.width ? vb.width : cw;
+  const ah = vb && vb.height ? vb.height : ch;
+  const ratio = aw / ah;
+  let w = cw;
+  let h = cw / ratio;
+  if (h > ch) {
+    h = ch;
+    w = ch * ratio;
+  }
+  await svg2pdf(el, doc, { x: x + (cw - w) / 2, y: y + (ch - h) / 2, width: w, height: h });
+}
+
 async function deliver(doc: jsPDF, fileName: string): Promise<void> {
   if (Capacitor.isNativePlatform()) {
     const uri = doc.output("datauristring");
@@ -277,5 +303,91 @@ export async function buildDrawingsPdf(input: PdfExportInput): Promise<jsPDF> {
 
 export async function exportDrawingsPdf(input: PdfExportInput): Promise<void> {
   const doc = await buildDrawingsPdf(input);
+  await deliver(doc, input.fileName);
+}
+
+export async function buildCompactPdf(input: PdfExportInput): Promise<jsPDF> {
+  const fontBase64 = await loadFontBase64();
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  doc.addFileToVFS("Roboto-Regular.ttf", fontBase64);
+  doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
+  doc.setFont("Roboto", "normal");
+
+  const pw = doc.internal.pageSize.getWidth();
+  const ph = doc.internal.pageSize.getHeight();
+
+  let firstFree = true;
+  const page = (): void => {
+    if (!firstFree) doc.addPage();
+    firstFree = false;
+  };
+  const tag = (name: string): void => {
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text(name, pw - 8, 8, { align: "right" });
+    doc.setTextColor(20);
+  };
+
+  const holder = document.createElement("div");
+  holder.setAttribute("style", "position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none");
+  document.body.appendChild(holder);
+
+  const grid = async (items: string[], head: string): Promise<void> => {
+    const gm = 6;
+    const top = 18;
+    const cw = (pw - gm * 3) / 2;
+    const ch = (ph - top - gm * 2) / 2;
+    const cells: [number, number][] = [[gm, top], [gm * 2 + cw, top], [gm, top + gm + ch], [gm * 2 + cw, top + gm + ch]];
+    for (let i = 0; i < items.length; i += 4) {
+      page();
+      doc.setFontSize(16);
+      doc.text(head, 8, 13);
+      for (let j = 0; j < 4; j++) {
+        const c = cells[j];
+        const d = items[i + j];
+        if (c && d) await addSvgCell(doc, holder, d, c[0], c[1], cw, ch);
+      }
+      tag(head);
+    }
+  };
+
+  try {
+    const drawings = input.drawings ?? [];
+    if (drawings.length) await grid(drawings.slice(0, 4), "Чертежи");
+    if (input.spec && input.spec.rows.length) {
+      page();
+      drawSpec(doc, input.spec, pw, ph);
+      tag("Спецификация");
+    }
+    if (input.hardware && input.hardware.length) {
+      page();
+      drawHardware(doc, input.hardware, pw, ph);
+      tag("Фурнитура");
+    }
+    if (input.materials && input.materials.length) {
+      page();
+      drawMaterials(doc, input.materials, pw, ph);
+      tag("Материалы");
+    }
+    const drills = input.drills ?? [];
+    if (drills.length) await grid(drills, "Сверловка");
+    const passports = input.passports ?? [];
+    for (const p of passports) {
+      page();
+      await addSvgPage(doc, holder, p, pw, ph, false);
+    }
+    for (const svg of input.svgs) {
+      page();
+      await addSvgPage(doc, holder, svg, pw, ph, false);
+    }
+  } finally {
+    document.body.removeChild(holder);
+  }
+
+  return doc;
+}
+
+export async function exportCompactPdf(input: PdfExportInput): Promise<void> {
+  const doc = await buildCompactPdf(input);
   await deliver(doc, input.fileName);
 }

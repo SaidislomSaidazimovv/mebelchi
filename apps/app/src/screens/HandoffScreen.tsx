@@ -276,6 +276,60 @@ export function HandoffScreen() {
       flash(t.handoff.tPopup);
     }
   };
+  const printCompactPDF = async () => {
+    const ser = (ids: string[]) => ids
+      .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
+      .filter((el): el is SVGSVGElement => !!el)
+      .map((el) => {
+        const vb = el.viewBox.baseVal;
+        const clone = el.cloneNode(true) as SVGSVGElement;
+        clone.setAttribute("width", String(vb.width));
+        clone.setAttribute("height", String(vb.height));
+        return new XMLSerializer().serializeToString(clone);
+      });
+    const drillIds = Array.from(document.querySelectorAll('[id^="draw-drill-"]')).map((e) => e.id);
+    const passportIds = Array.from(document.querySelectorAll('[id^="draw-passport-"]')).map((e) => e.id);
+    const drawings = ser(["draw-face", "draw-top", "draw-wt", "draw-section"]);
+    const drills = ser(drillIds);
+    const passports = ser(passportIds);
+    const spec = unified.rows.length
+      ? {
+          columns: ["#", "Деталь", "Материал", "Готовый", "Черновой", "Распил", "Кромка"],
+          rows: unified.rows.map((r, i) => ({
+            cells: [
+              String(i + 1),
+              r.qty > 1 ? `${r.name} ×${r.qty}` : r.name,
+              coding.matOf(r.materialName, r.t_mm),
+              `${r.l_mm}×${r.w_mm}×${r.t_mm}`,
+              `${r.rohL_mm}×${r.rohW_mm}`,
+              `${r.cutL_mm}×${r.cutW_mm}`,
+              bandsLabel(r.bands),
+            ],
+            bands: r.bands,
+            edgeName: r.edgeName ? coding.edgeOf(r.edgeName) : undefined,
+          }))
+        }
+      : undefined;
+    try {
+      const { exportCompactPdf } = await import("../model/pdfExport");
+      await exportCompactPdf({
+        fileName: `Mebelchi-Ixcham-${project}.pdf`,
+        title: "Mebelchi",
+        project,
+        date: today,
+        partsCount: unifiedCount || undefined,
+        spec,
+        hardware: hw.lines,
+        materials,
+        drawings,
+        drills,
+        passports,
+        svgs: [],
+      });
+    } catch {
+      flash(t.handoff.tPopup);
+    }
+  };
   const printCutPDF = async () => {
     const ids = ["draw-cut-summary", ...cutPages.map((_, i) => `draw-cut-${i}`)];
     const svgs = ids
@@ -366,6 +420,7 @@ export function HandoffScreen() {
       </div>
 
       <button className="ho-download" style={{ marginTop: 18 }} onClick={printPDF} type="button">{t.handoff.dlPdf}</button>
+      <button className="ho-download ho-download-2" onClick={printCompactPDF} type="button">{t.handoff.compactPdf}</button>
       {cutPages.length > 0 && <button className="ho-download ho-download-2" onClick={printCutPDF} type="button">{t.handoff.cutPdf}</button>}
       {labelItems.length > 0 && <button className="ho-download ho-download-2" onClick={printLabelPDF} type="button">{t.handoff.labelPdf}</button>}
 
