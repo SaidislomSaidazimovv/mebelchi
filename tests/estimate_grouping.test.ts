@@ -16,7 +16,7 @@ const tk = planThickness(DEFAULT_PLAN);
 const specsOf = (m: Parameters<typeof solveStructure>[0]) => estimate(solveStructure(m, tk), DEFAULT_PLAN).parts;
 
 const spec = (o: Partial<PartSpec> & { id: string }): PartSpec => ({
-  name: "Polka", w_mm: 300, l_mm: 560, t_mm: 16, areaM2: 0.168, edgeM: 0.56,
+  name: "Polka", w_mm: 300, l_mm: 560, t_mm: 16, rohW_mm: 299, rohL_mm: 560, cutW_mm: 299, cutL_mm: 560, areaM2: 0.168, edgeM: 0.56,
   bands: [true, false, false, false], materialName: "ЛДСП Белый", priceUzs: 1000, ...o,
 });
 

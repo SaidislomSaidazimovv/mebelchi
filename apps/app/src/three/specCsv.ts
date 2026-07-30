@@ -24,11 +24,11 @@ function num(n: number, dp = 0): string {
   return n.toFixed(dp).replace(".", ",");
 }
 
-/** Which edges carry banding, as the workshop says it: «oldi», «orqa», «chap», «o'ng». */
+/** Which edges carry banding, as the workshop says it: «перед», «зад», «право», «лево». */
 export function bandsLabel(bands: readonly boolean[]): string {
-  const names = ["ust", "tag", "o'ng", "chap"]; // solve.ts edge order: top · bottom · right · left
+  const names = ["перед", "зад", "право", "лево"];
   const on = names.filter((_, i) => bands[i]);
-  return on.length === 0 ? "yo'q" : on.length === 4 ? "hammasi" : on.join("+");
+  return on.length === 0 ? "нет" : on.length === 4 ? "все" : on.join("+");
 }
 
 export interface SpecCsvOptions {
@@ -43,7 +43,7 @@ export interface SpecCsvOptions {
  * makes it testable — a spreadsheet that silently loses a part is worse than no spreadsheet.
  */
 export function specsToCsv(rows: readonly GroupedSpec[], opts: SpecCsvOptions = {}): string {
-  const head = ["Detal", "Soni", "Uzunlik (mm)", "Eni (mm)", "Qalinlik (mm)", "Material", "Kromka", "Yuza (m²)", "Narx", "Izoh"];
+  const head = ["Деталь", "Кол-во", "Длина (мм)", "Ширина (мм)", "Толщина (мм)", "Материал", "Кромка", "Площадь (м²)", "Цена", "Примечание"];
   const lines: string[] = [];
   if (opts.title) lines.push(cell(opts.title));
   lines.push(head.map(cell).join(";"));
@@ -65,6 +65,6 @@ export function specsToCsv(rows: readonly GroupedSpec[], opts: SpecCsvOptions = 
   const qty = rows.reduce((n, r) => n + r.qty, 0);
   const area = rows.reduce((n, r) => n + r.areaM2, 0);
   const price = rows.reduce((n, r) => n + r.priceUzs, 0);
-  lines.push(["JAMI", String(qty), "", "", "", "", "", num(area, 3), num(Math.round(price)), cell(opts.totalLabel ?? "")].join(";"));
+  lines.push(["ИТОГО", String(qty), "", "", "", "", "", num(area, 3), num(Math.round(price)), cell(opts.totalLabel ?? "")].join(";"));
   return `﻿${lines.join("\r\n")}\r\n`; // BOM + CRLF, the pair Excel expects
 }

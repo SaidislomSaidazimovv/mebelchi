@@ -9,9 +9,11 @@ import type { Part } from "../../../../engine/contracts/types.js";
 import type { StructuralModel, Section, ApplianceKind } from "../../../../engine/contracts/structure.js";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { edgeLengths } from "../../../../engine/structure/features.js";
+import { threeSizes } from "../../../../engine/structure/sizes.js";
 import {
   partBoard,
   edgeById,
+  planSlotForRole,
   DEFAULT_PLAN,
   withPlanDefaults,
   HARDWARE,
@@ -27,6 +29,7 @@ import {
 const M = (mm10: number): number => mm10 / 10000; // mm10 → metres
 const MM = (mm10: number): number => Math.round(mm10 / 10); // mm10 → whole mm
 const round1 = (n: number): number => Math.round(n * 10) / 10;
+const CARCASS_EDGE_ID = "abs_05";
 const sum = (ns: number[]): number => ns.reduce((a, b) => a + b, 0);
 
 /** One row of the cut list. Dimensions in mm; area in m²; banded flags per SWJ008 edge face 1..4. */
@@ -36,6 +39,10 @@ export interface PartSpec {
   w_mm: number;
   l_mm: number;
   t_mm: number;
+  rohW_mm: number;
+  rohL_mm: number;
+  cutW_mm: number;
+  cutL_mm: number;
   areaM2: number;
   edgeM: number;
   bands: [boolean, boolean, boolean, boolean];
@@ -43,6 +50,7 @@ export interface PartSpec {
   /** M7.3 — the usta's note on this part, shown under its row in the cut list. */
   note?: string;
   materialName: string; // decor this part is cut from under the plan
+  edgeName?: string;
   priceUzs: number; // this part's board + edge cost
 }
 
@@ -126,6 +134,7 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
     const w = M(p.width_mm10);
     const l = M(p.length_mm10);
     const areaM2 = panel ? w * l : 0;
+    const sizes = threeSizes(p.length_mm10, p.width_mm10, p.edges, 0);
     const bands: [boolean, boolean, boolean, boolean] = [p.edges[0] > 0, p.edges[1] > 0, p.edges[2] > 0, p.edges[3] > 0];
     // Banded-edge running length. The face→edge mapping comes from the engine's edgeLengths() so there
     // is ONE source of truth: SWJ008 order [front, back, side, side] — front/back run along the LENGTH,
@@ -135,18 +144,24 @@ export function estimate(parts: Part[], plan: MaterialPlan = DEFAULT_PLAN): Esti
     const edgeM = panel ? edgeLengths(p.length_mm10, p.width_mm10).reduce((sum, len, i) => sum + (bands[i] ? M(len) : 0), 0) : 0;
     const board = partBoard(plan, p.role, p.materialId);
     const priceUzs = panel ? areaM2 * (board?.pricePerM2 ?? 0) + edgeM * edgeRate : 0;
+    const edgeId = planSlotForRole(p.role) === "facade" ? plan.edge : CARCASS_EDGE_ID;
     return {
       id: p.id,
       name: p.name,
       ...(p.note ? { note: p.note } : {}),
       w_mm: MM(p.width_mm10),
       l_mm: MM(p.length_mm10),
+      rohW_mm: MM(sizes.rohWidth),
+      rohL_mm: MM(sizes.rohLength),
+      cutW_mm: MM(sizes.zuschnittWidth),
+      cutL_mm: MM(sizes.zuschnittLength),
       t_mm: round1(p.thickness_mm10 / 10),
       areaM2,
       edgeM,
       bands,
       role: p.role,
       materialName: board?.name ?? "—",
+      edgeName: bands.some((b) => b) ? edgeById(edgeId)?.name : undefined,
       priceUzs,
     };
   };

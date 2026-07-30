@@ -17,10 +17,14 @@
   "dependencies": {
     "@capacitor/android": "^7.0.0",
     "@capacitor/core": "^7.0.0",
+    "@capacitor/filesystem": "^7.1.8",
     "@capacitor/ios": "^7.0.0",
+    "@capacitor/share": "^7.0.4",
     "@supabase/supabase-js": "^2.109.0",
+    "jspdf": "^4.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "svg2pdf.js": "^2.7.0",
     "three": "^0.171.0",
     "zustand": "^5.0.2"
   },

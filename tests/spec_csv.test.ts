@@ -19,6 +19,7 @@ const realRows = () => groupSpecs(estimate(solveStructure(buildBookshelf(), tk),
 
 const row = (o: Partial<GroupedSpec> = {}): GroupedSpec => ({
   id: "p1", ids: ["p1"], qty: 1, name: "Polka", w_mm: 300, l_mm: 560, t_mm: 16,
+  rohW_mm: 299, rohL_mm: 560, cutW_mm: 299, cutL_mm: 560,
   areaM2: 0.168, edgeM: 0.56, bands: [true, false, false, false],
   materialName: "ЛДСП Белый", priceUzs: 25200, ...o,
 });
@@ -52,7 +53,7 @@ describe("M8.3 — nothing is lost between the list and the file", () => {
   });
 
   it("the header names the columns the workshop needs, in order", () => {
-    expect(lines(specsToCsv([row()]))[0]).toBe("Detal;Soni;Uzunlik (mm);Eni (mm);Qalinlik (mm);Material;Kromka;Yuza (m²);Narx;Izoh");
+    expect(lines(specsToCsv([row()]))[0]).toBe("Деталь;Кол-во;Длина (мм);Ширина (мм);Толщина (мм);Материал;Кромка;Площадь (м²);Цена;Примечание");
   });
 
   it("a row carries its quantity, size, decor and price", () => {
@@ -72,7 +73,7 @@ describe("M8.3 — nothing is lost between the list and the file", () => {
   it("the TOTAL line equals the list — the number the usta buys against", () => {
     const rows = realRows();
     const total = lines(specsToCsv(rows)).at(-1)!.split(";");
-    expect(total[0]).toBe("JAMI");
+    expect(total[0]).toBe("ИТОГО");
     expect(Number(total[1])).toBe(rows.reduce((n, r) => n + r.qty, 0));
     expect(Number(total[8])).toBe(Math.round(rows.reduce((n, r) => n + r.priceUzs, 0)));
   });
@@ -80,18 +81,18 @@ describe("M8.3 — nothing is lost between the list and the file", () => {
   it("an empty list still produces a valid file (header + zero total), never a crash", () => {
     const l = lines(specsToCsv([]));
     expect(l.length).toBe(2);
-    expect(l[1]!.startsWith("JAMI;0")).toBe(true);
+    expect(l[1]!.startsWith("ИТОГО;0")).toBe(true);
   });
 });
 
 describe("M8.3 — the banding column says what the edge-bander must do", () => {
   it("names the banded edges", () => {
-    expect(bandsLabel([true, false, false, false])).toBe("ust");
-    expect(bandsLabel([true, true, false, false])).toBe("ust+tag");
+    expect(bandsLabel([true, false, false, false])).toBe("перед");
+    expect(bandsLabel([true, true, false, false])).toBe("перед+зад");
   });
 
   it("says «hammasi» for all four and «yo'q» for none — a bander reads words, not dots", () => {
-    expect(bandsLabel([true, true, true, true])).toBe("hammasi");
-    expect(bandsLabel([false, false, false, false])).toBe("yo'q");
+    expect(bandsLabel([true, true, true, true])).toBe("все");
+    expect(bandsLabel([false, false, false, false])).toBe("нет");
   });
 });

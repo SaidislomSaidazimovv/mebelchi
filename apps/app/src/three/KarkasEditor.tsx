@@ -710,17 +710,20 @@ export function KarkasEditor({ onClose }: { onClose?: () => void }) {
     } catch { return ""; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, plan]);
-  const printDrawing = () => {
+  const printDrawing = async () => {
     if (!drawingSvg) { alert("Chizma tayyorlanmadi."); return; }
-    const w = window.open("", "_blank");
-    if (!w) { alert("Chizma oynasi ochilmadi — popup ruxsatini bering."); return; }
-    w.document.write(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chizma — Karkas blok</title><style>` +
-      "@page{size:A4 landscape;margin:0}html,body{margin:0;padding:0}svg{display:block;width:100vw;height:100vh}" +
-      "</style></head><body>" + drawingSvg +
-      "<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>",
-    );
-    w.document.close();
+    try {
+      const { exportDrawingsPdf } = await import("../model/pdfExport");
+      await exportDrawingsPdf({
+        fileName: "karkas-chizma.pdf",
+        title: "Mebelchi",
+        project: "Karkas blok",
+        date: new Date().toISOString().slice(0, 10),
+        svgs: [drawingSvg],
+      });
+    } catch {
+      alert("Chizma tayyorlanmadi.");
+    }
   };
 
   // Save the whole project (model + material plan) as a .json download.
@@ -4101,7 +4104,11 @@ function SpecPanel({ onClose, variant = "side", onExportCnc }: { onClose: () => 
               {/* M7.3 — the usta's own words about this part, right where the cut list is read */}
               {p.note && <span style={{ display: "block", fontSize: 11, color: "#7a6a4a", fontStyle: "italic" }}>✎ {p.note}</span>}
             </span>
-            <span style={mono}>{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
+            <span style={{ ...mono, textAlign: "right", lineHeight: 1.3, flex: "0 0 auto" }}>
+              <span style={{ display: "block" }} title="Tayyor o'lcham (yig'ilgan detal)">{p.w_mm}×{p.l_mm}×{p.t_mm}</span>
+              <span style={{ display: "block", fontSize: 10, color: "#9a8a5f" }} title="Xom o'lcham (kromkasiz taxta)">xom {p.rohW_mm}×{p.rohL_mm}</span>
+              <span style={{ display: "block", fontSize: 10, color: "#8a6d1f" }} title="Arra o'lcham (kesishga)">arra {p.cutW_mm}×{p.cutL_mm}</span>
+            </span>
             <span style={{ ...mono, color: "#8a6d1f", letterSpacing: 1 }} title="banded edges (1·2·3·4)">{p.bands.map((b) => (b ? "▪" : "·")).join("")}</span>
           </div>
         ))}
