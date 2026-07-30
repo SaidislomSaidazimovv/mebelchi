@@ -1,4 +1,6 @@
 import type { NestResult, MaterialNest, NestSheet, NestConfig } from "../three/nesting";
+import { boardByName, boardHexByName } from "../three/materials";
+import type { BoardMaterial } from "../three/materials";
 
 const INK = "#222";
 const DIM = "#555";
@@ -7,6 +9,44 @@ const SW = 4;
 const PAGE_W = 2100;
 const M = 70;
 const ROW = 56;
+
+const plainName = (m: string): string => m.replace(/\s+\d+мм$/, "");
+const matHex = (m: string): string => boardHexByName(plainName(m)) ?? "#ffffff";
+const textOn = (hex: string): string => {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b < 140 ? "#fff" : INK;
+};
+const darken = (hex: string, amt: number): string => {
+  const h = hex.replace("#", "");
+  const f = (i: number) => Math.max(0, Math.round(parseInt(h.slice(i, i + 2), 16) * (1 - amt))).toString(16).padStart(2, "0");
+  return `#${f(0)}${f(2)}${f(4)}`;
+};
+const texturePattern = (pid: string, board: BoardMaterial): React.ReactNode => {
+  const hex = board.hex;
+  if (board.texture === "wood") {
+    return (
+      <pattern id={pid} patternUnits="userSpaceOnUse" width={104} height={62}>
+        <rect width={104} height={62} fill={hex} />
+        <path d="M0,15 Q52,10 104,15" stroke={darken(hex, 0.16)} strokeWidth={3} fill="none" />
+        <path d="M0,33 Q52,38 104,33" stroke={darken(hex, 0.09)} strokeWidth={2} fill="none" />
+        <path d="M0,50 Q52,45 104,50" stroke={darken(hex, 0.19)} strokeWidth={3} fill="none" />
+      </pattern>
+    );
+  }
+  if (board.texture === "marble") {
+    return (
+      <pattern id={pid} patternUnits="userSpaceOnUse" width={150} height={150}>
+        <rect width={150} height={150} fill={hex} />
+        <path d="M0,100 Q48,66 82,90 T150,56" stroke={darken(hex, 0.14)} strokeWidth={2.5} fill="none" />
+        <path d="M0,46 Q58,78 100,46 T150,92" stroke={darken(hex, 0.07)} strokeWidth={1.5} fill="none" />
+      </pattern>
+    );
+  }
+  return null;
+};
 
 interface SummaryProps {
   result: NestResult;
@@ -66,7 +106,8 @@ export function CutSummary({ result, cfg, weightKg, matWeightKg, project, date, 
   els.push(<text key="mh" x={M} y={y} fontSize={48} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">Материалы</text>);
   y += 60;
   mats.forEach((m, i) => {
-    els.push(<text key={`mk${i}`} x={M} y={y} fontSize={40} fill={INK} fontFamily="Inter, sans-serif">{m.material}</text>);
+    els.push(<rect key={`ms${i}`} x={M} y={y - 34} width={46} height={46} fill={matHex(m.material)} stroke={INK} strokeWidth={2} />);
+    els.push(<text key={`mk${i}`} x={M + 68} y={y} fontSize={40} fill={INK} fontFamily="Inter, sans-serif">{m.material}</text>);
     els.push(<text key={`mv${i}`} x={PAGE_W - M} y={y} fontSize={40} fontWeight={600} fill={INK} textAnchor="end" fontFamily="Inter, sans-serif">{m.sheets.length} лист. · {(matWeightKg.get(m.material) ?? 0).toFixed(1)} кг</text>);
     els.push(<line key={`ml${i}`} x1={M} y1={y + 16} x2={PAGE_W - M} y2={y + 16} stroke={INK} strokeWidth={SW * 0.3} />);
     y += ROW;
@@ -104,11 +145,17 @@ export function CutSheetPage({ material, sheet, no, cfg, project, date, svgId }:
   els.push(<text key="ttl" x={M} y={100} fontSize={60} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">Лист {no} · {material}</text>);
   els.push(<text key="sz" x={M} y={158} fontSize={40} fill={DIM} fontFamily="Inter, sans-serif">{cfg.sheetL} × {cfg.sheetW} мм · отходы {sheet.wastePct.toFixed(1)}%</text>);
 
+  const board = boardByName(plainName(material));
+  const matPid = `mat${no}`;
+  const texEl = board ? texturePattern(matPid, board) : null;
+  const fill = texEl ? `url(#${matPid})` : board?.hex ?? "#ffffff";
+  const txt = textOn(board?.hex ?? "#ffffff");
   els.push(
     <defs key="defs">
       <pattern id={`hatch${no}`} width={22} height={22} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
         <line x1={0} y1={0} x2={0} y2={22} stroke="#00000018" strokeWidth={6} />
       </pattern>
+      {texEl}
     </defs>,
   );
   els.push(<rect key="sheet" x={ox} y={oy} width={bw} height={bh} fill={`url(#hatch${no})`} stroke={INK} strokeWidth={SW} />);
@@ -126,9 +173,9 @@ export function CutSheetPage({ material, sheet, no, cfg, project, date, svgId }:
     const py = oy + p.y * scale;
     const pw = p.w * scale;
     const ph = p.h * scale;
-    els.push(<rect key={`p${i}`} x={px} y={py} width={pw} height={ph} fill="#fff" stroke={INK} strokeWidth={SW * 0.8} />);
+    els.push(<rect key={`p${i}`} x={px} y={py} width={pw} height={ph} fill={fill} stroke={INK} strokeWidth={SW * 0.8} />);
     const fs = Math.max(20, Math.min(40, pw / (p.label.length * 0.62), ph * 0.6));
-    els.push(<text key={`pt${i}`} x={px + pw / 2} y={py + ph / 2 + fs * 0.34} fontSize={fs} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{p.label}</text>);
+    els.push(<text key={`pt${i}`} x={px + pw / 2} y={py + ph / 2 + fs * 0.34} fontSize={fs} fill={txt} textAnchor="middle" fontFamily="Inter, sans-serif">{p.label}</text>);
   });
 
   titleBlock(els, H, "Раскрой", project, date);

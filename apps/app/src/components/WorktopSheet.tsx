@@ -59,7 +59,7 @@ export function WorktopSheet({ cabs, wallLen, project, view, date, svgId }: Prop
       els.push(<circle key={`fh${i}`} cx={px(c.cx)} cy={py(70)} r={26} fill="none" stroke={INK} strokeWidth={SW * 0.7} />); // faucet hole
     }
     els.push(<text key={`cl${i}`} x={px(c.cx)} y={py(cy + 26)} fontSize={70} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{Math.round(c.w)}×{Math.round(c.h)}</text>);
-    els.push(<text key={`cr${i}`} x={px(c.cx - c.w / 2) - 12} y={py(cy - c.h / 2) - 16} fontSize={56} fill={DIM} textAnchor="end" fontFamily="Inter, sans-serif">R{c.r}</text>);
+    els.push(<text key={`cr${i}`} x={px(c.cx - c.w / 2) + 20} y={py(cy - c.h / 2) + 58} fontSize={56} fill={DIM} textAnchor="start" fontFamily="Inter, sans-serif">R{c.r}</text>);
     // position dim: worktop left → cutout centre (above the slab)
     const dy = py(0) - 150 - i * 95;
     els.push(<line key={`pd${i}`} x1={px(0)} y1={dy} x2={px(c.cx)} y2={dy} stroke={DIM} strokeWidth={SW * 0.6} />);
@@ -76,7 +76,7 @@ export function WorktopSheet({ cabs, wallLen, project, view, date, svgId }: Prop
   const dx = px(wallLen) + 230;
   els.push(<line key="dh" x1={dx} y1={py(0)} x2={dx} y2={py(WD)} stroke={DIM} strokeWidth={SW * 0.6} />);
   [0, WD].forEach((y) => els.push(<line key={`dt${y}`} x1={dx - 26} y1={py(y)} x2={dx + 26} y2={py(y)} stroke={DIM} strokeWidth={SW * 0.6} />));
-  els.push(<text key="dht" x={dx + 36} y={py(WD / 2)} fontSize={FS} fill={DIM} fontWeight={600} textAnchor="middle" transform={`rotate(-90 ${dx + 36} ${py(WD / 2)})`} fontFamily="Inter, sans-serif">{WD}</text>);
+  els.push(<text key="dht" x={dx + 84} y={py(WD / 2)} fontSize={FS} fill={DIM} fontWeight={600} textAnchor="middle" transform={`rotate(-90 ${dx + 84} ${py(WD / 2)})`} fontFamily="Inter, sans-serif">{WD}</text>);
 
   // ---- title block (4 cells) ----
   const tbTop = T + WD + DIMBAND;

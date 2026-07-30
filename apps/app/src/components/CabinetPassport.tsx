@@ -2,7 +2,7 @@ import { cellToKarkasBlock } from "../three/cellToKarkas";
 import { solveStructure } from "../../../../engine/structure/solve.js";
 import { solveLayout } from "../../../../engine/structure/layout.js";
 import { estimate, groupSpecs, hardwareEstimate } from "../three/estimate";
-import { planThickness } from "../three/materials";
+import { planThickness, boardHexByName, edgeHexByName } from "../three/materials";
 import { bandsLabel } from "../three/specCsv";
 import { type Cabinet } from "../model/cabinet";
 import { GEOM } from "../model/layout";
@@ -118,8 +118,9 @@ export function CabinetPassport({ cab, artNo, qty, project, date, coding, svgId 
   tableHead("Материалы", [["Код", 0], ["Наименование", 200]]);
   const usedMats = coding.mats.filter((m) => parts.some((p) => p.materialName === m.name && p.t_mm === m.t_mm));
   const usedEdges = coding.edges.filter((e) => parts.some((p) => p.edgeName === e.name));
-  [...usedMats.map((m) => ({ c: m.code, n: m.full })), ...usedEdges.map((e) => ({ c: e.code, n: e.full }))].forEach((m, i) => {
+  [...usedMats.map((m) => ({ c: m.code, n: m.full, hex: boardHexByName(m.name) })), ...usedEdges.map((e) => ({ c: e.code, n: e.full, hex: edgeHexByName(e.name) }))].forEach((m, i) => {
     els.push(<text key={`mc${i}`} x={rightX} y={ry} fontSize={36} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">{m.c}</text>);
+    if (m.hex) els.push(<rect key={`msw${i}`} x={rightX + 120} y={ry - 30} width={40} height={40} fill={m.hex} stroke={INK} strokeWidth={2} />);
     els.push(<text key={`m${i}`} x={rightX + 200} y={ry} fontSize={36} fill={DIM} fontFamily="Inter, sans-serif">{m.n}</text>);
     ry += ROW;
   });

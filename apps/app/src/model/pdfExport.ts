@@ -23,7 +23,7 @@ export interface PdfExportInput {
   partsCount?: number;
   spec?: PdfSpec;
   hardware?: { name: string; qty: number }[];
-  materials?: { name: string; code: string }[];
+  materials?: { name: string; code: string; hex?: string }[];
   svgs: string[];
   noTitle?: boolean;
 }
@@ -149,9 +149,10 @@ function drawHardware(doc: jsPDF, hardware: { name: string; qty: number }[], pw:
   }
 }
 
-function drawMaterials(doc: jsPDF, materials: { name: string; code: string }[], pw: number, ph: number): void {
+function drawMaterials(doc: jsPDF, materials: { name: string; code: string; hex?: string }[], pw: number, ph: number): void {
   const margin = 12;
-  const nameX = margin + 22;
+  const swX = margin + 16;
+  const nameX = margin + 26;
   const nameW = pw - nameX - margin;
   const header = (y0: number): number => {
     doc.setFontSize(15);
@@ -170,7 +171,14 @@ function drawMaterials(doc: jsPDF, materials: { name: string; code: string }[], 
       y = header(margin + 8);
     }
     doc.setFontSize(9);
-    doc.text(fitText(doc, m.code, 20), margin, y);
+    doc.text(fitText(doc, m.code, 14), margin, y);
+    if (m.hex && /^#[0-9a-fA-F]{6}$/.test(m.hex)) {
+      const h = m.hex.slice(1);
+      doc.setFillColor(parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16));
+      doc.setDrawColor(120);
+      doc.rect(swX, y - 3.4, 5, 4.4, "FD");
+      doc.setDrawColor(20);
+    }
     doc.text(fitText(doc, m.name, nameW), nameX, y);
     y += 6;
   }

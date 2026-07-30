@@ -232,6 +232,10 @@ export const boardById = (id: string): BoardMaterial | undefined =>
   BOARDS.find((b) => b.id === id) ?? customBoards.find((b) => b.id === id); // M9U.3 — catalog first, then the user's library
 export const edgeById = (id: string): EdgeMaterial | undefined => EDGES.find((e) => e.id === id);
 
+export const boardByName = (name: string): BoardMaterial | undefined => allBoards().find((b) => b.name === name);
+export const boardHexByName = (name: string): string | undefined => allBoards().find((b) => b.name === name)?.hex;
+export const edgeHexByName = (name: string): string | undefined => EDGES.find((e) => e.name === name)?.hex;
+
 /** Hardware unit prices (сум each) — provisional UZS placeholders (Phase 7.2). */
 export const HARDWARE = {
   hinge: { name: "Петля Clip 110°", priceUzs: 13000 },

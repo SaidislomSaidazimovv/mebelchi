@@ -15,6 +15,7 @@ import { LabelSheet, labelPageCount } from "../components/LabelSheet";
 import { bandsLabel } from "../three/specCsv";
 import { buildMaterialCoding } from "../three/materialCode";
 import { rowsWeightKg, partWeightKg } from "../three/weight";
+import { boardHexByName, edgeHexByName } from "../three/materials";
 import { machiningReport, runSWJ008 } from "../model/machining";
 import { DrawingSheet } from "../components/DrawingSheet";
 import { TopPlanSheet } from "../components/TopPlanSheet";
@@ -61,8 +62,8 @@ export function HandoffScreen() {
   const hw = useMemo(() => unifiedHardware(cabs, projectBlocks), [cabs, projectBlocks]);
   const coding = useMemo(() => buildMaterialCoding(unified.rows), [unified]);
   const materials = useMemo(() => [
-    ...coding.mats.map((m) => ({ name: m.full, code: m.code })),
-    ...coding.edges.map((e) => ({ name: e.full, code: e.code })),
+    ...coding.mats.map((m) => ({ name: m.full, code: m.code, hex: boardHexByName(m.name) })),
+    ...coding.edges.map((e) => ({ name: e.full, code: e.code, hex: edgeHexByName(e.name) })),
   ], [coding]);
   const drilled = useMemo(() => unifiedDrilledParts(cabs, projectBlocks), [cabs, projectBlocks]);
   const posMap = useMemo(() => positionMap(unified.rows), [unified]);

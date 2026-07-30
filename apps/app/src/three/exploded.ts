@@ -56,7 +56,7 @@ export function buildExploded(
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
   const cz = (minZ + maxZ) / 2;
-  const gap = Math.max(maxX - minX, maxY - minY, maxZ - minZ) * 0.24;
+  const gap = Math.max(maxX - minX, maxY - minY, maxZ - minZ) * 0.4;
 
   const exploded = boxes.map((b) => {
     const px = b.x + b.w / 2;
