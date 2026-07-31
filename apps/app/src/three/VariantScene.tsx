@@ -35,6 +35,7 @@ export interface SceneApi {
   invalidate: () => void;
   /** render the current frame and return it as a PNG data URL (for the AI render) */
   captureDataUrl: () => string;
+  captureRenderUrl: (maxW?: number) => { url: string; w: number; h: number };
   /** screen point → horizontal plane at height yM (metres) → world x/z, or null */
   floorMetres: (clientX: number, clientY: number, yM?: number) => { x: number; z: number } | null;
   /** world point (metres) → screen px (relative to the canvas) */
@@ -1277,6 +1278,24 @@ export function VariantScene({
         ctx.fillRect(0, 0, W, H);
         ctx.drawImage(src, 0, 0, W, H);
         return c.toDataURL("image/jpeg", 0.6);
+      },
+      captureRenderUrl: (maxW = 1600) => {
+        renderer.render(scene, camera);
+        const src = renderer.domElement;
+        const sw = src.width || 1600;
+        const sh = src.height || 1000;
+        const scl = Math.min(1, maxW / sw);
+        const W = Math.max(1, Math.round(sw * scl));
+        const H = Math.max(1, Math.round(sh * scl));
+        const c = document.createElement("canvas");
+        c.width = W;
+        c.height = H;
+        const ctx = c.getContext("2d");
+        if (!ctx) return { url: src.toDataURL("image/jpeg", 0.92), w: sw, h: sh };
+        ctx.fillStyle = "#f4f2ee";
+        ctx.fillRect(0, 0, W, H);
+        ctx.drawImage(src, 0, 0, W, H);
+        return { url: c.toDataURL("image/jpeg", 0.92), w: W, h: H };
       },
       floorMetres: (clientX, clientY, yM = 0) => {
         raycaster.setFromCamera(ndcAt(clientX, clientY), camera);

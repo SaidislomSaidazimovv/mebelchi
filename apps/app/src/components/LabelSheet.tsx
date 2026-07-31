@@ -2,7 +2,7 @@ import { code128 } from "../model/barcode";
 
 const INK = "#222";
 const DIM = "#555";
-const NUM = "#d98a1e";
+const NUM = "#2e9e6a";
 const BAND = "#8a6d1f";
 const PAGE_W = 2100;
 const PAGE_H = 1485;
@@ -91,7 +91,6 @@ export function LabelSheet({ items, page, project, svgId }: Props): React.ReactE
     els.push(<text key={`${key}bv`} x={cx + cw / 2} y={by + bcH + 30} fontSize={24} fill={INK} textAnchor="middle" letterSpacing={1} fontFamily="Inter, sans-serif">{val}</text>);
   });
 
-  els.push(<text key="ft" x={PAGE_W - M} y={PAGE_H - 12} fontSize={22} fill={DIM} textAnchor="end" fontFamily="Inter, sans-serif">Mebelchi · {project} · Этикетки {page + 1}</text>);
 
   return (
     <svg id={svgId} viewBox={`0 0 ${PAGE_W} ${PAGE_H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>

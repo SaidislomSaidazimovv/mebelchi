@@ -12,7 +12,6 @@ const L = 620;
 const T = 540;
 const R = 420;
 const DIMBAND = 460;
-const TITLE = 620;
 const SW = 7;
 const FS = 84;
 
@@ -42,7 +41,7 @@ export function WorktopSheet({ cabs, wallLen, project, view, date, svgId }: Prop
     });
 
   const W = L + wallLen + R;
-  const H = T + WD + DIMBAND + TITLE;
+  const H = T + WD + DIMBAND;
   const px = (x: number) => L + x;
   const py = (y: number) => T + y;
 
@@ -77,22 +76,6 @@ export function WorktopSheet({ cabs, wallLen, project, view, date, svgId }: Prop
   els.push(<line key="dh" x1={dx} y1={py(0)} x2={dx} y2={py(WD)} stroke={DIM} strokeWidth={SW * 0.6} />);
   [0, WD].forEach((y) => els.push(<line key={`dt${y}`} x1={dx - 26} y1={py(y)} x2={dx + 26} y2={py(y)} stroke={DIM} strokeWidth={SW * 0.6} />));
   els.push(<text key="dht" x={dx + 84} y={py(WD / 2)} fontSize={FS} fill={DIM} fontWeight={600} textAnchor="middle" transform={`rotate(-90 ${dx + 84} ${py(WD / 2)})`} fontFamily="Inter, sans-serif">{WD}</text>);
-
-  // ---- title block (4 cells) ----
-  const tbTop = T + WD + DIMBAND;
-  const tbMid = tbTop + TITLE * 0.42;
-  const tbm = 40;
-  const cw4 = (W - tbm * 2) / 4;
-  const cellX = (i: number) => tbm + cw4 * i;
-  els.push(<line key="tbline" x1={0} y1={tbTop} x2={W} y2={tbTop} stroke={INK} strokeWidth={SW} />);
-  for (let i = 1; i < 4; i++) els.push(<line key={`tbd${i}`} x1={cellX(i)} y1={tbTop} x2={cellX(i)} y2={H - 230} stroke={INK} strokeWidth={SW * 0.5} />);
-  els.push(<text key="tbbrand" x={cellX(0) + cw4 / 2} y={tbMid + 34} fontSize={128} fontWeight={800} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">Mebelchi</text>);
-  ([["Проект", project], ["Чертёж", view], ["Дата", date]] as [string, string][]).forEach(([top, bot], k) => {
-    const cx = cellX(k + 1) + cw4 / 2;
-    els.push(<text key={`tcs${k}`} x={cx} y={tbMid - 56} fontSize={60} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{top}</text>);
-    els.push(<text key={`tcb${k}`} x={cx} y={tbMid + 44} fontSize={86} fontWeight={600} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{bot}</text>);
-  });
-  els.push(<text key="tbnote" x={W / 2} y={H - 120} fontSize={56} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">Все размеры в миллиметрах. Перед раскроем проверьте на замере.</text>);
 
   return (
     <svg id={svgId} viewBox={`0 0 ${W} ${H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>

@@ -4,18 +4,18 @@
 
 import { GEOM } from "../model/layout";
 import type { Cabinet } from "../model/cabinet";
+import { moduleLegendItems } from "../model/moduleLegend";
 
 const COUNTER = GEOM.plinth + GEOM.baseH + GEOM.worktop; // base front height (≈860)
 const INK = "#222";
 const DIM = "#444";
-const NUM = "#d98a1e";
+const NUM = "#2e9e6a";
 
 // margins / bands (mm)
 const L = 820;
 const T = 240;
 const R = 240;
 const DIMBAND = 560;
-const TITLE = 620;
 const SW = 7; // line weight
 const FS = 86; // dimension font
 
@@ -44,16 +44,15 @@ export function DrawingSheet({ cabs, wallLen, ceiling, numberOf, project, view, 
   const upBottom = uppers.length ? Math.min(...uppers.map((c) => c.mountY ?? GEOM.upperBottom)) : 0;
   const upTop = uppers.length ? Math.max(...uppers.map((c) => (c.mountY ?? GEOM.upperBottom) + c.h)) : 0;
 
-  const kindRu = (c: Cabinet) => (c.kind === "base" ? "Напольный" : c.kind === "tall" ? "Пенал" : "Навесной");
-  const legItems = mods
-    .map((c, i) => ({ n: numberOf?.get(c.id) ?? i + 1, label: `${kindRu(c)} ${c.w}` }))
-    .sort((a, b) => a.n - b.n);
+  const legItems = moduleLegendItems(mods, numberOf);
 
-  const W = L + wallLen + R;
-  const legCols = Math.max(1, Math.floor((W - 160) / 700));
-  const legRowN = Math.ceil(legItems.length / legCols);
-  const LEGEND = legItems.length ? 80 + legRowN * 88 + 30 : 0;
-  const H = T + ceiling + DIMBAND + LEGEND + TITLE;
+  const w0 = 110;
+  const w1 = 820;
+  const w2 = 640;
+  const tblW = w0 + w1 + w2;
+  const tblX = L + wallLen + 320;
+  const W = legItems.length ? tblX + tblW + 80 : L + wallLen + R;
+  const H = T + ceiling + DIMBAND;
   const px = (x: number) => L + x;
   const py = (y: number) => T + ceiling - y; // mm-from-floor → svg-y (floor at bottom)
 
@@ -151,36 +150,30 @@ export function DrawingSheet({ cabs, wallLen, ceiling, numberOf, project, view, 
   els.push(<line key="voat1" x1={ovx - 24} y1={py(ceiling)} x2={ovx + 24} y2={py(ceiling)} stroke={DIM} strokeWidth={SW * 0.6} />);
   els.push(<text key="voat" x={ovx - 34} y={py(ceiling / 2)} fontSize={FS} fill={DIM} fontWeight={600} textAnchor="middle" transform={`rotate(-90 ${ovx - 34} ${py(ceiling / 2)})`} fontFamily="Inter, sans-serif">{Math.round(ceiling)}</text>);
 
-  // ---- legend (number → module type + width) ----
+  // ---- legend table (right side) ----
   if (legItems.length) {
-    const yLeg = T + ceiling + DIMBAND;
-    els.push(<text key="legh" x={80} y={yLeg + 54} fontSize={64} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">Экспликация</text>);
+    const GRID = "#cfcfca";
+    const rowH = 94;
+    const x0 = tblX;
+    const x1 = tblX + w0;
+    const x2 = tblX + w0 + w1;
+    const x3 = tblX + tblW;
+    const tTop = T;
+    const nR = 1 + legItems.length;
+    els.push(<rect key="lhbg" x={x0} y={tTop} width={tblW} height={rowH} fill="#f3f3f0" />);
+    els.push(<rect key="lout" x={x0} y={tTop} width={tblW} height={rowH * nR} fill="none" stroke={GRID} strokeWidth={SW * 0.6} />);
+    [x1, x2].forEach((x, i) => els.push(<line key={`lgv${i}`} x1={x} y1={tTop} x2={x} y2={tTop + rowH * nR} stroke={GRID} strokeWidth={SW * 0.6} />));
+    for (let r = 1; r < nR; r++) els.push(<line key={`lgh${r}`} x1={x0} y1={tTop + r * rowH} x2={x3} y2={tTop + r * rowH} stroke={GRID} strokeWidth={SW * 0.6} />);
+    els.push(<text key="lth0" x={(x0 + x1) / 2} y={tTop + rowH / 2 + 18} fontSize={46} fontWeight={600} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">№</text>);
+    els.push(<text key="lth1" x={x1 + 30} y={tTop + rowH / 2 + 18} fontSize={46} fontWeight={600} fill={DIM} fontFamily="Inter, sans-serif">Модуль</text>);
+    els.push(<text key="lth2" x={x2 + 30} y={tTop + rowH / 2 + 18} fontSize={46} fontWeight={600} fill={DIM} fontFamily="Inter, sans-serif">Размер, мм</text>);
     legItems.forEach((it, i) => {
-      const col = i % legCols;
-      const row = Math.floor(i / legCols);
-      const lx = 90 + col * 700;
-      const ly = yLeg + 108 + row * 88;
-      els.push(<circle key={`lgc${i}`} cx={lx + 32} cy={ly} r={34} fill={NUM} />);
-      els.push(<text key={`lgn${i}`} x={lx + 32} y={ly + 14} fontSize={40} fontWeight={800} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{it.n}</text>);
-      els.push(<text key={`lgt${i}`} x={lx + 84} y={ly + 15} fontSize={48} fill={INK} fontFamily="Inter, sans-serif">{it.label}</text>);
+      const ry = tTop + rowH * (i + 1) + rowH / 2 + 18;
+      els.push(<text key={`lgn${i}`} x={(x0 + x1) / 2} y={ry} fontSize={46} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{it.n}</text>);
+      els.push(<text key={`lgm${i}`} x={x1 + 30} y={ry} fontSize={44} fill={INK} fontFamily="Inter, sans-serif">{it.name}</text>);
+      els.push(<text key={`lgs${i}`} x={x2 + 30} y={ry} fontSize={44} fill={INK} fontFamily="Inter, sans-serif">{it.size}</text>);
     });
   }
-
-  // ---- title block: 4 cells (brand | project | view | date) with dividers ----
-  const tbTop = T + ceiling + DIMBAND + LEGEND;
-  const tbMid = tbTop + TITLE * 0.42;
-  const tbm = 40;
-  const cw4 = (W - tbm * 2) / 4;
-  const cellX = (i: number) => tbm + cw4 * i;
-  els.push(<line key="tbline" x1={0} y1={tbTop} x2={W} y2={tbTop} stroke={INK} strokeWidth={SW} />);
-  for (let i = 1; i < 4; i++) els.push(<line key={`tbd${i}`} x1={cellX(i)} y1={tbTop} x2={cellX(i)} y2={H - 230} stroke={INK} strokeWidth={SW * 0.5} />);
-  els.push(<text key="tbbrand" x={cellX(0) + cw4 / 2} y={tbMid + 34} fontSize={128} fontWeight={800} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">Mebelchi</text>);
-  ([["Проект", project], ["Чертёж", view], ["Дата", date]] as [string, string][]).forEach(([top, bot], k) => {
-    const cx = cellX(k + 1) + cw4 / 2;
-    els.push(<text key={`tcs${k}`} x={cx} y={tbMid - 56} fontSize={60} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{top}</text>);
-    els.push(<text key={`tcb${k}`} x={cx} y={tbMid + 44} fontSize={86} fontWeight={600} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{bot}</text>);
-  });
-  els.push(<text key="tbnote" x={W / 2} y={H - 120} fontSize={56} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">Все размеры в миллиметрах. Перед раскроем проверьте на замере.</text>);
 
   return (
     <svg id={svgId} viewBox={`0 0 ${W} ${H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>

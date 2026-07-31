@@ -1,10 +1,9 @@
 import type { NestResult, MaterialNest, NestSheet, NestConfig } from "../three/nesting";
-import { boardByName, boardHexByName } from "../three/materials";
-import type { BoardMaterial } from "../three/materials";
+import { boardHexByName } from "../three/materials";
 
 const INK = "#222";
 const DIM = "#555";
-const NUM = "#d98a1e";
+const NUM = "#2e9e6a";
 const SW = 4;
 const PAGE_W = 2100;
 const M = 70;
@@ -12,40 +11,17 @@ const ROW = 56;
 
 const plainName = (m: string): string => m.replace(/\s+\d+мм$/, "");
 const matHex = (m: string): string => boardHexByName(plainName(m)) ?? "#ffffff";
-const textOn = (hex: string): string => {
-  const h = hex.replace("#", "");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return 0.299 * r + 0.587 * g + 0.114 * b < 140 ? "#fff" : INK;
+
+const PALETTE = ["#dbeafe", "#dcfce7", "#fef9c3", "#fce7f3", "#e0e7ff", "#ffedd5", "#ccfbf1", "#f3e8ff", "#fee2e2", "#e2e8f0", "#d9f99d", "#fbcfe8"];
+const cabKey = (id: string): string => {
+  const c = id.indexOf(":");
+  return c > 0 ? id.slice(0, c) : id;
 };
-const darken = (hex: string, amt: number): string => {
-  const h = hex.replace("#", "");
-  const f = (i: number) => Math.max(0, Math.round(parseInt(h.slice(i, i + 2), 16) * (1 - amt))).toString(16).padStart(2, "0");
-  return `#${f(0)}${f(2)}${f(4)}`;
-};
-const texturePattern = (pid: string, board: BoardMaterial): React.ReactNode => {
-  const hex = board.hex;
-  if (board.texture === "wood") {
-    return (
-      <pattern id={pid} patternUnits="userSpaceOnUse" width={104} height={62}>
-        <rect width={104} height={62} fill={hex} />
-        <path d="M0,15 Q52,10 104,15" stroke={darken(hex, 0.16)} strokeWidth={3} fill="none" />
-        <path d="M0,33 Q52,38 104,33" stroke={darken(hex, 0.09)} strokeWidth={2} fill="none" />
-        <path d="M0,50 Q52,45 104,50" stroke={darken(hex, 0.19)} strokeWidth={3} fill="none" />
-      </pattern>
-    );
-  }
-  if (board.texture === "marble") {
-    return (
-      <pattern id={pid} patternUnits="userSpaceOnUse" width={150} height={150}>
-        <rect width={150} height={150} fill={hex} />
-        <path d="M0,100 Q48,66 82,90 T150,56" stroke={darken(hex, 0.14)} strokeWidth={2.5} fill="none" />
-        <path d="M0,46 Q58,78 100,46 T150,92" stroke={darken(hex, 0.07)} strokeWidth={1.5} fill="none" />
-      </pattern>
-    );
-  }
-  return null;
+const cabColor = (id: string): string => {
+  const s = cabKey(id);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length] ?? "#eef2f7";
 };
 
 interface SummaryProps {
@@ -56,22 +32,6 @@ interface SummaryProps {
   project: string;
   date: string;
   svgId?: string;
-}
-
-function titleBlock(els: React.ReactNode[], H: number, chertyozh: string, project: string, date: string): void {
-  const TITLE = 300;
-  const tbTop = H - TITLE;
-  const tbMid = tbTop + TITLE * 0.44;
-  const cw4 = (PAGE_W - M * 2) / 4;
-  const cellX = (i: number) => M + cw4 * i;
-  els.push(<line key="tbl" x1={M} y1={tbTop} x2={PAGE_W - M} y2={tbTop} stroke={INK} strokeWidth={SW} />);
-  for (let i = 1; i < 4; i++) els.push(<line key={`tbd${i}`} x1={cellX(i)} y1={tbTop} x2={cellX(i)} y2={H - 90} stroke={INK} strokeWidth={SW * 0.5} />);
-  els.push(<text key="tbb" x={cellX(0) + cw4 / 2} y={tbMid + 20} fontSize={64} fontWeight={800} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">Mebelchi</text>);
-  ([["Проект", project], ["Чертёж", chertyozh], ["Дата", date]] as [string, string][]).forEach(([top, bot], k) => {
-    const cx = cellX(k + 1) + cw4 / 2;
-    els.push(<text key={`ts${k}`} x={cx} y={tbMid - 26} fontSize={34} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{top}</text>);
-    els.push(<text key={`tb${k}`} x={cx} y={tbMid + 34} fontSize={44} fontWeight={600} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{bot}</text>);
-  });
 }
 
 export function CutSummary({ result, cfg, weightKg, matWeightKg, project, date, svgId }: SummaryProps): React.ReactElement {
@@ -87,33 +47,37 @@ export function CutSummary({ result, cfg, weightKg, matWeightKg, project, date, 
     ["Длина реза", `${t.cutLenM.toFixed(1)} м`],
   ];
   const mats = result.perMaterial;
-  const H = 210 + 60 + rows.length * ROW + 120 + mats.length * ROW + 60 + 300;
+  const rowH = 62;
+  const H = 240 + rows.length * rowH + mats.length * rowH;
   const els: React.ReactNode[] = [];
-  els.push(<text key="ttl" x={M} y={120} fontSize={72} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">Раскрой листов</text>);
-  els.push(<line key="hl" x1={M} y1={180} x2={PAGE_W - M} y2={180} stroke={INK} strokeWidth={SW} />);
+  const GRID = "#cfcfca";
+  const TW = PAGE_W - M * 2;
 
-  let y = 250;
+  let y = 70;
   els.push(<text key="rh" x={M} y={y} fontSize={48} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">Результаты</text>);
-  y += 60;
+  y += 34;
+  els.push(<rect key="rout" x={M} y={y} width={TW} height={rowH * rows.length} fill="none" stroke={GRID} strokeWidth={SW * 0.5} />);
   rows.forEach(([k, v], i) => {
-    els.push(<text key={`rk${i}`} x={M} y={y} fontSize={40} fill={INK} fontFamily="Inter, sans-serif">{k}</text>);
-    els.push(<text key={`rv${i}`} x={PAGE_W - M} y={y} fontSize={40} fontWeight={600} fill={INK} textAnchor="end" fontFamily="Inter, sans-serif">{v}</text>);
-    els.push(<line key={`rl${i}`} x1={M} y1={y + 16} x2={PAGE_W - M} y2={y + 16} stroke={INK} strokeWidth={SW * 0.3} />);
-    y += ROW;
+    const ry = y + rowH * i;
+    if (i > 0) els.push(<line key={`rl${i}`} x1={M} y1={ry} x2={M + TW} y2={ry} stroke={GRID} strokeWidth={SW * 0.4} />);
+    els.push(<text key={`rk${i}`} x={M + 26} y={ry + rowH / 2 + 14} fontSize={40} fill={INK} fontFamily="Inter, sans-serif">{k}</text>);
+    els.push(<text key={`rv${i}`} x={M + TW - 26} y={ry + rowH / 2 + 14} fontSize={40} fontWeight={600} fill={INK} textAnchor="end" fontFamily="Inter, sans-serif">{v}</text>);
   });
+  y += rowH * rows.length + 76;
 
-  y += 60;
   els.push(<text key="mh" x={M} y={y} fontSize={48} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">Материалы</text>);
-  y += 60;
+  y += 34;
+  els.push(<rect key="mout" x={M} y={y} width={TW} height={rowH * mats.length} fill="none" stroke={GRID} strokeWidth={SW * 0.5} />);
   mats.forEach((m, i) => {
-    els.push(<rect key={`ms${i}`} x={M} y={y - 34} width={46} height={46} fill={matHex(m.material)} stroke={INK} strokeWidth={2} />);
-    els.push(<text key={`mk${i}`} x={M + 68} y={y} fontSize={40} fill={INK} fontFamily="Inter, sans-serif">{m.material}</text>);
-    els.push(<text key={`mv${i}`} x={PAGE_W - M} y={y} fontSize={40} fontWeight={600} fill={INK} textAnchor="end" fontFamily="Inter, sans-serif">{m.sheets.length} лист. · {(matWeightKg.get(m.material) ?? 0).toFixed(1)} кг</text>);
-    els.push(<line key={`ml${i}`} x1={M} y1={y + 16} x2={PAGE_W - M} y2={y + 16} stroke={INK} strokeWidth={SW * 0.3} />);
-    y += ROW;
+    const newN = m.sheets.filter((s) => !s.fromStock).length;
+    const stkN = m.sheets.length - newN;
+    const ry = y + rowH * i;
+    if (i > 0) els.push(<line key={`ml${i}`} x1={M} y1={ry} x2={M + TW} y2={ry} stroke={GRID} strokeWidth={SW * 0.4} />);
+    els.push(<rect key={`ms${i}`} x={M + 26} y={ry + rowH / 2 - 21} width={42} height={42} fill={matHex(m.material)} stroke={INK} strokeWidth={2} />);
+    els.push(<text key={`mk${i}`} x={M + 86} y={ry + rowH / 2 + 14} fontSize={40} fill={INK} fontFamily="Inter, sans-serif">{m.material}</text>);
+    els.push(<text key={`mv${i}`} x={M + TW - 26} y={ry + rowH / 2 + 14} fontSize={40} fontWeight={600} fill={INK} textAnchor="end" fontFamily="Inter, sans-serif">{newN} лист.{stkN ? ` + ${stkN} ост.` : ""} · {(matWeightKg.get(m.material) ?? 0).toFixed(1)} кг</text>);
   });
 
-  titleBlock(els, H, "Раскрой", project, date);
   return (
     <svg id={svgId} viewBox={`0 0 ${PAGE_W} ${H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>
       {els}
@@ -132,30 +96,22 @@ interface PageProps {
 }
 
 export function CutSheetPage({ material, sheet, no, cfg, project, date, svgId }: PageProps): React.ReactElement {
-  const HEAD = 200;
-  const availW = PAGE_W - M * 2;
-  const scale = availW / cfg.sheetL;
-  const bw = cfg.sheetL * scale;
-  const bh = cfg.sheetW * scale;
+  const HEAD = 70;
+  const tableW = 520;
+  const availW = PAGE_W - M * 2 - tableW;
+  const scale = availW / sheet.sheetL;
+  const bw = sheet.sheetL * scale;
+  const bh = sheet.sheetW * scale;
   const ox = M;
   const oy = HEAD;
-  const H = oy + bh + 120 + 300;
+  const H = oy + bh + 120;
   const els: React.ReactNode[] = [];
 
-  els.push(<text key="ttl" x={M} y={100} fontSize={60} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">Лист {no} · {material}</text>);
-  els.push(<text key="sz" x={M} y={158} fontSize={40} fill={DIM} fontFamily="Inter, sans-serif">{cfg.sheetL} × {cfg.sheetW} мм · отходы {sheet.wastePct.toFixed(1)}%</text>);
-
-  const board = boardByName(plainName(material));
-  const matPid = `mat${no}`;
-  const texEl = board ? texturePattern(matPid, board) : null;
-  const fill = texEl ? `url(#${matPid})` : board?.hex ?? "#ffffff";
-  const txt = textOn(board?.hex ?? "#ffffff");
   els.push(
     <defs key="defs">
       <pattern id={`hatch${no}`} width={22} height={22} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
         <line x1={0} y1={0} x2={0} y2={22} stroke="#00000018" strokeWidth={6} />
       </pattern>
-      {texEl}
     </defs>,
   );
   els.push(<rect key="sheet" x={ox} y={oy} width={bw} height={bh} fill={`url(#hatch${no})`} stroke={INK} strokeWidth={SW} />);
@@ -173,12 +129,43 @@ export function CutSheetPage({ material, sheet, no, cfg, project, date, svgId }:
     const py = oy + p.y * scale;
     const pw = p.w * scale;
     const ph = p.h * scale;
-    els.push(<rect key={`p${i}`} x={px} y={py} width={pw} height={ph} fill={fill} stroke={INK} strokeWidth={SW * 0.8} />);
+    els.push(<rect key={`p${i}`} x={px} y={py} width={pw} height={ph} fill={cabColor(p.id)} stroke={INK} strokeWidth={SW * 0.8} />);
     const fs = Math.max(20, Math.min(40, pw / (p.label.length * 0.62), ph * 0.6));
-    els.push(<text key={`pt${i}`} x={px + pw / 2} y={py + ph / 2 + fs * 0.34} fontSize={fs} fill={txt} textAnchor="middle" fontFamily="Inter, sans-serif">{p.label}</text>);
+    els.push(<text key={`pt${i}`} x={px + pw / 2} y={py + ph / 2 + fs * 0.34} fontSize={fs} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{p.label}</text>);
   });
 
-  titleBlock(els, H, "Раскрой", project, date);
+  const grouped = new Map<string, number>();
+  for (const p of sheet.parts) grouped.set(p.label, (grouped.get(p.label) ?? 0) + 1);
+  const tx = ox + bw + 60;
+  const TW = tableW - 20;
+  const cB = tx + 64;
+  const cC = tx + 214;
+  const cD = tx + 364;
+  const cE = tx + TW;
+  const m0 = (tx + cB) / 2;
+  const m1 = (cB + cC) / 2;
+  const m2 = (cC + cD) / 2;
+  const m3 = (cD + cE) / 2;
+  const rowH = 58;
+  const tTop = oy + 90;
+  const nRows = 1 + grouped.size;
+  const GRID = "#cfcfca";
+  els.push(<text key="pdh" x={tx} y={oy + 40} fontSize={44} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">Детали на листе</text>);
+  els.push(<rect key="thbg" x={tx} y={tTop} width={TW} height={rowH} fill="#f3f3f0" />);
+  els.push(<rect key="tout" x={tx} y={tTop} width={TW} height={rowH * nRows} fill="none" stroke={GRID} strokeWidth={SW * 0.5} />);
+  [cB, cC, cD].forEach((x, i) => els.push(<line key={`tv${i}`} x1={x} y1={tTop} x2={x} y2={tTop + rowH * nRows} stroke={GRID} strokeWidth={SW * 0.5} />));
+  for (let r = 1; r < nRows; r++) els.push(<line key={`th${r}`} x1={tx} y1={tTop + r * rowH} x2={cE} y2={tTop + r * rowH} stroke={GRID} strokeWidth={SW * 0.5} />);
+  ([["#", m0], ["Длина", m1], ["Ширина", m2], ["Кол-во", m3]] as [string, number][]).forEach(([h, cx], i) =>
+    els.push(<text key={`phc${i}`} x={cx} y={tTop + rowH / 2 + 12} fontSize={32} fontWeight={600} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{h}</text>),
+  );
+  [...grouped].forEach(([label, qty], i) => {
+    const parts = label.split("×");
+    const ry = tTop + rowH * (i + 1) + rowH / 2 + 12;
+    ([[String(i + 1), m0], [parts[0] ?? label, m1], [parts[1] ?? "", m2], [String(qty), m3]] as [string, number][]).forEach(([v, cx], ci) =>
+      els.push(<text key={`pdc${i}_${ci}`} x={cx} y={ry} fontSize={34} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{v}</text>),
+    );
+  });
+
   return (
     <svg id={svgId} viewBox={`0 0 ${PAGE_W} ${H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>
       {els}

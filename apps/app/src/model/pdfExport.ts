@@ -25,10 +25,10 @@ export interface PdfExportInput {
   hardware?: { name: string; qty: number }[];
   materials?: { name: string; code: string; hex?: string }[];
   svgs: string[];
-  drawings?: string[];
-  drills?: string[];
-  passports?: string[];
   noTitle?: boolean;
+  render?: { url: string; w: number; h: number };
+  summary?: { label: string; value: string }[];
+  sections?: string[];
 }
 
 let fontPromise: Promise<string> | null = null;
@@ -54,17 +54,107 @@ function loadFontBase64(): Promise<string> {
   return fontPromise;
 }
 
-function drawTitle(doc: jsPDF, input: PdfExportInput, pw: number, ph: number): void {
-  const cy = ph / 2;
-  doc.setFontSize(46);
-  doc.text(input.title, pw / 2, cy - 22, { align: "center" });
-  doc.setFontSize(22);
-  doc.text(input.project, pw / 2, cy, { align: "center" });
+const FRAME_M = 8;
+const CONTENT_M = 20;
+const ACCENT: [number, number, number] = [46, 158, 106];
+
+function accentBar(doc: jsPDF, x: number, y: number, len = 16): void {
+  doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+  doc.setLineWidth(1);
+  doc.line(x, y, x + len, y);
+  doc.setDrawColor(20);
+  doc.setLineWidth(0.2);
+}
+
+function pageFrame(doc: jsPDF, pw: number, ph: number): void {
+  doc.setDrawColor(170);
+  doc.setLineWidth(0.3);
+  doc.rect(FRAME_M, FRAME_M, pw - FRAME_M * 2, ph - FRAME_M * 2);
+  doc.setDrawColor(20);
+  doc.setLineWidth(0.2);
+}
+
+function pageFooter(doc: jsPDF, input: PdfExportInput, pw: number, ph: number, pageNo: number, total: number): void {
+  const fy = ph - 18;
+  doc.setDrawColor(180);
+  doc.setLineWidth(0.2);
+  doc.line(CONTENT_M, fy, pw - CONTENT_M, fy);
+  doc.setDrawColor(20);
+  doc.setTextColor(0);
   doc.setFontSize(12);
-  doc.text(input.date, pw / 2, cy + 14, { align: "center" });
-  if (input.partsCount != null) {
-    doc.text(`Деталей: ${input.partsCount}`, pw / 2, cy + 22, { align: "center" });
+  doc.text("Mebelchi", CONTENT_M, fy + 6);
+  doc.setFontSize(8);
+  doc.text(`${pageNo} / ${total}`, pw - CONTENT_M, fy + 6, { align: "right" });
+  doc.text(`Проект: ${input.project}   Дата: ${input.date}`, pw / 2, fy + 4, { align: "center" });
+  doc.setFontSize(6.5);
+  doc.setTextColor(120);
+  doc.text("Все размеры в миллиметрах. Перед раскроем проверьте на замере.", pw / 2, fy + 8, { align: "center" });
+  doc.setTextColor(0);
+}
+
+function paintChrome(doc: jsPDF, input: PdfExportInput, pw: number, ph: number): void {
+  const total = doc.getNumberOfPages();
+  for (let p = 1; p <= total; p++) {
+    doc.setPage(p);
+    pageFrame(doc, pw, ph);
+    pageFooter(doc, input, pw, ph, p, total);
   }
+}
+
+function drawCover(doc: jsPDF, input: PdfExportInput, pw: number, ph: number): void {
+  doc.setTextColor(120);
+  doc.setFontSize(11);
+  doc.text("Чертежи", CONTENT_M, 30);
+  doc.setTextColor(0);
+  doc.setFontSize(40);
+  doc.text(input.project, CONTENT_M, 50);
+  accentBar(doc, CONTENT_M, 55, 26);
+  doc.setTextColor(120);
+  doc.setFontSize(11);
+  doc.text(`Дата: ${input.date}`, CONTENT_M, 62);
+  doc.setTextColor(0);
+  const rows = input.summary ?? [];
+  if (rows.length) {
+    const tx = CONTENT_M;
+    const tw = pw - CONTENT_M * 2;
+    const rh = 12;
+    const ty = 76;
+    doc.setDrawColor(180);
+    doc.setLineWidth(0.2);
+    doc.rect(tx, ty, tw, rh * rows.length);
+    doc.setFontSize(11);
+    rows.forEach((row, i) => {
+      const ry = ty + i * rh;
+      if (i > 0) doc.line(tx, ry, tx + tw, ry);
+      doc.text(row.label, tx + 5, ry + rh / 2 + 1.5);
+      doc.text(row.value, tx + tw - 5, ry + rh / 2 + 1.5, { align: "right" });
+    });
+    doc.setDrawColor(20);
+  }
+}
+
+function drawRenderPage(doc: jsPDF, render: { url: string; w: number; h: number }, pw: number, ph: number): void {
+  doc.setTextColor(0);
+  doc.setFontSize(15);
+  doc.text("3D · Общий вид", CONTENT_M, 30);
+  accentBar(doc, CONTENT_M, 34, 18);
+  const top = 40;
+  const bottom = ph - 26;
+  const boxX = CONTENT_M;
+  const boxW = pw - CONTENT_M * 2;
+  const boxH = bottom - top;
+  doc.setFillColor(247, 246, 243);
+  doc.rect(boxX, top, boxW, boxH, "F");
+  const a = render.w > 0 && render.h > 0 ? render.w / render.h : 1.5;
+  let rw = boxW - 16;
+  let rh = rw / a;
+  if (rh > boxH - 16) {
+    rh = boxH - 16;
+    rw = rh * a;
+  }
+  const rx = (pw - rw) / 2;
+  const ry = top + (boxH - rh) / 2;
+  doc.addImage(render.url, "JPEG", rx, ry, rw, rh);
 }
 
 function drawKantenbild(doc: jsPDF, x: number, y: number, w: number, h: number, bands: readonly boolean[]): void {
@@ -96,6 +186,7 @@ function drawSpec(doc: jsPDF, spec: PdfSpec, pw: number, ph: number): void {
   const header = (y0: number): number => {
     doc.setFontSize(15);
     doc.text("Спецификация", margin, y0);
+    accentBar(doc, margin, y0 + 3, 16);
     doc.setFontSize(8);
     spec.columns.forEach((c, i) => doc.text(c, margin + i * colW + 1, y0 + 8));
     doc.setDrawColor(20);
@@ -104,7 +195,7 @@ function drawSpec(doc: jsPDF, spec: PdfSpec, pw: number, ph: number): void {
   };
   let y = header(margin + 8);
   for (const row of spec.rows) {
-    if (y > ph - margin) {
+    if (y > ph - 26) {
       doc.addPage();
       y = header(margin + 8);
     }
@@ -132,6 +223,7 @@ function drawHardware(doc: jsPDF, hardware: { name: string; qty: number }[], pw:
   const header = (y0: number): number => {
     doc.setFontSize(15);
     doc.text("Фурнитура", margin, y0);
+    accentBar(doc, margin, y0 + 3, 16);
     doc.setFontSize(9);
     doc.text("Наименование", margin, y0 + 8);
     doc.text("Кол-во", margin + 160, y0 + 8);
@@ -141,7 +233,7 @@ function drawHardware(doc: jsPDF, hardware: { name: string; qty: number }[], pw:
   };
   let y = header(margin + 8);
   for (const h of hardware) {
-    if (y > ph - margin) {
+    if (y > ph - 26) {
       doc.addPage();
       y = header(margin + 8);
     }
@@ -160,6 +252,7 @@ function drawMaterials(doc: jsPDF, materials: { name: string; code: string; hex?
   const header = (y0: number): number => {
     doc.setFontSize(15);
     doc.text("Материалы", margin, y0);
+    accentBar(doc, margin, y0 + 3, 16);
     doc.setFontSize(9);
     doc.text("Код", margin, y0 + 8);
     doc.text("Наименование", nameX, y0 + 8);
@@ -169,7 +262,7 @@ function drawMaterials(doc: jsPDF, materials: { name: string; code: string; hex?
   };
   let y = header(margin + 8);
   for (const m of materials) {
-    if (y > ph - margin) {
+    if (y > ph - 26) {
       doc.addPage();
       y = header(margin + 8);
     }
@@ -187,7 +280,15 @@ function drawMaterials(doc: jsPDF, materials: { name: string; code: string; hex?
   }
 }
 
-async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: number, ph: number, newPage = true): Promise<void> {
+function drawSection(doc: jsPDF, text: string): void {
+  if (!text) return;
+  doc.setTextColor(0);
+  doc.setFontSize(15);
+  doc.text(text, CONTENT_M, 16);
+  accentBar(doc, CONTENT_M, 19, 16);
+}
+
+async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: number, ph: number, newPage = true, section = ""): Promise<void> {
   holder.innerHTML = svg;
   const el = holder.querySelector("svg") as SVGSVGElement | null;
   if (!el) return;
@@ -201,47 +302,31 @@ async function addSvgPage(doc: jsPDF, holder: HTMLDivElement, svg: string, pw: n
   const aw = vb && vb.width ? vb.width : el.clientWidth || pw;
   const ah = vb && vb.height ? vb.height : el.clientHeight || ph;
   const ratio = aw / ah;
-  let w = pw;
-  let h = pw / ratio;
-  if (h > ph) {
-    h = ph;
-    w = ph * ratio;
+  const cx = 12;
+  const ctop = 22;
+  const cbot = ph - 22;
+  const bw = pw - cx * 2;
+  const bh = cbot - ctop;
+  let w = bw;
+  let h = bw / ratio;
+  if (h > bh) {
+    h = bh;
+    w = bh * ratio;
   }
-  if (w >= pw * 0.3) {
+  if (w >= bw * 0.3) {
     if (newPage) doc.addPage();
-    await svg2pdf(el, doc, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
+    drawSection(doc, section);
+    await svg2pdf(el, doc, { x: cx + (bw - w) / 2, y: ctop, width: w, height: h });
     return;
   }
-  const fw = pw;
-  const fh = pw / ratio;
-  const npages = Math.ceil(fh / ph);
+  const fw = bw;
+  const fh = bw / ratio;
+  const npages = Math.ceil(fh / bh);
   for (let i = 0; i < npages; i++) {
     if (newPage || i > 0) doc.addPage();
-    await svg2pdf(el, doc, { x: 0, y: -i * ph, width: fw, height: fh });
+    drawSection(doc, section);
+    await svg2pdf(el, doc, { x: cx, y: ctop - i * bh, width: fw, height: fh });
   }
-}
-
-async function addSvgCell(doc: jsPDF, holder: HTMLDivElement, svg: string, x: number, y: number, cw: number, ch: number): Promise<void> {
-  holder.innerHTML = svg;
-  const el = holder.querySelector("svg") as SVGSVGElement | null;
-  if (!el) return;
-  el.setAttribute("font-family", "Roboto");
-  el.querySelectorAll("text").forEach((t) => {
-    t.setAttribute("font-family", "Roboto");
-    t.removeAttribute("font-weight");
-    t.style.removeProperty("font-weight");
-  });
-  const vb = el.viewBox.baseVal;
-  const aw = vb && vb.width ? vb.width : cw;
-  const ah = vb && vb.height ? vb.height : ch;
-  const ratio = aw / ah;
-  let w = cw;
-  let h = cw / ratio;
-  if (h > ch) {
-    h = ch;
-    w = ch * ratio;
-  }
-  await svg2pdf(el, doc, { x: x + (cw - w) / 2, y: y + (ch - h) / 2, width: w, height: h });
 }
 
 async function deliver(doc: jsPDF, fileName: string): Promise<void> {
@@ -267,7 +352,12 @@ export async function buildDrawingsPdf(input: PdfExportInput): Promise<jsPDF> {
 
   let firstFree = true;
   if (!input.noTitle) {
-    drawTitle(doc, input, pw, ph);
+    drawCover(doc, input, pw, ph);
+    firstFree = false;
+  }
+  if (input.render) {
+    if (!firstFree) doc.addPage();
+    drawRenderPage(doc, input.render, pw, ph);
     firstFree = false;
   }
   if (input.spec && input.spec.rows.length) {
@@ -290,104 +380,22 @@ export async function buildDrawingsPdf(input: PdfExportInput): Promise<jsPDF> {
   holder.setAttribute("style", "position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none");
   document.body.appendChild(holder);
   try {
-    for (const svg of input.svgs) {
-      await addSvgPage(doc, holder, svg, pw, ph, !firstFree);
+    for (let i = 0; i < input.svgs.length; i++) {
+      const svg = input.svgs[i];
+      if (svg == null) continue;
+      await addSvgPage(doc, holder, svg, pw, ph, !firstFree, input.sections?.[i] ?? "");
       firstFree = false;
     }
   } finally {
     document.body.removeChild(holder);
   }
 
+  paintChrome(doc, input, pw, ph);
+
   return doc;
 }
 
 export async function exportDrawingsPdf(input: PdfExportInput): Promise<void> {
   const doc = await buildDrawingsPdf(input);
-  await deliver(doc, input.fileName);
-}
-
-export async function buildCompactPdf(input: PdfExportInput): Promise<jsPDF> {
-  const fontBase64 = await loadFontBase64();
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  doc.addFileToVFS("Roboto-Regular.ttf", fontBase64);
-  doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
-  doc.setFont("Roboto", "normal");
-
-  const pw = doc.internal.pageSize.getWidth();
-  const ph = doc.internal.pageSize.getHeight();
-
-  let firstFree = true;
-  const page = (): void => {
-    if (!firstFree) doc.addPage();
-    firstFree = false;
-  };
-  const tag = (name: string): void => {
-    doc.setFontSize(8);
-    doc.setTextColor(150);
-    doc.text(name, pw - 8, 8, { align: "right" });
-    doc.setTextColor(20);
-  };
-
-  const holder = document.createElement("div");
-  holder.setAttribute("style", "position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none");
-  document.body.appendChild(holder);
-
-  const grid = async (items: string[], head: string): Promise<void> => {
-    const gm = 6;
-    const top = 18;
-    const cw = (pw - gm * 3) / 2;
-    const ch = (ph - top - gm * 2) / 2;
-    const cells: [number, number][] = [[gm, top], [gm * 2 + cw, top], [gm, top + gm + ch], [gm * 2 + cw, top + gm + ch]];
-    for (let i = 0; i < items.length; i += 4) {
-      page();
-      doc.setFontSize(16);
-      doc.text(head, 8, 13);
-      for (let j = 0; j < 4; j++) {
-        const c = cells[j];
-        const d = items[i + j];
-        if (c && d) await addSvgCell(doc, holder, d, c[0], c[1], cw, ch);
-      }
-      tag(head);
-    }
-  };
-
-  try {
-    const drawings = input.drawings ?? [];
-    if (drawings.length) await grid(drawings.slice(0, 4), "Чертежи");
-    if (input.spec && input.spec.rows.length) {
-      page();
-      drawSpec(doc, input.spec, pw, ph);
-      tag("Спецификация");
-    }
-    if (input.hardware && input.hardware.length) {
-      page();
-      drawHardware(doc, input.hardware, pw, ph);
-      tag("Фурнитура");
-    }
-    if (input.materials && input.materials.length) {
-      page();
-      drawMaterials(doc, input.materials, pw, ph);
-      tag("Материалы");
-    }
-    const drills = input.drills ?? [];
-    if (drills.length) await grid(drills, "Сверловка");
-    const passports = input.passports ?? [];
-    for (const p of passports) {
-      page();
-      await addSvgPage(doc, holder, p, pw, ph, false);
-    }
-    for (const svg of input.svgs) {
-      page();
-      await addSvgPage(doc, holder, svg, pw, ph, false);
-    }
-  } finally {
-    document.body.removeChild(holder);
-  }
-
-  return doc;
-}
-
-export async function exportCompactPdf(input: PdfExportInput): Promise<void> {
-  const doc = await buildCompactPdf(input);
   await deliver(doc, input.fileName);
 }

@@ -83,3 +83,56 @@ describe("nest", () => {
     expect(r.totals.sheets).toBeGreaterThan(1);
   });
 });
+
+describe("nest with warehouse stock", () => {
+  it("packs into a stock offcut before opening a new full sheet", () => {
+    const r = nest([mk("a", 300, 200), mk("b", 300, 200)], DEFAULT_NEST, [{ material: "ЛДСП 16", l_mm: 800, w_mm: 600 }]);
+    const mn = r.perMaterial.find((m) => m.material === "ЛДСП 16");
+    expect(mn?.sheets.length).toBe(1);
+    expect(mn?.sheets[0]?.fromStock).toBe(true);
+    expect(r.totals.sheets).toBe(0);
+    expect(r.totals.parts).toBe(2);
+  });
+
+  it("counts no new sheets and zero waste when stock fully serves the run", () => {
+    const r = nest([mk("a", 300, 200)], DEFAULT_NEST, [{ material: "ЛДСП 16", l_mm: 800, w_mm: 600 }]);
+    expect(r.totals.sheets).toBe(0);
+    expect(r.totals.wastePct).toBe(0);
+  });
+
+  it("carries the stock piece's own size on the fromStock sheet", () => {
+    const r = nest([mk("a", 300, 200)], DEFAULT_NEST, [{ material: "ЛДСП 16", l_mm: 800, w_mm: 600 }]);
+    const s = r.perMaterial[0]?.sheets[0];
+    expect(s?.sheetL).toBe(800);
+    expect(s?.sheetW).toBe(600);
+  });
+
+  it("keeps parts inside the trimmed bounds of the stock piece", () => {
+    const stockL = 800;
+    const stockW = 600;
+    const c = DEFAULT_NEST;
+    const r = nest([mk("a", 300, 200), mk("b", 300, 200), mk("c", 300, 200)], c, [{ material: "ЛДСП 16", l_mm: stockL, w_mm: stockW }]);
+    const s = r.perMaterial[0]?.sheets[0];
+    for (const p of s?.parts ?? []) {
+      expect(p.x >= c.trim - 0.001).toBe(true);
+      expect(p.y >= c.trim - 0.001).toBe(true);
+      expect(p.x + p.w <= stockL - c.trim + 0.001).toBe(true);
+      expect(p.y + p.h <= stockW - c.trim + 0.001).toBe(true);
+    }
+  });
+
+  it("ignores stock of a material absent from the cut list", () => {
+    const r = nest([mk("a", 300, 200, "ЛДСП 16")], DEFAULT_NEST, [{ material: "МДФ 18", l_mm: 800, w_mm: 600 }]);
+    expect(r.perMaterial.find((m) => m.material === "МДФ 18")).toBeUndefined();
+    expect(r.perMaterial.every((m) => m.sheets.every((s) => s.parts.length > 0))).toBe(true);
+  });
+
+  it("overflows to a new full sheet when stock cannot hold everything", () => {
+    const parts = Array.from({ length: 8 }, (_, i) => mk(`b${i}`, 700, 560));
+    const r = nest(parts, DEFAULT_NEST, [{ material: "ЛДСП 16", l_mm: 800, w_mm: 600 }]);
+    const mn = r.perMaterial.find((m) => m.material === "ЛДСП 16");
+    expect(mn?.sheets.some((s) => s.fromStock)).toBe(true);
+    expect(mn?.sheets.some((s) => !s.fromStock)).toBe(true);
+    expect(r.totals.sheets).toBeGreaterThanOrEqual(1);
+  });
+});
