@@ -207,6 +207,47 @@ export function Stage3D({
     clearResizeIndicator();
   };
 
+  // ── F3 ROTATE: the blue angle chip + swept wedge that ride the rotate gizmo ──
+  // TransformControls (in rotate mode) draws the three coloured rings itself; this adds
+  // the swept sector that fills the turned angle and the blue number, all in ui/.
+  const rotDragRef = useRef<{ id: string; axis: "x" | "y" | "z"; startRot: { x: number; y: number; z: number }; center: { x: number; y: number; z: number }; radius: number } | null>(null);
+  const rotWedgeRef = useRef<THREE.Group | null>(null);
+  const rotWedgeMeshRef = useRef<THREE.Mesh | null>(null);
+  const rotAnchorRef = useRef<{ x: number; y: number; z: number } | null>(null);
+  const rotAutoHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [rotChip, setRotChip] = useState<{ value: number; resting: boolean } | null>(null);
+  const [rotNumpad, setRotNumpad] = useState<{ value: number } | null>(null);
+  const rotNumpadRef = useRef(rotNumpad);
+  rotNumpadRef.current = rotNumpad;
+
+  /** Drop the whole F3 read-out — wedge, disc, chip and the drag it belonged to. */
+  const clearRotIndicator = () => {
+    if (rotAutoHideRef.current) { clearTimeout(rotAutoHideRef.current); rotAutoHideRef.current = null; }
+    const grp = rotWedgeRef.current;
+    if (grp) {
+      sceneRef.current?.remove(grp);
+      grp.traverse((o) => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); });
+      rotWedgeRef.current = null;
+      rotWedgeMeshRef.current = null;
+    }
+    rotDragRef.current = null;
+    rotAnchorRef.current = null;
+    setRotChip(null);
+  };
+  /** Numpad committed: turn the panel to EXACTLY this angle from where the drag began,
+   *  snapped to a quarter turn — the contract's orientation only holds principal planes. */
+  const commitRot = (deg: number) => {
+    const d = rotDragRef.current;
+    setRotNumpad(null);
+    if (!d) { clearRotIndicator(); return; }
+    const snapped = Math.round(deg / 90) * 90;
+    const rot = { x: d.startRot.x, y: d.startRot.y, z: d.startRot.z };
+    rot[d.axis] = d.startRot[d.axis] + (snapped * Math.PI) / 180;
+    const p = panelsRef.current.find((x) => x.id === d.id);
+    if (p) onDragPanelRef.current(d.id, p.x, p.y, p.z, rot.x, rot.y, rot.z);
+    clearRotIndicator();
+  };
+
   const selectedPanel = panels.find((p) => p.id === selectedPanelId) || null;
 
   useEffect(() => {
@@ -280,33 +321,46 @@ export function Stage3D({
       // F1 live read-out: refresh the dashed leader and the green pill every frame.
       const d = moveDragRef.current;
       const leader = moveLeaderRef.current;
-      if (!d || d.id !== mesh.name || !leader) return;
-      const halfH = mm10ToMeters(p.height) / 2;
-      let a: THREE.Vector3, b: THREE.Vector3, value: number;
-      let anchor: { x: number; y: number; z: number };
-      if (d.axis === "y") {
-        // panel bottom → floor; the number is the height above the floor
-        const groundW = mm10ToMeters(groundYRef.current);
-        a = new THREE.Vector3(mesh.position.x, mesh.position.y - halfH, mesh.position.z);
-        b = new THREE.Vector3(mesh.position.x, groundW, mesh.position.z);
-        value = curY - groundYRef.current;
-        anchor = { x: curX + p.width / 2, y: (curY + groundYRef.current) / 2, z: curZ + p.depth / 2 };
-      } else {
-        // drag start → now, along the one axis the arrow allows; the number is the travel
-        const s = d.startPanel;
-        a = new THREE.Vector3(
-          mm10ToMeters(s.x + p.width / 2 - MID_X),
-          mm10ToMeters(s.y + p.height / 2),
-          mm10ToMeters(s.z + p.depth / 2 - MID_Z),
-        );
-        b = new THREE.Vector3(mesh.position.x, mesh.position.y, mesh.position.z);
-        value = Math.abs((d.axis === "x" ? curX : curZ) - (d.axis === "x" ? s.x : s.z));
-        anchor = { x: curX + p.width / 2, y: curY + p.height / 2, z: curZ + p.depth / 2 };
+      if (d && leader && d.id === mesh.name) {
+        const halfH = mm10ToMeters(p.height) / 2;
+        let a: THREE.Vector3, b: THREE.Vector3, value: number;
+        let anchor: { x: number; y: number; z: number };
+        if (d.axis === "y") {
+          // panel bottom → floor; the number is the height above the floor
+          const groundW = mm10ToMeters(groundYRef.current);
+          a = new THREE.Vector3(mesh.position.x, mesh.position.y - halfH, mesh.position.z);
+          b = new THREE.Vector3(mesh.position.x, groundW, mesh.position.z);
+          value = curY - groundYRef.current;
+          anchor = { x: curX + p.width / 2, y: (curY + groundYRef.current) / 2, z: curZ + p.depth / 2 };
+        } else {
+          // drag start → now, along the one axis the arrow allows; the number is the travel
+          const s = d.startPanel;
+          a = new THREE.Vector3(
+            mm10ToMeters(s.x + p.width / 2 - MID_X),
+            mm10ToMeters(s.y + p.height / 2),
+            mm10ToMeters(s.z + p.depth / 2 - MID_Z),
+          );
+          b = new THREE.Vector3(mesh.position.x, mesh.position.y, mesh.position.z);
+          value = Math.abs((d.axis === "x" ? curX : curZ) - (d.axis === "x" ? s.x : s.z));
+          anchor = { x: curX + p.width / 2, y: curY + p.height / 2, z: curZ + p.depth / 2 };
+        }
+        leader.geometry.setFromPoints([a, b]);
+        leader.computeLineDistances();
+        moveAnchorRef.current = anchor;
+        setMoveChip({ value, kind: d.axis === "y" ? "height" : "travel", resting: false });
       }
-      leader.geometry.setFromPoints([a, b]);
-      leader.computeLineDistances();
-      moveAnchorRef.current = anchor;
-      setMoveChip({ value, kind: d.axis === "y" ? "height" : "travel", resting: false });
+
+      // F3 live read-out: grow the swept wedge and update the blue angle chip.
+      const rd = rotDragRef.current;
+      const wm = rotWedgeMeshRef.current;
+      if (rd && wm && rd.id === mesh.name) {
+        const sweptRad = mesh.rotation[rd.axis] - rd.startRot[rd.axis];
+        const r = mm10ToMeters(rd.radius);
+        wm.geometry.dispose();
+        wm.geometry = new THREE.CircleGeometry(r, 48, sweptRad < 0 ? sweptRad : 0, Math.abs(sweptRad) || 0.0001);
+        rotAnchorRef.current = rd.center;
+        setRotChip({ value: Math.round((sweptRad * 180) / Math.PI), resting: false });
+      }
     });
 
     transformControls.addEventListener("dragging-changed", (event) => {
@@ -332,6 +386,47 @@ export function Stage3D({
             line.computeLineDistances();
             scene.add(line);
             moveLeaderRef.current = line;
+          }
+        }
+      }
+
+      // F3 START: begin a rotate read-out — the coloured rings are the gizmo's own; add
+      // the swept wedge (a pie slice that grows to the turned angle) and the blue chip.
+      if (event.value) {
+        const startMesh = transformControls.object;
+        const axisChar = transformControls.axis;
+        const axis = axisChar === "X" ? "x" : axisChar === "Y" ? "y" : axisChar === "Z" ? "z" : null;
+        if (transformModeRef.current === "rotate" && axis && startMesh && startMesh.name && !startMesh.name.startsWith("handle:")) {
+          const p = panelsRef.current.find((x) => x.id === startMesh.name);
+          if (p) {
+            clearRotIndicator();
+            const center = { x: p.x + p.width / 2, y: p.y + p.height / 2, z: p.z + p.depth / 2 };
+            const radius = Math.max(p.width, p.height, p.depth) * 0.42;
+            rotDragRef.current = {
+              id: startMesh.name, axis,
+              startRot: { x: startMesh.rotation.x, y: startMesh.rotation.y, z: startMesh.rotation.z },
+              center, radius,
+            };
+            const grp = new THREE.Group();
+            grp.position.set(mm10ToMeters(center.x - MID_X), mm10ToMeters(center.y), mm10ToMeters(center.z - MID_Z));
+            if (axis === "y") grp.rotation.x = -Math.PI / 2;
+            else if (axis === "x") grp.rotation.y = Math.PI / 2;
+            const r = mm10ToMeters(radius);
+            const disc = new THREE.LineLoop(
+              new THREE.BufferGeometry().setFromPoints(new THREE.EllipseCurve(0, 0, r, r, 0, Math.PI * 2, false, 0).getPoints(64)),
+              new THREE.LineBasicMaterial({ color: 0x2f8bff, transparent: true, opacity: 0.85, depthTest: false }),
+            );
+            disc.renderOrder = 4;
+            grp.add(disc);
+            const wedge = new THREE.Mesh(
+              new THREE.CircleGeometry(r, 48, 0, 0.0001),
+              new THREE.MeshBasicMaterial({ color: 0x2f8bff, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false, depthTest: false }),
+            );
+            wedge.renderOrder = 3;
+            grp.add(wedge);
+            scene.add(grp);
+            rotWedgeRef.current = grp;
+            rotWedgeMeshRef.current = wedge;
           }
         }
       }
@@ -402,6 +497,19 @@ export function Stage3D({
           autoHideRef.current = setTimeout(() => {
             if (!moveNumpadRef.current) clearMoveIndicator();
           }, 4000);
+        }
+
+        // F3 RELEASE: the gizmo snapped the rotation; pull the wedge, rest the chip.
+        if (rotWedgeRef.current) {
+          scene.remove(rotWedgeRef.current);
+          rotWedgeRef.current.traverse((o) => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); });
+          rotWedgeRef.current = null;
+          rotWedgeMeshRef.current = null;
+        }
+        if (rotDragRef.current) {
+          setRotChip((c) => (c ? { ...c, resting: true } : null));
+          if (rotAutoHideRef.current) clearTimeout(rotAutoHideRef.current);
+          rotAutoHideRef.current = setTimeout(() => { if (!rotNumpadRef.current) clearRotIndicator(); }, 4000);
         }
       }
     });
@@ -834,6 +942,8 @@ export function Stage3D({
       if (m) project("__move__", m.x, m.y, m.z);
       const rz = resizeAnchorRef.current;
       if (rz) project("__resize__", rz.x, rz.y, rz.z);
+      const ra = rotAnchorRef.current;
+      if (ra) project("__rot__", ra.x, ra.y, ra.z);
       setAnnPos(next);
       frame = requestAnimationFrame(tick);
     };
@@ -897,6 +1007,18 @@ export function Stage3D({
     resizeAnchorRef.current = null;
     setResizeChip(null);
     setResizeNumpad(null);
+    // F3 read-out too.
+    if (rotWedgeRef.current) {
+      sceneRef.current?.remove(rotWedgeRef.current);
+      rotWedgeRef.current.traverse((o) => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); });
+      rotWedgeRef.current = null;
+      rotWedgeMeshRef.current = null;
+    }
+    if (rotAutoHideRef.current) { clearTimeout(rotAutoHideRef.current); rotAutoHideRef.current = null; }
+    rotDragRef.current = null;
+    rotAnchorRef.current = null;
+    setRotChip(null);
+    setRotNumpad(null);
   }, [selectedPanelId]);
 
   return (
@@ -936,6 +1058,22 @@ export function Stage3D({
             onEdit={
               resizeChip.resting
                 ? () => { if (resizeAutoHideRef.current) clearTimeout(resizeAutoHideRef.current); setResizeNumpad({ value: resizeChip.value }); }
+                : undefined
+            }
+          />
+        </div>
+      )}
+      {rotChip && annPos["__rot__"] && (
+        <div className="stage-annotation" style={{ left: annPos["__rot__"].x, top: annPos["__rot__"].y }}>
+          <MeasureChip
+            value={rotChip.value}
+            tone="angle"
+            unit="deg"
+            live={!rotChip.resting}
+            title="Угол поворота"
+            onEdit={
+              rotChip.resting
+                ? () => { if (rotAutoHideRef.current) clearTimeout(rotAutoHideRef.current); setRotNumpad({ value: rotChip.value }); }
                 : undefined
             }
           />
@@ -990,6 +1128,15 @@ export function Stage3D({
           mode="cm"
           onCommit={commitResize}
           onCancel={() => { setResizeNumpad(null); clearResizeIndicator(); }}
+        />
+      )}
+      {rotNumpad && (
+        <Numpad
+          initial={rotNumpad.value}
+          label="Угол, °"
+          mode="deg"
+          onCommit={commitRot}
+          onCancel={() => { setRotNumpad(null); clearRotIndicator(); }}
         />
       )}
     </div>

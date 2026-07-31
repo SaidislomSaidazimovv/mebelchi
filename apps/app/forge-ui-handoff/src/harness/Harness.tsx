@@ -39,6 +39,7 @@ export function Harness() {
   const [panels, setPanels] = useState<Panel[]>(START);
   const [selectedId, setSelectedId] = useState<string | null>("P1");
   const [selectedSide, setSelectedSide] = useState<string | null>(null);
+  const [mode, setMode] = useState<"translate" | "rotate">("translate");
   const [log, setLog] = useState<string[]>([]);
 
   const say = (m: string) => setLog((l) => [m, ...l].slice(0, 14));
@@ -91,13 +92,18 @@ export function Harness() {
           holes={NO_HOLES}
           selectedPanelId={selectedId}
           onSelectPanel={(id) => { setSelectedId(id); setSelectedSide(null); say(`select ${id ?? "—"}`); }}
-          onDragPanel={(id, x, y, z) => { move(id, x, y, z); say(`drop ${id} → ${mm10ToMm(x)},${mm10ToMm(y)},${mm10ToMm(z)}мм`); }}
+          onDragPanel={(id, x, y, z, rx, ry, rz) => {
+            setPanels((ps) => ps.map((p) => (p.id === id ? { ...p, x, y, z, rx, ry, rz } : p)));
+            const rot = ([["rx", rx], ["ry", ry], ["rz", rz]] as const)
+              .filter(([, v]) => v).map(([k, v]) => `${k}=${Math.round(((v as number) * 180) / Math.PI)}°`).join(" ");
+            say(`drop ${id} → ${mm10ToMm(x)},${mm10ToMm(y)},${mm10ToMm(z)}мм${rot ? " · " + rot : ""}`);
+          }}
           onLiveDragPanel={(id, x, y, z) => { move(id, x, y, z); say(`live ${id} → ${mm10ToMm(x)}мм`); }}
           onUpdateDim={() => {}}
-          transformMode="translate"
+          transformMode={mode}
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}
-          handles={handles}
+          handles={mode === "translate" ? handles : []}
           selectedHandleId={selectedSide}
           onSelectHandle={(id) => { setSelectedSide(id); say(`side ${id ?? "—"}`); }}
           onDragHandle={(id, coord) => { resizeSide(id, coord); say(`resize ${id} → ${mm10ToMm(coord)}мм`); }}
@@ -114,6 +120,12 @@ export function Harness() {
                   {p.name}
                 </button>
               ))}
+            </div>
+            <div className="forge-panel-list" style={{ marginTop: 8 }}>
+              <button className={`forge-chip ${mode === "translate" ? "on" : ""}`}
+                onClick={() => setMode("translate")}>↔ Двигать / размер</button>
+              <button className={`forge-chip ${mode === "rotate" ? "on" : ""}`}
+                onClick={() => { setMode("rotate"); setSelectedSide(null); }}>⟳ Поворот</button>
             </div>
             <div className="forge-note">
               «маленькая» — специально мелкая: именно на таких кубики граней и стрелки

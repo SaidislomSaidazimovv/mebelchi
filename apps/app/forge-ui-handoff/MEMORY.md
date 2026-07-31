@@ -109,6 +109,16 @@ Faqat `src/ui/Stage3D.tsx` (+ `MeasureChip`/`Numpad`/`measure` qayta ishlatildi;
 1. **Chip rangi:** `MeasureChip.tsx` — `className` dan `${live?" chip-live":""}` OLIB TASHLANDI. Endi rang faqat tone'dan (size=qizil doim, live paytida ham). F1 (tone="live") o'zgarmadi (yashil). Tasdiq: resize live chip color=rgb(229,52,43)=qizil.
 2. **Bloklar drag paytida yo'qolardi:** `Stage3D.tsx` qayta-qurish effekti — `if(gizmoDraggingRef.current) return;` guruh o'chirishdan OLDINga ko'chirildi. Sabab: move-drag'da `panels` har freym o'zgaradi → effekt eski guruhni o'chirib, guardda chiqib ketardi → panel g'oyib. Endi guard oldin → guruh butun qoladi, TransformControls mesh'ni o'zi suradi. Resize (gizmoDraggingRef=false) hamon har freym qayta quriladi. Tasdiq: VERIFY-move-mid.png panel ko'rinadi.
 
+## ✅ F3 · ROTATE — BAJARILDI + BARMOQ-TEST (2026-08-01), commit qilinmagan
+`src/ui/Stage3D.tsx` + `src/harness/Harness.tsx` (rejim tugmasi translate↔rotate; onDragPanel rx/ry/rz saqlaydi; rotate rejimda handle yashirin).
+- Rotate rejim → TransformControls'ning **3 rang-halqasi** (🔴X 🟢Y 🔵Z, o'zidan). Faol o'q sariq.
+- Halqa sudralganda: **ko'k «{burchak}° ✎» chip** (tone="angle") + **swept pona** (ko'k sektor, o'tilgan burchakka to'ladi, har freym qayta quriladi).
+- Qo'yib yuborgach: 90°ga snap (mavjud) → resting ko'k chip → **Numpad (deg) «Угол, °»** → commitRot 90°ga snaplab emit → panel aylanadi (renderBlock rx/ry/rz).
+- ⚠️ **FAQAT 90° QADAM** — contract PartOrientation faqat asosiy tekisliklar; ixtiyoriy burchak = contract o'zgarishi (TAQIQ).
+- Qarorlar (founder tasdiqladi): rejim kerak(ha), chip=ko'k(measure.ts, o'q-rangli emas), 90°(ha), pona(ha).
+- Barmoq-test: Поворот→halqa→ko'k «-3/8°»+pona→numpad→90→`drop … ry=90°`. typecheck+build toza. Pona kichik burchakda ingichka, 90°da chorak-doira.
+
 VAZIFALAR (README «Что плохо», muhimlik): 1)🔴 F6/F7 kesim tutqichlari 3Dда sudralsin (eng katta);
 2)✅ jonli yashil chip (F1 — BAJARILDI); 3)🟡 kichik panelда kub↔o'q hamma o'lchamда sinalsin (P2);
-4)🔴 F4 nishon-pin ikonografiyasi (⬡⊕); 5)🔴 sudrab-burish (drag rotation). +F2 RESIZE BAJARILDI.
+4)🔴 F4 nishon-pin ikonografiyasi (⬡⊕); 5)✅ sudrab-burish (F3 — BAJARILDI). +F2 RESIZE BAJARILDI.
+Endi qolgan asosiy: F4 nishon-pin → F5 chamfer/F03 round → F6/F7 kesim (eng katta) → #3 kichik-panel sinovi.
