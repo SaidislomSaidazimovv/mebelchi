@@ -13,12 +13,11 @@ import { rowsWeightKg } from "../three/weight";
 
 const INK = "#222";
 const DIM = "#555";
-const NUM = "#d98a1e";
+const NUM = "#2e9e6a";
 const SW = 4;
 const PAGE_W = 2100;
 const M = 70;
 const HEAD = 210;
-const TITLE = 300;
 const VIEW_H = 520;
 const ROW = 46;
 
@@ -88,61 +87,90 @@ export function CabinetPassport({ cab, artNo, qty, project, date, coding, svgId 
   });
 
   let ry = HEAD + 40;
-  const tableHead = (label: string, cols: [string, number][]) => {
-    els.push(<text key={`th${label}`} x={rightX} y={ry} fontSize={44} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">{label}</text>);
-    ry += 40;
-    cols.forEach(([c, off]) => els.push(<text key={`tc${label}${c}`} x={rightX + off} y={ry} fontSize={34} fill={DIM} fontFamily="Inter, sans-serif">{c}</text>));
-    ry += 12;
-    els.push(<line key={`tl${label}`} x1={rightX} y1={ry} x2={rightX + rightW} y2={ry} stroke={INK} strokeWidth={SW * 0.5} />);
-    ry += 44;
+  const GRID = "#cfcfca";
+  const rowH = 50;
+  const frame = (top: number, tblW: number, verticals: number[], nData: number, key: string) => {
+    const nR = 1 + nData;
+    els.push(<rect key={`bg${key}`} x={rightX} y={top} width={tblW} height={rowH} fill="#f3f3f0" />);
+    els.push(<rect key={`ob${key}`} x={rightX} y={top} width={tblW} height={rowH * nR} fill="none" stroke={GRID} strokeWidth={SW * 0.4} />);
+    verticals.forEach((vx, i) => els.push(<line key={`vl${key}${i}`} x1={rightX + vx} y1={top} x2={rightX + vx} y2={top + rowH * nR} stroke={GRID} strokeWidth={SW * 0.4} />));
+    for (let r = 1; r < nR; r++) els.push(<line key={`hl${key}${r}`} x1={rightX} y1={top + r * rowH} x2={rightX + tblW} y2={top + r * rowH} stroke={GRID} strokeWidth={SW * 0.4} />);
   };
+  const sectionTitle = (title: string) => {
+    els.push(<text key={`st${title}`} x={rightX} y={ry} fontSize={40} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">{title}</text>);
+    ry += 22;
+  };
+  const cell = (x: number, y: number, s: React.ReactNode, dim: boolean, key: string) =>
+    els.push(<text key={`c${key}`} x={rightX + x + 16} y={y} fontSize={32} fill={dim ? DIM : INK} fontFamily="Inter, sans-serif">{s}</text>);
+  const hcell = (x: number, y: number, s: string, key: string) =>
+    els.push(<text key={`h${key}`} x={rightX + x + 16} y={y} fontSize={30} fontWeight={600} fill={DIM} fontFamily="Inter, sans-serif">{s}</text>);
 
-  tableHead("Детали", [["#", 0], ["Название", 80], ["Размер", 600], ["Кромка", 940]]);
-  parts.forEach((p, i) => {
-    els.push(<text key={`p#${i}`} x={rightX} y={ry} fontSize={36} fill={INK} fontFamily="Inter, sans-serif">{p.qty > 1 ? `${i + 1}×${p.qty}` : i + 1}</text>);
-    els.push(<text key={`pn${i}`} x={rightX + 80} y={ry} fontSize={36} fill={INK} fontFamily="Inter, sans-serif">{p.name}</text>);
-    els.push(<text key={`ps${i}`} x={rightX + 600} y={ry} fontSize={36} fill={INK} fontFamily="Inter, sans-serif">{p.l_mm}×{p.w_mm}×{p.t_mm}</text>);
-    els.push(<text key={`pk${i}`} x={rightX + 940} y={ry} fontSize={36} fill={DIM} fontFamily="Inter, sans-serif">{bandsLabel(p.bands)}</text>);
-    ry += ROW;
-  });
+  sectionTitle("Детали");
+  {
+    const tblW = rightW;
+    const d1 = 100;
+    const d2 = tblW - 620;
+    const d3 = tblW - 250;
+    const top = ry;
+    frame(top, tblW, [d1, d2, d3], parts.length, "d");
+    const hy = top + rowH / 2 + 12;
+    hcell(0, hy, "#", "d0");
+    hcell(d1, hy, "Название", "d1");
+    hcell(d2, hy, "Размер", "d2");
+    hcell(d3, hy, "Кромка", "d3");
+    parts.forEach((p, i) => {
+      const y = top + rowH * (i + 1) + rowH / 2 + 12;
+      cell(0, y, p.qty > 1 ? `${i + 1}×${p.qty}` : i + 1, false, `p${i}0`);
+      cell(d1, y, p.name, false, `p${i}1`);
+      cell(d2, y, `${p.l_mm}×${p.w_mm}×${p.t_mm}`, false, `p${i}2`);
+      cell(d3, y, bandsLabel(p.bands), true, `p${i}3`);
+    });
+    ry = top + rowH * (1 + parts.length) + 64;
+  }
 
-  ry += 70;
-  tableHead("Фурнитура", [["Название", 0], ["Кол-во", 1080]]);
-  hw.forEach((h, i) => {
-    els.push(<text key={`h${i}`} x={rightX} y={ry} fontSize={36} fill={INK} fontFamily="Inter, sans-serif">{h.name}</text>);
-    els.push(<text key={`hq${i}`} x={rightX + 1080} y={ry} fontSize={36} fill={INK} fontFamily="Inter, sans-serif">{h.qty}</text>);
-    ry += ROW;
-  });
+  sectionTitle("Фурнитура");
+  {
+    const tblW = rightW;
+    const f1 = tblW - 230;
+    const top = ry;
+    frame(top, tblW, [f1], hw.length, "f");
+    const hy = top + rowH / 2 + 12;
+    hcell(0, hy, "Название", "f0");
+    hcell(f1, hy, "Кол-во", "f1");
+    hw.forEach((h, i) => {
+      const y = top + rowH * (i + 1) + rowH / 2 + 12;
+      cell(0, y, h.name, false, `hw${i}0`);
+      cell(f1, y, String(h.qty), false, `hw${i}1`);
+    });
+    ry = top + rowH * (1 + hw.length) + 64;
+  }
 
-  ry += 70;
-  tableHead("Материалы", [["Код", 0], ["Наименование", 200]]);
-  const usedMats = coding.mats.filter((m) => parts.some((p) => p.materialName === m.name && p.t_mm === m.t_mm));
-  const usedEdges = coding.edges.filter((e) => parts.some((p) => p.edgeName === e.name));
-  [...usedMats.map((m) => ({ c: m.code, n: m.full, hex: boardHexByName(m.name) })), ...usedEdges.map((e) => ({ c: e.code, n: e.full, hex: edgeHexByName(e.name) }))].forEach((m, i) => {
-    els.push(<text key={`mc${i}`} x={rightX} y={ry} fontSize={36} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">{m.c}</text>);
-    if (m.hex) els.push(<rect key={`msw${i}`} x={rightX + 120} y={ry - 30} width={40} height={40} fill={m.hex} stroke={INK} strokeWidth={2} />);
-    els.push(<text key={`m${i}`} x={rightX + 200} y={ry} fontSize={36} fill={DIM} fontFamily="Inter, sans-serif">{m.n}</text>);
-    ry += ROW;
-  });
+  sectionTitle("Материалы");
+  {
+    const usedMats = coding.mats.filter((m) => parts.some((p) => p.materialName === m.name && p.t_mm === m.t_mm));
+    const usedEdges = coding.edges.filter((e) => parts.some((p) => p.edgeName === e.name));
+    const mrows = [...usedMats.map((m) => ({ c: m.code, n: m.full, hex: boardHexByName(m.name) })), ...usedEdges.map((e) => ({ c: e.code, n: e.full, hex: edgeHexByName(e.name) }))];
+    const tblW = rightW;
+    const m1 = 170;
+    const top = ry;
+    frame(top, tblW, [m1], mrows.length, "m");
+    const hy = top + rowH / 2 + 12;
+    hcell(0, hy, "Код", "m0");
+    hcell(m1, hy, "Наименование", "m1");
+    mrows.forEach((m, i) => {
+      const y = top + rowH * (i + 1) + rowH / 2 + 12;
+      els.push(<text key={`mc${i}`} x={rightX + 16} y={y} fontSize={32} fontWeight={700} fill={INK} fontFamily="Inter, sans-serif">{m.c}</text>);
+      if (m.hex) els.push(<rect key={`msw${i}`} x={rightX + m1 + 16} y={y - 32} width={38} height={38} fill={m.hex} stroke={INK} strokeWidth={2} />);
+      els.push(<text key={`mn${i}`} x={rightX + m1 + 70} y={y} fontSize={32} fill={DIM} fontFamily="Inter, sans-serif">{m.n}</text>);
+    });
+    ry = top + rowH * (1 + mrows.length) + 64;
+  }
 
-  const H = Math.max(ry, HEAD + viewsH) + 80 + TITLE;
+  const H = Math.max(ry, HEAD + viewsH) + 80;
 
   const paperF = Math.min(297 / PAGE_W, 210 / H);
   const scaleX = Math.max(1, Math.round(1 / (10 * ex.scale * paperF)));
   els.push(<text key="scl" x={M + 250} y={HEAD + 56} fontSize={36} fill={DIM} fontFamily="Inter, sans-serif">Масштаб 1:{scaleX}</text>);
-
-  const tbTop = H - TITLE;
-  const tbMid = tbTop + TITLE * 0.44;
-  const cw4 = (PAGE_W - M * 2) / 4;
-  const cellX = (i: number) => M + cw4 * i;
-  els.push(<line key="tbl" x1={M} y1={tbTop} x2={PAGE_W - M} y2={tbTop} stroke={INK} strokeWidth={SW} />);
-  for (let i = 1; i < 4; i++) els.push(<line key={`tbd${i}`} x1={cellX(i)} y1={tbTop} x2={cellX(i)} y2={H - 90} stroke={INK} strokeWidth={SW * 0.5} />);
-  els.push(<text key="tbb" x={cellX(0) + cw4 / 2} y={tbMid + 20} fontSize={64} fontWeight={800} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">Mebelchi</text>);
-  ([["Проект", project], ["Артикул", String(artNo)], ["Дата", date]] as [string, string][]).forEach(([top, bot], k) => {
-    const cx = cellX(k + 1) + cw4 / 2;
-    els.push(<text key={`ts${k}`} x={cx} y={tbMid - 26} fontSize={34} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{top}</text>);
-    els.push(<text key={`tb${k}`} x={cx} y={tbMid + 34} fontSize={44} fontWeight={600} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{bot}</text>);
-  });
 
   return (
     <svg id={svgId} viewBox={`0 0 ${PAGE_W} ${H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>

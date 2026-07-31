@@ -3,14 +3,13 @@ import { shelfPositions, type Cabinet } from "../model/cabinet";
 
 const INK = "#222";
 const DIM = "#555";
-const NUM = "#d98a1e";
+const NUM = "#2e9e6a";
 const COLS = 2;
 const CELL_W = 1000;
 const CELL_H = 1200;
 const PAD = 170;
 const LABEL = 160;
 const HEAD = 240;
-const TITLE = 560;
 const SW = 7;
 const FS = 74;
 
@@ -58,7 +57,7 @@ export function SectionSheet({ cabs, numberOf, project, view, date, svgId }: Pro
   const rowH = CELL_H + LABEL + PAD;
   const rows = Math.max(1, Math.ceil(groups.length / COLS));
   const W = COLS * (CELL_W + PAD) + PAD;
-  const H = HEAD + rows * rowH + TITLE;
+  const H = HEAD + rows * rowH;
 
   const els: React.ReactNode[] = [];
   els.push(<text key="tt" x={PAD} y={150} fontSize={104} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">{view}</text>);
@@ -95,20 +94,6 @@ export function SectionSheet({ cabs, numberOf, project, view, date, svgId }: Pro
     if (g.nums.length) {
       els.push(<text key={`nn${idx}`} x={x0 + 18} y={y0 + 58} fontSize={58} fontWeight={800} fill={NUM} fontFamily="Inter, sans-serif">№ {g.nums.slice().sort((a, b) => a - b).join(", ")}</text>);
     }
-  });
-
-  const tbTop = H - TITLE;
-  const tbMid = tbTop + TITLE * 0.46;
-  const m = 40;
-  const cw4 = (W - m * 2) / 4;
-  const cellX = (i: number) => m + cw4 * i;
-  els.push(<line key="tbl" x1={0} y1={tbTop} x2={W} y2={tbTop} stroke={INK} strokeWidth={SW} />);
-  for (let i = 1; i < 4; i++) els.push(<line key={`tbd${i}`} x1={cellX(i)} y1={tbTop} x2={cellX(i)} y2={H - 200} stroke={INK} strokeWidth={SW * 0.5} />);
-  els.push(<text key="tbb" x={cellX(0) + cw4 / 2} y={tbMid + 30} fontSize={120} fontWeight={800} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">Mebelchi</text>);
-  ([["Проект", project], ["Чертёж", "Разрез"], ["Дата", date]] as [string, string][]).forEach(([top, bot], k) => {
-    const cx = cellX(k + 1) + cw4 / 2;
-    els.push(<text key={`ts${k}`} x={cx} y={tbMid - 50} fontSize={58} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{top}</text>);
-    els.push(<text key={`tb${k}`} x={cx} y={tbMid + 40} fontSize={80} fontWeight={600} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{bot}</text>);
   });
 
   return (

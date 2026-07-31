@@ -81,3 +81,9 @@ QOLLANMA_MEBEL_YASASH.html
 # Internal PDF audit report (2026-07-30) — founder-facing, local-only, must not appear on GitHub
 apps/app/PDF_HISOBOT.md
 apps/app/PDF_HISOBOT.html
+apps/app/HISOBOT_IMOS_BAZIS.html
+apps/app/HISOBOT_IMOS_BAZIS.pdf
+
+# Reference PDFs / screenshots dropped for study — local-only, not our work
+apps/app/jihozla-*.pdf
+apps/app/image_2026-*.png

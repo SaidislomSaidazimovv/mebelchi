@@ -12,10 +12,10 @@ const DIM = "#555";
 /** Visual class per drill diameter (mm10): colour, schematic radius, RU label. */
 const HOLE: Record<number, { color: string; r: number; ru: string }> = {
   350: { color: "#9b59b6", r: 14, ru: "Ø35 петля" },
-  150: { color: "#e8833a", r: 9, ru: "Ø15 эксцентрик" },
+  150: { color: "#e8833a", r: 9, ru: "Ø15 эксц." },
   80: { color: "#3a7de8", r: 7, ru: "Ø8 шкант" },
   50: { color: "#2faf5a", r: 6, ru: "Ø5 полка" },
-  30: { color: "#9aa0a6", r: 4, ru: "Ø3 разметка" },
+  30: { color: "#9aa0a6", r: 4, ru: "Ø3 разм." },
 };
 const FALLBACK = { color: "#444", r: 5, ru: "прочее" };
 const cls = (d: number) => HOLE[d] ?? FALLBACK;
@@ -28,8 +28,7 @@ const COLS = 3;
 const CELL = 640; // box each panel scales into (mm units)
 const PAD = 150;
 const LABEL = 120;
-const LEGEND = 300;
-const TITLE = 540;
+const LEGEND = 170;
 const SW = 6;
 
 interface Props {
@@ -41,7 +40,7 @@ interface Props {
   posOf?: Map<string, number>;
 }
 
-export const DRILL_PER_PAGE = 12;
+export const DRILL_PER_PAGE = 6;
 
 export function drillGroups(parts: Part[]): { part: Part; qty: number }[] {
   const machined = parts.filter((p) => p.operations.length > 0);
@@ -63,9 +62,9 @@ export function DrillSheet({ parts, project, date, svgId, page, posOf }: Props) 
   const machined = allGroups.map((g) => g.part);
   const cellW = CELL + PAD;
   const cellH = CELL + LABEL + PAD;
-  const rows = Math.max(1, Math.ceil(groups.length / COLS));
+  const rows = Math.ceil(DRILL_PER_PAGE / COLS);
   const W = COLS * cellW + PAD;
-  const H = LEGEND + rows * cellH + TITLE;
+  const H = LEGEND + rows * cellH;
 
   const els: React.ReactNode[] = [];
 
@@ -74,11 +73,10 @@ export function DrillSheet({ parts, project, date, svgId, page, posOf }: Props) 
   for (const p of machined) for (const op of p.operations) if (op.op === "drill") present.add(op.diameter_mm10);
   const legend = [350, 150, 80, 50, 30].filter((d) => present.has(d));
   const dcode = (d: number) => `D${legend.indexOf(d) + 1}`;
-  els.push(<text key="lt" x={PAD} y={130} fontSize={104} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">Карта сверловки</text>);
   const legStep = (W - PAD * 2) / Math.max(1, legend.length);
   legend.forEach((d, i) => {
     const lx = PAD + i * legStep;
-    const ly = 230;
+    const ly = 110;
     const c = cls(d);
     els.push(<circle key={`lc${d}`} cx={lx + 20} cy={ly - 18} r={c.r + 4} fill={c.color} />);
     els.push(<text key={`ld${d}`} x={lx + 54} y={ly} fontSize={44} fontWeight={800} fill={INK} fontFamily="Inter, sans-serif">{dcode(d)}</text>);
@@ -131,7 +129,7 @@ export function DrillSheet({ parts, project, date, svgId, page, posOf }: Props) 
     if (pos != null) {
       const fs = String(pos).length >= 2 ? 44 : 54;
       els.push(<circle key={`ph${idx}`} cx={px0 + 46} cy={py0 + 46} r={47} fill="#fff" />);
-      els.push(<circle key={`pc${idx}`} cx={px0 + 46} cy={py0 + 46} r={42} fill="#d98a1e" />);
+      els.push(<circle key={`pc${idx}`} cx={px0 + 46} cy={py0 + 46} r={42} fill="#2e9e6a" />);
       els.push(<text key={`pn${idx}`} x={px0 + 46} y={py0 + 46 + fs * 0.34} fontSize={fs} fontWeight={800} fill="#fff" textAnchor="middle" fontFamily="Inter, sans-serif">{pos}</text>);
     }
 
@@ -142,22 +140,6 @@ export function DrillSheet({ parts, project, date, svgId, page, posOf }: Props) 
       </text>,
     );
   });
-
-  // ---- title block (4 cells) ----
-  const tbTop = H - TITLE;
-  const tbMid = tbTop + TITLE * 0.46;
-  const m = 40;
-  const cw4 = (W - m * 2) / 4;
-  const cellX = (i: number) => m + cw4 * i;
-  els.push(<line key="tbl" x1={0} y1={tbTop} x2={W} y2={tbTop} stroke={INK} strokeWidth={SW} />);
-  for (let i = 1; i < 4; i++) els.push(<line key={`tbd${i}`} x1={cellX(i)} y1={tbTop} x2={cellX(i)} y2={H - 200} stroke={INK} strokeWidth={SW * 0.5} />);
-  els.push(<text key="tbb" x={cellX(0) + cw4 / 2} y={tbMid + 30} fontSize={120} fontWeight={800} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">Mebelchi</text>);
-  ([["Проект", project], ["Чертёж", "Сверловка"], ["Дата", date]] as [string, string][]).forEach(([top, bot], k) => {
-    const cx = cellX(k + 1) + cw4 / 2;
-    els.push(<text key={`ts${k}`} x={cx} y={tbMid - 50} fontSize={58} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{top}</text>);
-    els.push(<text key={`tb${k}`} x={cx} y={tbMid + 40} fontSize={80} fontWeight={600} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{bot}</text>);
-  });
-  els.push(<text key="tbn" x={W / 2} y={H - 90} fontSize={52} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">Отверстия схематичны: размер по типу, положение в масштабе. Все размеры в мм.</text>);
 
   return (
     <svg id={svgId} viewBox={`0 0 ${W} ${H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>

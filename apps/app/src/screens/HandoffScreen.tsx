@@ -9,7 +9,7 @@ import { useT } from "../i18n/useT";
 import { production, productionCSV } from "../model/cncExport";
 import { panelsDXF } from "../model/dxfExport";
 import { unifiedCutList, unifiedHardware, unifiedDrilledParts, positionMap, unifiedNestParts, unifiedLabelItems } from "../three/handoffCutList";
-import { nest, DEFAULT_NEST } from "../three/nesting";
+import { nest, DEFAULT_NEST, type StockPiece } from "../three/nesting";
 import { CutSummary, CutSheetPage, cutSheetPages } from "../components/CutSheet";
 import { LabelSheet, labelPageCount } from "../components/LabelSheet";
 import { bandsLabel } from "../three/specCsv";
@@ -26,6 +26,13 @@ import { CabinetPassport } from "../components/CabinetPassport";
 import { VariantScene, type SceneApi } from "../three/VariantScene";
 import { FLOOR_COVERINGS } from "../model/floors";
 import type { Cabinet } from "../model/cabinet";
+
+interface StockRow {
+  material: string;
+  l: number;
+  w: number;
+  qty: number;
+}
 
 export function HandoffScreen() {
   const t = useT();
@@ -55,6 +62,15 @@ export function HandoffScreen() {
 
   const [allPanels, setAllPanels] = useState(false);
   const [allHw, setAllHw] = useState(false);
+  const [stockRows, setStockRows] = useState<StockRow[]>([]);
+  const [stMat, setStMat] = useState("");
+  const [stL, setStL] = useState("");
+  const [stW, setStW] = useState("");
+  const [stQty, setStQty] = useState("1");
+  const stock = useMemo<StockPiece[]>(
+    () => stockRows.flatMap((s) => Array.from({ length: s.qty }, () => ({ material: s.material, l_mm: s.l, w_mm: s.w }))),
+    [stockRows],
+  );
   const PREVIEW = 4;
   const prod = useMemo(() => production(cabs), [cabs]);
   const unified = useMemo(() => unifiedCutList(cabs, projectBlocks), [cabs, projectBlocks]);
@@ -67,8 +83,22 @@ export function HandoffScreen() {
   ], [coding]);
   const drilled = useMemo(() => unifiedDrilledParts(cabs, projectBlocks), [cabs, projectBlocks]);
   const posMap = useMemo(() => positionMap(unified.rows), [unified]);
-  const nestRes = useMemo(() => nest(unifiedNestParts(cabs, projectBlocks)), [cabs, projectBlocks]);
+  const nestParts = useMemo(() => unifiedNestParts(cabs, projectBlocks), [cabs, projectBlocks]);
+  const matOptions = useMemo(() => [...new Set(nestParts.map((p) => p.material))], [nestParts]);
+  const nestRes = useMemo(() => nest(nestParts, DEFAULT_NEST, stock), [nestParts, stock]);
   const cutPages = useMemo(() => cutSheetPages(nestRes), [nestRes]);
+  const addStock = useCallback(() => {
+    const l = Math.round(Number(stL));
+    const w = Math.round(Number(stW));
+    const q = Math.max(1, Math.round(Number(stQty) || 1));
+    const material = stMat || matOptions[0] || "";
+    if (!material || !(l > 0) || !(w > 0)) return;
+    setStockRows((rows) => [...rows, { material, l, w, qty: q }]);
+    setStL("");
+    setStW("");
+    setStQty("1");
+  }, [stL, stW, stQty, stMat, matOptions]);
+  const removeStock = useCallback((i: number) => setStockRows((rows) => rows.filter((_, j) => j !== i)), []);
   const labelItems = useMemo(() => unifiedLabelItems(cabs, projectBlocks, coding), [cabs, projectBlocks, coding]);
   const labelPages = useMemo(() => labelPageCount(labelItems), [labelItems]);
   const totalKg = useMemo(() => rowsWeightKg(unified.rows), [unified]);
@@ -106,10 +136,9 @@ export function HandoffScreen() {
     cabs.filter((c) => !c.furniture).forEach((c, i) => m.set(c.id, i + 1));
     return m;
   }, [cabs]);
-  // the wall run with the most modules = the FacePlan elevation
-  const drawRun = useMemo(() => {
+  // every wall run → its own FacePlan + worktop (Стена 1, Стена 2, …)
+  const drawRuns = useMemo(() => {
     const tiled = cabs.filter((c) => c.x != null && c.px == null && !c.furniture && c.appliance !== "filler");
-    if (!tiled.length) return null;
     const byRun = new Map<number, Cabinet[]>();
     for (const c of tiled) {
       const r = c.run ?? 0;
@@ -117,12 +146,12 @@ export function HandoffScreen() {
       arr.push(c);
       byRun.set(r, arr);
     }
-    let best: Cabinet[] = [];
-    for (const arr of byRun.values()) if (arr.length > best.length) best = arr;
-    return { cabs: best, wallLen: Math.max(...best.map((c) => (c.x as number) + c.w), 1) };
+    return [...byRun.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, cs], i) => ({ wallNo: i + 1, cabs: cs, wallLen: Math.max(...cs.map((c) => (c.x as number) + c.w), 1) }));
   }, [cabs]);
 
-  if (!prod || !drawRun) {
+  if (!prod || !drawRuns.length) {
     // No kitchen run yet — but if karkas blocks are placed, still hand off THEIR cut lists.
     return (
       <section className="screen">
@@ -229,18 +258,29 @@ export function HandoffScreen() {
     flash(t.handoff.tShareUnavail);
   };
   const printPDF = async () => {
+    const faceIds = Array.from(document.querySelectorAll('[id^="draw-face-"]')).map((e) => e.id);
+    const wtIds = Array.from(document.querySelectorAll('[id^="draw-wt-"]')).map((e) => e.id);
     const drillIds = Array.from(document.querySelectorAll('[id^="draw-drill-"]')).map((e) => e.id);
     const passportIds = Array.from(document.querySelectorAll('[id^="draw-passport-"]')).map((e) => e.id);
-    const svgs = ["draw-face", "draw-top", "draw-wt", "draw-section", ...drillIds, ...passportIds]
-      .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
-      .filter((el): el is SVGSVGElement => !!el)
-      .map((el) => {
-        const vb = el.viewBox.baseVal;
-        const clone = el.cloneNode(true) as SVGSVGElement;
-        clone.setAttribute("width", String(vb.width));
-        clone.setAttribute("height", String(vb.height));
-        return new XMLSerializer().serializeToString(clone);
-      });
+    const idSections: [string, string][] = [
+      ...faceIds.map((id, i): [string, string] => [id, `Фасад · Стена ${i + 1}`]),
+      ["draw-top", "Вид сверху"],
+      ...wtIds.map((id, i): [string, string] => [id, `Столешница · Стена ${i + 1}`]),
+      ["draw-section", "Разрез"],
+      ...drillIds.map((id): [string, string] => [id, "Карта сверловки"]),
+      ...passportIds.map((id): [string, string] => [id, ""]),
+    ];
+    const picked = idSections
+      .map(([id, sec]) => ({ el: document.getElementById(id) as unknown as SVGSVGElement | null, sec }))
+      .filter((p): p is { el: SVGSVGElement; sec: string } => !!p.el);
+    const svgs = picked.map(({ el }) => {
+      const vb = el.viewBox.baseVal;
+      const clone = el.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute("width", String(vb.width));
+      clone.setAttribute("height", String(vb.height));
+      return new XMLSerializer().serializeToString(clone);
+    });
+    const sections = picked.map((p) => p.sec);
     const spec = unified.rows.length
       ? {
           columns: ["#", "Деталь", "Материал", "Готовый", "Черновой", "Распил", "Кромка"],
@@ -259,6 +299,14 @@ export function HandoffScreen() {
           }))
         }
       : undefined;
+    const render = sceneApi.current?.captureRenderUrl();
+    const wallCount = new Set(cabs.filter((c) => c.x != null && c.px == null && !c.furniture && c.appliance !== "filler").map((c) => c.run ?? 0)).size;
+    const summary = [
+      { label: "Модулей", value: String(prod?.moduleCount ?? 0) },
+      { label: "Стен", value: String(wallCount || 1) },
+      { label: "Площадь плиты", value: `${prod?.boardM2 ?? 0} м²` },
+      { label: "Деталей", value: String(unifiedCount) },
+    ];
     try {
       const { exportDrawingsPdf } = await import("../model/pdfExport");
       await exportDrawingsPdf({
@@ -271,80 +319,36 @@ export function HandoffScreen() {
         hardware: hw.lines,
         materials,
         svgs,
-      });
-    } catch {
-      flash(t.handoff.tPopup);
-    }
-  };
-  const printCompactPDF = async () => {
-    const ser = (ids: string[]) => ids
-      .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
-      .filter((el): el is SVGSVGElement => !!el)
-      .map((el) => {
-        const vb = el.viewBox.baseVal;
-        const clone = el.cloneNode(true) as SVGSVGElement;
-        clone.setAttribute("width", String(vb.width));
-        clone.setAttribute("height", String(vb.height));
-        return new XMLSerializer().serializeToString(clone);
-      });
-    const drillIds = Array.from(document.querySelectorAll('[id^="draw-drill-"]')).map((e) => e.id);
-    const passportIds = Array.from(document.querySelectorAll('[id^="draw-passport-"]')).map((e) => e.id);
-    const drawings = ser(["draw-face", "draw-top", "draw-wt", "draw-section"]);
-    const drills = ser(drillIds);
-    const passports = ser(passportIds);
-    const spec = unified.rows.length
-      ? {
-          columns: ["#", "Деталь", "Материал", "Готовый", "Черновой", "Распил", "Кромка"],
-          rows: unified.rows.map((r, i) => ({
-            cells: [
-              String(i + 1),
-              r.qty > 1 ? `${r.name} ×${r.qty}` : r.name,
-              coding.matOf(r.materialName, r.t_mm),
-              `${r.l_mm}×${r.w_mm}×${r.t_mm}`,
-              `${r.rohL_mm}×${r.rohW_mm}`,
-              `${r.cutL_mm}×${r.cutW_mm}`,
-              bandsLabel(r.bands),
-            ],
-            bands: r.bands,
-            edgeName: r.edgeName ? coding.edgeOf(r.edgeName) : undefined,
-          }))
-        }
-      : undefined;
-    try {
-      const { exportCompactPdf } = await import("../model/pdfExport");
-      await exportCompactPdf({
-        fileName: `Mebelchi-Ixcham-${project}.pdf`,
-        title: "Mebelchi",
-        project,
-        date: today,
-        partsCount: unifiedCount || undefined,
-        spec,
-        hardware: hw.lines,
-        materials,
-        drawings,
-        drills,
-        passports,
-        svgs: [],
+        sections,
+        render,
+        summary,
       });
     } catch {
       flash(t.handoff.tPopup);
     }
   };
   const printCutPDF = async () => {
-    const ids = ["draw-cut-summary", ...cutPages.map((_, i) => `draw-cut-${i}`)];
-    const svgs = ids
-      .map((id) => document.getElementById(id) as unknown as SVGSVGElement | null)
-      .filter((el): el is SVGSVGElement => !!el)
-      .map((el) => {
-        const vb = el.viewBox.baseVal;
-        const clone = el.cloneNode(true) as SVGSVGElement;
-        clone.setAttribute("width", String(vb.width));
-        clone.setAttribute("height", String(vb.height));
-        return new XMLSerializer().serializeToString(clone);
-      });
+    const idSections: [string, string][] = [
+      ["draw-cut-summary", "Раскрой листов"],
+      ...cutPages.map((p, i): [string, string] => [
+        `draw-cut-${i}`,
+        `Лист ${p.no} · ${p.material}${p.sheet.fromStock ? " · из остатка" : ""} · ${p.sheet.sheetL} × ${p.sheet.sheetW} мм · отходы ${p.sheet.wastePct.toFixed(1)}%`,
+      ]),
+    ];
+    const picked = idSections
+      .map(([id, sec]) => ({ el: document.getElementById(id) as unknown as SVGSVGElement | null, sec }))
+      .filter((p): p is { el: SVGSVGElement; sec: string } => !!p.el);
+    const svgs = picked.map(({ el }) => {
+      const vb = el.viewBox.baseVal;
+      const clone = el.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute("width", String(vb.width));
+      clone.setAttribute("height", String(vb.height));
+      return new XMLSerializer().serializeToString(clone);
+    });
+    const sections = picked.map((p) => p.sec);
     try {
       const { exportDrawingsPdf } = await import("../model/pdfExport");
-      await exportDrawingsPdf({ fileName: `Mebelchi-Раскрой-${project}.pdf`, title: "Раскрой", project, date: today, svgs, noTitle: true });
+      await exportDrawingsPdf({ fileName: `Mebelchi-Раскрой-${project}.pdf`, title: "Раскрой", project, date: today, svgs, sections, noTitle: true });
     } catch {
       flash(t.handoff.tPopup);
     }
@@ -363,7 +367,7 @@ export function HandoffScreen() {
       });
     try {
       const { exportDrawingsPdf } = await import("../model/pdfExport");
-      await exportDrawingsPdf({ fileName: `Mebelchi-Этикетки-${project}.pdf`, title: "Этикетки", project, date: today, svgs, noTitle: true });
+      await exportDrawingsPdf({ fileName: `Mebelchi-Этикетки-${project}.pdf`, title: "Этикетки", project, date: today, svgs, sections: svgs.map(() => "Этикетки"), noTitle: true });
     } catch {
       flash(t.handoff.tPopup);
     }
@@ -400,10 +404,14 @@ export function HandoffScreen() {
         />
       </div>
       <div style={{ position: "absolute", left: -99999, top: 0, width: 1400 }} aria-hidden="true">
-        <DrawingSheet svgId="draw-face" cabs={drawRun.cabs} wallLen={drawRun.wallLen} ceiling={ceiling} numberOf={numberOf} project={project} view="Фасад" date={today} />
-        <TopPlanSheet svgId="draw-top" points={points} cabs={cabs} openings={openings} waterWall={waterWall} layout={layout} numberOf={numberOf} runIds={new Set(drawRun.cabs.map((c) => c.id))} project={project} view="Вид сверху" date={today} />
-        <WorktopSheet svgId="draw-wt" cabs={drawRun.cabs} wallLen={drawRun.wallLen} project={project} view="Столешница" date={today} />
-        <SectionSheet svgId="draw-section" cabs={drawRun.cabs} numberOf={numberOf} project={project} view="Разрез" date={today} />
+        {drawRuns.map((wr, i) => (
+          <DrawingSheet key={`face${i}`} svgId={`draw-face-${i}`} cabs={wr.cabs} wallLen={wr.wallLen} ceiling={ceiling} numberOf={numberOf} project={project} view={`Фасад · Стена ${wr.wallNo}`} date={today} />
+        ))}
+        <TopPlanSheet svgId="draw-top" points={points} cabs={cabs} openings={openings} waterWall={waterWall} layout={layout} numberOf={numberOf} runIds={new Set(drawRuns.flatMap((wr) => wr.cabs).map((c) => c.id))} project={project} view="Вид сверху" date={today} />
+        {drawRuns.map((wr, i) => (
+          <WorktopSheet key={`wt${i}`} svgId={`draw-wt-${i}`} cabs={wr.cabs} wallLen={wr.wallLen} project={project} view={`Столешница · Стена ${wr.wallNo}`} date={today} />
+        ))}
+        {drawRuns[0] && <SectionSheet svgId="draw-section" cabs={drawRuns[0].cabs} numberOf={numberOf} project={project} view="Разрез" date={today} />}
         {drilled.length > 0 && Array.from({ length: Math.max(1, Math.ceil(drillGroups(drilled).length / DRILL_PER_PAGE)) }).map((_, i) => (
           <DrillSheet key={i} svgId={`draw-drill-${i}`} parts={drilled} project={project} date={today} page={i} posOf={posMap} />
         ))}
@@ -420,7 +428,6 @@ export function HandoffScreen() {
       </div>
 
       <button className="ho-download" style={{ marginTop: 18 }} onClick={printPDF} type="button">{t.handoff.dlPdf}</button>
-      <button className="ho-download ho-download-2" onClick={printCompactPDF} type="button">{t.handoff.compactPdf}</button>
       {cutPages.length > 0 && <button className="ho-download ho-download-2" onClick={printCutPDF} type="button">{t.handoff.cutPdf}</button>}
       {labelItems.length > 0 && <button className="ho-download ho-download-2" onClick={printLabelPDF} type="button">{t.handoff.labelPdf}</button>}
 
@@ -460,6 +467,35 @@ export function HandoffScreen() {
       </div>
 
       <button className="ho-download ho-share" onClick={shareFiles} type="button">{t.handoff.share}</button>
+
+      {matOptions.length > 0 && (
+        <>
+          <div className="cost-sec-title">{t.handoff.stockTitle}</div>
+          <div className="ho-stock">
+            <div className="ho-stock-form">
+              <select className="ho-stock-sel" value={stMat || matOptions[0]} onChange={(e) => setStMat(e.target.value)}>
+                {matOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <input className="ho-stock-in" inputMode="numeric" placeholder={t.handoff.stockL} value={stL} onChange={(e) => setStL(e.target.value)} />
+              <input className="ho-stock-in" inputMode="numeric" placeholder={t.handoff.stockW} value={stW} onChange={(e) => setStW(e.target.value)} />
+              <input className="ho-stock-in ho-stock-qty" inputMode="numeric" placeholder={t.handoff.stockQty} value={stQty} onChange={(e) => setStQty(e.target.value)} />
+              <button className="ho-stock-add" onClick={addStock} type="button">{t.handoff.stockAdd}</button>
+            </div>
+            {stockRows.length > 0 && (
+              <div className="ho-stock-list">
+                {stockRows.map((s, i) => (
+                  <div className="ho-stock-item" key={`${s.material}-${s.l}-${s.w}-${i}`}>
+                    <span className="ho-stock-name">{s.material}</span>
+                    <span className="ho-stock-dim">{s.l}×{s.w}{s.qty > 1 ? ` ×${s.qty}` : ""}</span>
+                    <button className="ho-stock-del" onClick={() => removeStock(i)} type="button" aria-label={t.handoff.stockDel}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="ho-stock-hint">{t.handoff.stockHint}</p>
+          </div>
+        </>
+      )}
 
       <div className="cost-sec-title">{t.handoff.cutMap}</div>
       <div className="ho-table">

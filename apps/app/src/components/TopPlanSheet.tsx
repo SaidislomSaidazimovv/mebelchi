@@ -6,17 +6,17 @@ import { cabFootprints, rectCorners, type Foot } from "../model/footprint";
 import { offsetPolygon, polygonBoundsMm, type Pt, type Opening } from "../model/room";
 import type { KitchenLayout } from "../model/runPlan";
 import type { Cabinet } from "../model/cabinet";
+import { moduleLegendItems } from "../model/moduleLegend";
 
 const INK = "#222";
 const DIM = "#444";
-const NUM = "#d98a1e";
+const NUM = "#2e9e6a";
 const WALLFILL = "#e6e6e6";
 
 const L = 820;
 const T = 320;
 const R = 320;
 const DIMBAND = 540;
-const TITLE = 620;
 const SW = 7;
 const FS = 86;
 
@@ -43,8 +43,14 @@ export function TopPlanSheet({ points, cabs, openings, waterWall, layout, number
   const inner = offsetPolygon(points, 100);
   const foots: Foot[] = cabFootprints(cabs, points, waterWall, layout, openings).filter((f) => f.appliance !== "filler");
 
-  const W = L + b.w + R;
-  const H = T + b.h + DIMBAND + TITLE;
+  const legItems = moduleLegendItems(cabs, numberOf);
+  const w0 = 110;
+  const w1 = 820;
+  const w2 = 640;
+  const tblW = w0 + w1 + w2;
+  const tblX = L + b.w + 500;
+  const W = legItems.length ? tblX + tblW + 80 : L + b.w + R;
+  const H = T + b.h + DIMBAND;
   const px = (x: number) => L + (x - b.minX);
   const py = (y: number) => T + (y - b.minY);
 
@@ -153,21 +159,30 @@ export function TopPlanSheet({ points, cabs, openings, waterWall, layout, number
   [b.minY, b.maxY].forEach((y) => els.push(<line key={`ddt${y}`} x1={dimX - 26} y1={py(y)} x2={dimX + 26} y2={py(y)} stroke={DIM} strokeWidth={SW * 0.6} />));
   els.push(<text key="ddx" x={dimX - 34} y={py((b.minY + b.maxY) / 2)} fontSize={FS} fill={DIM} fontWeight={600} textAnchor="middle" transform={`rotate(-90 ${dimX - 34} ${py((b.minY + b.maxY) / 2)})`} fontFamily="Inter, sans-serif">{Math.round(b.h)}</text>);
 
-  // ---- title block (4 cells: brand | project | view | date) ----
-  const tbTop = T + b.h + DIMBAND;
-  const tbMid = tbTop + TITLE * 0.42;
-  const tbm = 40;
-  const cw4 = (W - tbm * 2) / 4;
-  const cellX = (i: number) => tbm + cw4 * i;
-  els.push(<line key="tbline" x1={0} y1={tbTop} x2={W} y2={tbTop} stroke={INK} strokeWidth={SW} />);
-  for (let i = 1; i < 4; i++) els.push(<line key={`tbd${i}`} x1={cellX(i)} y1={tbTop} x2={cellX(i)} y2={H - 230} stroke={INK} strokeWidth={SW * 0.5} />);
-  els.push(<text key="tbbrand" x={cellX(0) + cw4 / 2} y={tbMid + 34} fontSize={128} fontWeight={800} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">Mebelchi</text>);
-  ([["Проект", project], ["Чертёж", view], ["Дата", date]] as [string, string][]).forEach(([top, bot], k) => {
-    const cx = cellX(k + 1) + cw4 / 2;
-    els.push(<text key={`tcs${k}`} x={cx} y={tbMid - 56} fontSize={60} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">{top}</text>);
-    els.push(<text key={`tcb${k}`} x={cx} y={tbMid + 44} fontSize={86} fontWeight={600} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{bot}</text>);
-  });
-  els.push(<text key="tbnote" x={W / 2} y={H - 120} fontSize={56} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">Все размеры в миллиметрах. Перед раскроем проверьте на замере.</text>);
+  // ---- legend table (right side) ----
+  if (legItems.length) {
+    const GRID = "#cfcfca";
+    const rowH = 94;
+    const x0 = tblX;
+    const x1 = tblX + w0;
+    const x2 = tblX + w0 + w1;
+    const x3 = tblX + tblW;
+    const tTop = T;
+    const nR = 1 + legItems.length;
+    els.push(<rect key="lhbg" x={x0} y={tTop} width={tblW} height={rowH} fill="#f3f3f0" />);
+    els.push(<rect key="lout" x={x0} y={tTop} width={tblW} height={rowH * nR} fill="none" stroke={GRID} strokeWidth={SW * 0.6} />);
+    [x1, x2].forEach((x, i) => els.push(<line key={`lgv${i}`} x1={x} y1={tTop} x2={x} y2={tTop + rowH * nR} stroke={GRID} strokeWidth={SW * 0.6} />));
+    for (let r = 1; r < nR; r++) els.push(<line key={`lgh${r}`} x1={x0} y1={tTop + r * rowH} x2={x3} y2={tTop + r * rowH} stroke={GRID} strokeWidth={SW * 0.6} />);
+    els.push(<text key="lth0" x={(x0 + x1) / 2} y={tTop + rowH / 2 + 18} fontSize={46} fontWeight={600} fill={DIM} textAnchor="middle" fontFamily="Inter, sans-serif">№</text>);
+    els.push(<text key="lth1" x={x1 + 30} y={tTop + rowH / 2 + 18} fontSize={46} fontWeight={600} fill={DIM} fontFamily="Inter, sans-serif">Модуль</text>);
+    els.push(<text key="lth2" x={x2 + 30} y={tTop + rowH / 2 + 18} fontSize={46} fontWeight={600} fill={DIM} fontFamily="Inter, sans-serif">Размер, мм</text>);
+    legItems.forEach((it, i) => {
+      const ry = tTop + rowH * (i + 1) + rowH / 2 + 18;
+      els.push(<text key={`lgn${i}`} x={(x0 + x1) / 2} y={ry} fontSize={46} fill={INK} textAnchor="middle" fontFamily="Inter, sans-serif">{it.n}</text>);
+      els.push(<text key={`lgm${i}`} x={x1 + 30} y={ry} fontSize={44} fill={INK} fontFamily="Inter, sans-serif">{it.name}</text>);
+      els.push(<text key={`lgs${i}`} x={x2 + 30} y={ry} fontSize={44} fill={INK} fontFamily="Inter, sans-serif">{it.size}</text>);
+    });
+  }
 
   return (
     <svg id={svgId} viewBox={`0 0 ${W} ${H}`} width="100%" xmlns="http://www.w3.org/2000/svg" style={{ background: "#fff", display: "block" }}>
