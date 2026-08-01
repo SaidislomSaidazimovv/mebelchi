@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
@@ -90,6 +90,14 @@ function cornerArc(p: Panel, cornerId: string, radius: number): {x: number;y: nu
   return out;
 }
 
+function panelThickMm10(p: Panel): number {
+  const AX = ["width", "height", "depth"] as const;
+  const ox = p.orientation?.xAxis;
+  const oy = p.orientation?.yAxis;
+  const thick = ox && oy ? AX.find((a) => a !== ox && a !== oy)! : p.width <= p.height && p.width <= p.depth ? "width" : p.height <= p.depth ? "height" : "depth";
+  return p[thick];
+}
+
 function panelEdges(p: Panel): {id: string;x: number;y: number;z: number;ax: number;ay: number;az: number;ix: number;iy: number;iz: number;len: number;}[] {
   const AX = ["width", "height", "depth"] as const;
   const AXVEC: Record<"width" | "height" | "depth", [number, number, number]> = { width: [1, 0, 0], height: [0, 1, 0], depth: [0, 0, 1] };
@@ -169,9 +177,10 @@ export function Stage3D({
   onApplyNotch,
   appliedNotches,
   onApplyWindow,
-  appliedWindow
+  appliedWindow,
+  panelCuts
 
-}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindow?: {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null;}) {
+}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindow?: {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null;panelCuts?: Record<string, {window?: {w: number;h: number;radius: number;cx: number;cy: number;} | null;rounds?: ReadonlyArray<{cornerId: string;radius: number;}>;notches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;}>;chamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;}>;}) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [overlayPos, setOverlayPos] = useState<{x: number;y: number;} | null>(null);
   const [annPos, setAnnPos] = useState<Record<string, {x: number;y: number;}>>({});
@@ -331,6 +340,44 @@ export function Stage3D({
     controls.update();
   };
 
+  const frameModel = (reposition: boolean) => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+    const ps = panelsRef.current;
+    const box = new THREE.Box3();
+    if (ps && ps.length) {
+      for (const p of ps) {
+        const cx = mm10ToMeters(p.x + p.width / 2 - MID_X);
+        const cy = mm10ToMeters(p.y + p.height / 2);
+        const cz = mm10ToMeters(p.z + p.depth / 2 - MID_Z);
+        const r = mm10ToMeters(Math.hypot(p.width, p.height, p.depth) / 2);
+        box.expandByPoint(new THREE.Vector3(cx - r, cy - r, cz - r));
+        box.expandByPoint(new THREE.Vector3(cx + r, cy + r, cz + r));
+      }
+    } else {
+      box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
+    }
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 0.05);
+    controls.target.copy(center);
+    controls.minDistance = 0.03;
+    controls.maxDistance = radius * 8;
+    if (reposition) {
+      const dir = new THREE.Vector3(0.8, 0.5, 1.8).normalize();
+      const dist = radius / Math.sin(22.5 * Math.PI / 180) * 1.1;
+      camera.position.copy(center).addScaledVector(dir, dist);
+      camera.lookAt(center);
+    }
+    controls.update();
+  };
+
+  const panelIdsKey = panels.map((p) => p.id).join(",");
+  useEffect(() => {
+    if (dragRef.current || gizmoDraggingRef.current) return;
+    frameModel(false);
+  }, [panelIdsKey]);
+
   const [targetKind, setTargetKind] = useState<"corners" | "edges" | "notches" | "windows">("corners");
 
   const pins = showTargets && selectedPanel && targetKind === "corners" ? panelCorners(selectedPanel) : [];
@@ -407,6 +454,48 @@ export function Stage3D({
     return 270;
   };
 
+  const roundHandle = (() => {
+    if (!round || !pickedPin || !selectedPanel) return null;
+    const corner = panelCorners(selectedPanel).find((c) => c.id === pickedPin);
+    if (!corner) return null;
+    const f = panelFace(selectedPanel);
+    const fcx = f.ox + f.uax * f.w / 2 + f.ubx * f.h / 2;
+    const fcy = f.oy + f.uay * f.w / 2 + f.uby * f.h / 2;
+    const fcz = f.oz + f.uaz * f.w / 2 + f.ubz * f.h / 2;
+    let dx = fcx - corner.x,dy = fcy - corner.y,dz = fcz - corner.z;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    dx /= len;dy /= len;dz /= len;
+    const off = Math.max(round.radius, 300);
+    return { x: corner.x + dx * off, y: corner.y + dy * off, z: corner.z + dz * off, dx, dy, dz };
+  })();
+  const roundHandleRef = useRef(roundHandle);
+  roundHandleRef.current = roundHandle;
+
+  const startRoundHandleDrag = (ev0: ReactPointerEvent) => {
+    ev0.preventDefault();
+    ev0.stopPropagation();
+    const rh = roundHandleRef.current;
+    if (!rh) return;
+    const LEN = 1000;
+    const p0 = projectMm10(rh.x, rh.y, rh.z);
+    const p1 = projectMm10(rh.x + rh.dx * LEN, rh.y + rh.dy * LEN, rh.z + rh.dz * LEN);
+    if (!p0 || !p1) return;
+    const sdx = p1.x - p0.x,sdy = p1.y - p0.y;
+    const slen = Math.hypot(sdx, sdy);
+    if (slen < 0.01) return;
+    const ux = sdx / slen,uy = sdy / slen,scale = slen / LEN;
+    const startX = ev0.clientX,startY = ev0.clientY;
+    const startR = roundRef.current?.radius ?? 0;
+    const onMove = (ev: PointerEvent) => {
+      const mv = ((ev.clientX - startX) * ux + (ev.clientY - startY) * uy) / scale;
+      const nr = Math.max(0, roundMm10(startR + mv));
+      setRound((r) => r ? { ...r, radius: nr } : r);
+    };
+    const onUp = () => {window.removeEventListener("pointermove", onMove);window.removeEventListener("pointerup", onUp);};
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
   const edges = showTargets && selectedPanel && (targetKind === "edges" || targetKind === "notches") ? panelEdges(selectedPanel) : [];
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
@@ -449,6 +538,64 @@ export function Stage3D({
     if (c) onApplyChamferRef.current?.(c.edges, 0, 0);
     setChamfer(null);
   };
+
+  const chamferHandle = (() => {
+    if (!chamfer || !pickedEdge || !selectedPanel) return null;
+    const e = edges.find((x) => x.id === pickedEdge);
+    if (!e) return null;
+    const off = Math.max(chamfer.width + 700, 900);
+    return { x: e.x + e.ix * off, y: e.y + e.iy * off, z: e.z + e.iz * off, dx: e.ix, dy: e.iy, dz: e.iz };
+  })();
+  const chamferHandleRef = useRef(chamferHandle);
+  chamferHandleRef.current = chamferHandle;
+
+  const chamferDepthHandle = (() => {
+    if (!chamfer || !pickedEdge || !selectedPanel) return null;
+    const e = edges.find((x) => x.id === pickedEdge);
+    if (!e) return null;
+    let nx = e.ay * e.iz - e.az * e.iy;
+    let ny = e.az * e.ix - e.ax * e.iz;
+    let nz = e.ax * e.iy - e.ay * e.ix;
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    nx /= nl;ny /= nl;nz /= nl;
+    const cam = cameraRef.current;
+    if (cam) {
+      const look = cam.getWorldDirection(new THREE.Vector3());
+      if (nx * look.x + ny * look.y + nz * look.z > 0) {nx = -nx;ny = -ny;nz = -nz;}
+    }
+    const off = Math.max(chamfer.depth + 700, 900);
+    return { x: e.x + nx * off, y: e.y + ny * off, z: e.z + nz * off, dx: nx, dy: ny, dz: nz };
+  })();
+  const chamferDepthHandleRef = useRef(chamferDepthHandle);
+  chamferDepthHandleRef.current = chamferDepthHandle;
+
+  const dragChamferHandle = (ev0: ReactPointerEvent, ref: typeof chamferHandleRef, depth: boolean) => {
+    ev0.preventDefault();
+    ev0.stopPropagation();
+    const ch = ref.current;
+    if (!ch) return;
+    const LEN = 1000;
+    const p0 = projectMm10(ch.x, ch.y, ch.z);
+    const p1 = projectMm10(ch.x + ch.dx * LEN, ch.y + ch.dy * LEN, ch.z + ch.dz * LEN);
+    if (!p0 || !p1) return;
+    const sdx = p1.x - p0.x,sdy = p1.y - p0.y;
+    const slen = Math.hypot(sdx, sdy);
+    if (slen < 0.01) return;
+    const ux = sdx / slen,uy = sdy / slen,scale = slen / LEN;
+    const startX = ev0.clientX,startY = ev0.clientY;
+    const startV = (depth ? chamferRef.current?.depth : chamferRef.current?.width) ?? 0;
+    const maxDepth = depth && selectedPanel ? panelThickMm10(selectedPanel) : Infinity;
+    const onMove = (ev: PointerEvent) => {
+      const mv = ((ev.clientX - startX) * ux + (ev.clientY - startY) * uy) / scale;
+      const nv = Math.min(maxDepth, Math.max(0, roundMm10(startV + mv)));
+      setChamfer((c) => c ? depth ? { ...c, depth: nv } : { ...c, width: nv } : c);
+    };
+    const onUp = () => {window.removeEventListener("pointermove", onMove);window.removeEventListener("pointerup", onUp);};
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+  const startChamferHandleDrag = (ev0: ReactPointerEvent) => dragChamferHandle(ev0, chamferHandleRef, false);
+  const startChamferDepthDrag = (ev0: ReactPointerEvent) => dragChamferHandle(ev0, chamferDepthHandleRef, true);
 
   const edgeMachining = (eid: string): {width: number;depth: number;} | null => {
     if (chamfer && chamfer.edges.includes(eid)) return { width: chamfer.width, depth: chamfer.depth };
@@ -1082,9 +1229,7 @@ export function Stage3D({
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
 
-    camera.position.set(0.8, 0.5, 1.8);
-    controls.target.set(0, 0, 0);
-    controls.update();
+    frameModel(true);
 
     const resize = () => {
       const w = mount.clientWidth;
@@ -1162,6 +1307,29 @@ export function Stage3D({
     };
   }, []);
 
+  const panelCutsLive = useMemo(() => {
+    if (!selectedPanelId) return panelCuts;
+    const base = panelCuts?.[selectedPanelId] ?? {};
+    const roundsMap = new Map((base.rounds ?? []).map((r) => [r.cornerId, r.radius] as [string, number]));
+    if (round) for (const c of round.corners) roundsMap.set(c, round.radius);
+    const chamMap = new Map((base.chamfers ?? []).map((c) => [c.edgeId, { width: c.width, depth: c.depth }] as [string, {width: number;depth: number;}]));
+    if (chamfer) for (const e of chamfer.edges) chamMap.set(e, { width: chamfer.width, depth: chamfer.depth });
+    const notchMap = new Map((base.notches ?? []).map((n) => [n.edgeId, { edgeId: n.edgeId, width: n.width, depth: n.depth, radius: n.radius, pos: n.pos }] as [string, {edgeId: string;width: number;depth: number;radius: number;pos: number;}]));
+    if (notch) notchMap.set(notch.edgeId, { edgeId: notch.edgeId, width: notch.width, depth: notch.depth, radius: notch.radius, pos: notch.pos });
+    const windowCut = win ? { w: win.w, h: win.h, radius: win.radius, cx: win.cx, cy: win.cy } : base.window ?? null;
+    return {
+      ...panelCuts ?? {},
+      [selectedPanelId]: {
+        rounds: [...roundsMap].map(([cornerId, radius]) => ({ cornerId, radius })),
+        chamfers: [...chamMap].map(([edgeId, val]) => ({ edgeId, width: val.width, depth: val.depth })),
+        notches: [...notchMap.values()],
+        window: windowCut
+      }
+    };
+  }, [panelCuts, selectedPanelId, round, chamfer, notch, win]);
+
+  const geoCacheRef = useRef(new Map<string, {key: string;geo: THREE.BufferGeometry;edgesGeo: THREE.BufferGeometry;}>());
+
   useEffect(() => {
     const scene = sceneRef.current;
     const transformControls = transformRef.current;
@@ -1174,7 +1342,7 @@ export function Stage3D({
       groupRef.current = null;
     }
 
-    const group = buildBlockGroup(panels, holes, selectedPanelId);
+    const group = buildBlockGroup(panels, holes, selectedPanelId, panelCutsLive, geoCacheRef.current);
 
     for (const h of handles ?? []) {
       const isOn = h.id === selectedHandleId;
@@ -1232,7 +1400,7 @@ export function Stage3D({
     const target = selectedPanelId ? group.children.find((c) => c.name === selectedPanelId) : undefined;
     if (target && !showTargets) transformControls.attach(target);else
     transformControls.detach();
-  }, [panels, holes, selectedPanelId, envelope, handles, selectedHandleId, showTargets]);
+  }, [panels, holes, selectedPanelId, envelope, handles, selectedHandleId, showTargets, panelCutsLive]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -1342,6 +1510,12 @@ export function Stage3D({
       for (const h of winHandlesRef.current) project(`__wh_${h.id}__`, h.x, h.y, h.z);
       const wpin = winPinRef.current;
       if (wpin) project("__winpin__", wpin.x, wpin.y, wpin.z);
+      const rh = roundHandleRef.current;
+      if (rh) project("__rh__", rh.x, rh.y, rh.z);
+      const chh = chamferHandleRef.current;
+      if (chh) project("__ch__", chh.x, chh.y, chh.z);
+      const cdh = chamferDepthHandleRef.current;
+      if (cdh) project("__cd__", cdh.x, cdh.y, cdh.z);
       setAnnPos(next);
       frame = requestAnimationFrame(tick);
     };
@@ -1782,13 +1956,14 @@ export function Stage3D({
       {notchHandles.map((h) => {
         const p = annPos[`__nh_${h.id}__`];
         if (!p) return null;
+        const locked = h.id === "left" && notch?.lockL || h.id === "right" && notch?.lockR;
         return (
           <button
             key={h.id}
             className={`notch-handle nh-${h.id}`}
-            style={{ left: p.x, top: p.y }}
+            style={{ left: p.x, top: p.y, opacity: locked ? 0.4 : 1 }}
             onPointerDown={(e) => startNotchDrag(e, h.id)}
-            title={h.id === "left" ? "Левая сторона" : h.id === "right" ? "Правая сторона" : h.id === "depth" ? "Глубина" : "Двигать вырез"}>
+            title={locked ? "Заблокировано" : h.id === "left" ? "Левая сторона" : h.id === "right" ? "Правая сторона" : h.id === "depth" ? "Глубина" : "Двигать вырез"}>
 
             {h.id === "left" ? "◀" : h.id === "right" ? "▶" : h.id === "depth" ? "▲" : "↔"}
           </button>);
@@ -1847,6 +2022,42 @@ export function Stage3D({
           </button>);
 
       })}
+      {roundHandle && annPos["__rh__"] &&
+      <button
+        className="round-handle"
+        style={{ left: annPos["__rh__"].x, top: annPos["__rh__"].y }}
+        onPointerDown={startRoundHandleDrag}
+        title="Радиус — тяните">
+
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+            <path d="M19 7 A12 12 0 0 0 7 19" />
+          </svg>
+        </button>
+      }
+      {chamferHandle && annPos["__ch__"] &&
+      <button
+        className="chamfer-handle"
+        style={{ left: annPos["__ch__"].x, top: annPos["__ch__"].y }}
+        onPointerDown={startChamferHandleDrag}
+        title="Ширина — тяните">
+
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 8 H14 V14 H20" />
+          </svg>
+        </button>
+      }
+      {chamferDepthHandle && annPos["__cd__"] &&
+      <button
+        className="chamfer-handle depth"
+        style={{ left: annPos["__cd__"].x, top: annPos["__cd__"].y }}
+        onPointerDown={startChamferDepthDrag}
+        title="Глубина — тяните">
+
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="5" />
+          </svg>
+        </button>
+      }
       {selectedPanel &&
       <div className="floating-dims-card" style={{ position: "absolute", top: "16px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "12px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", border: "1px solid #e5e7eb", display: "flex", gap: "24px", zIndex: 10 }}>
           <div className="float-field">

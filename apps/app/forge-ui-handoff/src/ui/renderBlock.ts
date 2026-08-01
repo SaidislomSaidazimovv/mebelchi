@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { mm10ToMeters } from "../contract/types";
 import type { Panel, Hole } from "../contract/types";
 import { ldspMaterial, edgeMaterial, hdfMaterial } from "./materials";
@@ -11,10 +12,150 @@ const BOX_FACES = {
   z: { max: 4, min: 5 }
 } as const;
 
+type PanelCuts = {
+  window?: {w: number;h: number;radius: number;cx: number;cy: number;} | null;
+  rounds?: ReadonlyArray<{cornerId: string;radius: number;}>;
+  notches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;}>;
+  chamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;
+};
+
+function facePoints(x0: number, x1: number, y0: number, y1: number, cuts: PanelCuts): THREE.Vector2[] {
+  const W = x1 - x0,H = y1 - y0;
+  const radOf = (id: string) => {
+    const r = (cuts.rounds ?? []).find((x) => x.cornerId === id);
+    return r && r.radius > 0 ? Math.min(mm10ToMeters(r.radius), W / 2, H / 2) : 0;
+  };
+  const nOf = (id: string) => {
+    const n = (cuts.notches ?? []).find((x) => x.edgeId === id && x.width > 0);
+    return n ? { w: mm10ToMeters(n.width), d: mm10ToMeters(n.depth), pos: mm10ToMeters(n.pos), rr: Math.max(0, Math.min(mm10ToMeters(n.radius), mm10ToMeters(n.width) / 2, mm10ToMeters(n.depth))) } : null;
+  };
+  const rBL = radOf("c00"),rBR = radOf("c10"),rTR = radOf("c11"),rTL = radOf("c01");
+  const P: THREE.Vector2[] = [];
+  const v = (x: number, y: number) => P.push(new THREE.Vector2(x, y));
+  const carc = (cx: number, cy: number, r: number, a0: number, a1: number) => {
+    const N = 6;
+    for (let i = 1; i <= N; i++) {const a = a0 + (a1 - a0) * (i / N);v(cx + r * Math.cos(a), cy + r * Math.sin(a));}
+  };
+  const dent = (n: {w: number;d: number;pos: number;rr: number;}, map: (a: number, i: number) => [number, number], entry: number, exit: number) => {
+    const dir = Math.sign(exit - entry) || 1;
+    const d = n.d,rr = Math.min(n.rr, Math.abs(exit - entry) / 2);
+    const pt = (a: number, i: number) => {const m = map(a, i);v(m[0], m[1]);};
+    const parc = (ca: number, ci: number, t0: number, t1: number) => {
+      const N = 4;
+      for (let i = 1; i <= N; i++) {const t = t0 + (t1 - t0) * (i / N);const m = map(ca + rr * Math.cos(t), ci + rr * Math.sin(t));v(m[0], m[1]);}
+    };
+    pt(entry, 0);
+    pt(entry, d - rr);
+    if (rr > 0) parc(entry + dir * rr, d - rr, dir > 0 ? Math.PI : 0, Math.PI / 2);
+    pt(exit - dir * rr, d);
+    if (rr > 0) parc(exit - dir * rr, d - rr, Math.PI / 2, dir > 0 ? 0 : Math.PI);
+    pt(exit, 0);
+  };
+  v(x0 + rBL, y0);
+  const n0 = nOf("e0");
+  if (n0) dent(n0, (a, i) => [a, y0 + i], n0.pos - n0.w / 2, n0.pos + n0.w / 2);
+  v(x1 - rBR, y0);
+  if (rBR > 0) carc(x1 - rBR, y0 + rBR, rBR, -Math.PI / 2, 0);
+  const n3 = nOf("e3");
+  if (n3) dent(n3, (a, i) => [x1 - i, a], n3.pos - n3.w / 2, n3.pos + n3.w / 2);
+  v(x1, y1 - rTR);
+  if (rTR > 0) carc(x1 - rTR, y1 - rTR, rTR, 0, Math.PI / 2);
+  const n1 = nOf("e1");
+  if (n1) dent(n1, (a, i) => [a, y1 - i], n1.pos + n1.w / 2, n1.pos - n1.w / 2);
+  v(x0 + rTL, y1);
+  if (rTL > 0) carc(x0 + rTL, y1 - rTL, rTL, Math.PI / 2, Math.PI);
+  const n2 = nOf("e2");
+  if (n2) dent(n2, (a, i) => [x0 + i, a], n2.pos + n2.w / 2, n2.pos - n2.w / 2);
+  v(x0, y0 + rBL);
+  if (rBL > 0) carc(x0 + rBL, y0 + rBL, rBL, Math.PI, Math.PI * 1.5);
+  return P;
+}
+
+function shapeWithHole(pts: THREE.Vector2[], cuts: PanelCuts): THREE.Shape {
+  const shape = new THREE.Shape(pts);
+  const win = cuts.window;
+  if (win && win.w > 0 && win.h > 0) {
+    const wW = mm10ToMeters(win.w),wH = mm10ToMeters(win.h);
+    const hole = new THREE.Path();
+    roundedRectPath(hole, mm10ToMeters(win.cx) - wW / 2, mm10ToMeters(win.cy) - wH / 2, wW, wH, mm10ToMeters(win.radius));
+    shape.holes.push(hole);
+  }
+  return shape;
+}
+
+function faceAxes(p: Panel): {fa: "width" | "height" | "depth";fb: "width" | "height" | "depth";thick: "width" | "height" | "depth";} {
+  const AX = ["width", "height", "depth"] as const;
+  const ox = p.orientation?.xAxis;
+  const oy = p.orientation?.yAxis;
+  const thick = ox && oy ? AX.find((a) => a !== ox && a !== oy)! : p.width <= p.height && p.width <= p.depth ? "width" : p.height <= p.depth ? "height" : "depth";
+  const face = AX.filter((a) => a !== thick);
+  return { fa: face[0]!, fb: face[1]!, thick };
+}
+
+function roundedRectPath(path: THREE.Path, x: number, y: number, w: number, h: number, r: number): void {
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+  path.moveTo(x + rr, y);
+  path.lineTo(x + w - rr, y);
+  if (rr > 0) path.absarc(x + w - rr, y + rr, rr, -Math.PI / 2, 0, false);
+  path.lineTo(x + w, y + h - rr);
+  if (rr > 0) path.absarc(x + w - rr, y + h - rr, rr, 0, Math.PI / 2, false);
+  path.lineTo(x + rr, y + h);
+  if (rr > 0) path.absarc(x + rr, y + h - rr, rr, Math.PI / 2, Math.PI, false);
+  path.lineTo(x, y + rr);
+  if (rr > 0) path.absarc(x + rr, y + rr, rr, Math.PI, Math.PI * 1.5, false);
+}
+
+function buildExtrudeGeometry(p: Panel, cuts: PanelCuts): THREE.BufferGeometry {
+  const { fa, fb, thick } = faceAxes(p);
+  const faE = Math.max(mm10ToMeters(p[fa]), 0.001);
+  const fbE = Math.max(mm10ToMeters(p[fb]), 0.001);
+  const thickE = Math.max(mm10ToMeters(p[thick]), 0.001);
+  const chamfers = (cuts.chamfers ?? []).filter((c) => c.width > 0 && c.depth > 0);
+  const EX = { depth: thickE, bevelEnabled: false, steps: 1 };
+
+  let geo: THREE.BufferGeometry;
+  if (chamfers.length === 0) {
+    geo = new THREE.ExtrudeGeometry(shapeWithHole(facePoints(0, faE, 0, fbE, cuts), cuts), EX);
+  } else {
+    const D = Math.min(thickE * 0.98, Math.max(...chamfers.map((c) => mm10ToMeters(c.depth))));
+    const insetOf = (id: string, maxE: number) => {
+      const c = chamfers.find((x) => x.edgeId === id);
+      return c ? Math.min(mm10ToMeters(c.width), maxE * 0.45) : 0;
+    };
+    const iL = insetOf("e2", faE),iR = insetOf("e3", faE),iB = insetOf("e0", fbE),iT = insetOf("e1", fbE);
+    const low = new THREE.ExtrudeGeometry(shapeWithHole(facePoints(0, faE, 0, fbE, cuts), cuts), { depth: thickE - D, bevelEnabled: false, steps: 1 });
+    const up = new THREE.ExtrudeGeometry(shapeWithHole(facePoints(iL, faE - iR, iB, fbE - iT, cuts), cuts), { depth: D, bevelEnabled: false, steps: 1 });
+    up.translate(0, 0, thickE - D);
+    const merged = mergeGeometries([low, up], false);
+    geo = merged ?? low;
+    if (merged) {low.dispose();up.dispose();}
+  }
+  geo.translate(-faE / 2, -fbE / 2, -thickE / 2);
+  const AXVEC: Record<string, [number, number, number]> = { width: [1, 0, 0], height: [0, 1, 0], depth: [0, 0, 1] };
+  const ua = new THREE.Vector3(...AXVEC[fa]);
+  const ub = new THREE.Vector3(...AXVEC[fb]);
+  const n = new THREE.Vector3().crossVectors(ua, ub);
+  geo.applyMatrix4(new THREE.Matrix4().makeBasis(ua, ub, n));
+  return geo;
+}
+
+function hasAnyCut(c: PanelCuts | undefined): boolean {
+  if (!c) return false;
+  if (c.window && c.window.w > 0 && c.window.h > 0) return true;
+  if (c.rounds && c.rounds.some((r) => r.radius > 0)) return true;
+  if (c.notches && c.notches.some((n) => n.width > 0)) return true;
+  if (c.chamfers && c.chamfers.some((x) => x.width > 0 && x.depth > 0)) return true;
+  return false;
+}
+
+type GeoCacheEntry = {key: string;geo: THREE.BufferGeometry;edgesGeo: THREE.BufferGeometry;};
+
 export function buildBlockGroup(
 panels: Panel[],
 holes: Hole[],
-selectedPanelId: string | null)
+selectedPanelId: string | null,
+cutsById?: Record<string, PanelCuts>,
+geoCache?: Map<string, GeoCacheEntry>)
 : THREE.Group {
   const group = new THREE.Group();
   const ldspMat = ldspMaterial();
@@ -39,12 +180,35 @@ selectedPanelId: string | null)
     const h = Math.max(mm10ToMeters(p.height), 0.001);
     const d = Math.max(mm10ToMeters(p.depth), 0.001);
 
-    const geometry = new THREE.BoxGeometry(w, h, d);
+    const isSelected = p.id === selectedPanelId;
+    const pcut = cutsById?.[p.id];
+    const cut = hasAnyCut(pcut);
+    let geometry: THREE.BufferGeometry;
+    let edgesGeo: THREE.BufferGeometry;
+    if (cut) {
+      const key = JSON.stringify(pcut);
+      const cached = geoCache?.get(p.id);
+      if (cached && cached.key === key) {
+        geometry = cached.geo;
+        edgesGeo = cached.edgesGeo;
+      } else {
+        geometry = buildExtrudeGeometry(p, pcut!);
+        edgesGeo = new THREE.EdgesGeometry(geometry);
+        if (geoCache) {
+          if (cached) {cached.geo.dispose();cached.edgesGeo.dispose();}
+          geoCache.set(p.id, { key, geo: geometry, edgesGeo });
+        }
+      }
+    } else {
+      const cached = geoCache?.get(p.id);
+      if (cached) {cached.geo.dispose();cached.edgesGeo.dispose();geoCache?.delete(p.id);}
+      geometry = new THREE.BoxGeometry(w, h, d);
+      edgesGeo = new THREE.EdgesGeometry(geometry);
+    }
     const px = mm10ToMeters(p.x + p.width / 2 - midX);
     const py = mm10ToMeters(p.y + p.height / 2);
     const pz = mm10ToMeters(p.z + p.depth / 2 - midZ);
 
-    const isSelected = p.id === selectedPanelId;
     const baseMat = p.material === "hdf" ? hdfMat : ldspMat;
     const meshMat = isSelected ? selectedMaterial : baseMat;
     const edgeMatToUse = isSelected ? selectedEdgeMaterial : edge;
@@ -58,7 +222,7 @@ selectedPanelId: string | null)
     };
 
     let faceMaterials: THREE.Material | THREE.Material[] = meshMat;
-    if (p.bands && p.orientation && !isSelected) {
+    if (p.bands && p.orientation && !isSelected && !cut) {
       const mats: THREE.Material[] = [meshMat, meshMat, meshMat, meshMat, meshMat, meshMat];
       const xf = BOX_FACES[RENDER_AXIS[p.orientation.xAxis]];
       const yf = BOX_FACES[RENDER_AXIS[p.orientation.yAxis]];
@@ -78,7 +242,7 @@ selectedPanelId: string | null)
     mesh.castShadow = true;
     mesh.receiveShadow = true;
 
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edgeMatToUse);
+    const edges = new THREE.LineSegments(edgesGeo, edgeMatToUse);
     edges.position.set(px, py, pz);
     if (p.rx) edges.rotation.x = p.rx;
     if (p.ry) edges.rotation.y = p.ry;
