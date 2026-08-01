@@ -118,7 +118,14 @@ Faqat `src/ui/Stage3D.tsx` (+ `MeasureChip`/`Numpad`/`measure` qayta ishlatildi;
 - Qarorlar (founder tasdiqladi): rejim kerak(ha), chip=ko'k(measure.ts, o'q-rangli emas), 90°(ha), pona(ha).
 - Barmoq-test: Поворот→halqa→ko'k «-3/8°»+pona→numpad→90→`drop … ry=90°`. typecheck+build toza. Pona kichik burchakda ingichka, 90°da chorak-doira.
 
+## ✅ F4 · TARGET-PIN — BAJARILDI + BARMOQ-TEST (2026-08-01), commit qilinmagan
+`src/ui/Stage3D.tsx` + `styles.css` (.target-pin → [⬡⊕] pill) + `src/harness/Harness.tsx` (3-rejim «Модификатор»).
+- Yangi proplar `showTargets?`, `onPickTarget?`. `panelCorners(p)` (modul fn) — asosiy yuzning 4 burchagi (orientation.xAxis×yAxis; 3-o'q=qalinlik; qalinlik o'rtasida; rx/ry/rz aylantirilgan; orientation yo'q→eng ingichka=qalinlik).
+- Pinlar DOM tugma (chip kabi proyeksiya), bosilsa → onPickTarget(burchak) + ⊕ yashil. Modifikator rejimda gizmo DETACH, handle yashirin.
+- Barmoq-test: Модификатор→4 pin (⬡+⊕)→click→«target c00»+1 pin .on→qaytish→pin yo'q. typecheck+build toza.
+- Pinlar = F5/F03/F6/F7 muharrirlariга **KIRISH** (hozir faqat tanlaydi; muharrir keyingi). Kichik: orqa-burchak pin dims-kartaga tegishi mumkin.
+
 VAZIFALAR (README «Что плохо», muhimlik): 1)🔴 F6/F7 kesim tutqichlari 3Dда sudralsin (eng katta);
-2)✅ jonli yashil chip (F1 — BAJARILDI); 3)🟡 kichik panelда kub↔o'q hamma o'lchamда sinalsin (P2);
-4)🔴 F4 nishon-pin ikonografiyasi (⬡⊕); 5)✅ sudrab-burish (F3 — BAJARILDI). +F2 RESIZE BAJARILDI.
-Endi qolgan asosiy: F4 nishon-pin → F5 chamfer/F03 round → F6/F7 kesim (eng katta) → #3 kichik-panel sinovi.
+2)✅ jonli yashil chip (F1); 3)🟡 kichik panelда kub↔o'q hamma o'lchamда sinalsin (P2);
+4)✅ F4 nishon-pin (⬡⊕ — BAJARILDI); 5)✅ sudrab-burish (F3). +F2 RESIZE +F4 BAJARILDI.
+Qolgan: F5 chamfer/F03 round (pin→muharrir) → F6/F7 kesim (eng katta) → #3 kichik-panel sinovi.

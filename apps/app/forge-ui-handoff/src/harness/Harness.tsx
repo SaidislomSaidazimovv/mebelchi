@@ -39,7 +39,7 @@ export function Harness() {
   const [panels, setPanels] = useState<Panel[]>(START);
   const [selectedId, setSelectedId] = useState<string | null>("P1");
   const [selectedSide, setSelectedSide] = useState<string | null>(null);
-  const [mode, setMode] = useState<"translate" | "rotate">("translate");
+  const [mode, setMode] = useState<"translate" | "rotate" | "modifier">("translate");
   const [log, setLog] = useState<string[]>([]);
 
   const say = (m: string) => setLog((l) => [m, ...l].slice(0, 14));
@@ -100,7 +100,9 @@ export function Harness() {
           }}
           onLiveDragPanel={(id, x, y, z) => { move(id, x, y, z); say(`live ${id} → ${mm10ToMm(x)}мм`); }}
           onUpdateDim={() => {}}
-          transformMode={mode}
+          transformMode={mode === "rotate" ? "rotate" : "translate"}
+          showTargets={mode === "modifier"}
+          onPickTarget={(c) => say(`target ${c}`)}
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}
           handles={mode === "translate" ? handles : []}
@@ -126,6 +128,8 @@ export function Harness() {
                 onClick={() => setMode("translate")}>↔ Двигать / размер</button>
               <button className={`forge-chip ${mode === "rotate" ? "on" : ""}`}
                 onClick={() => { setMode("rotate"); setSelectedSide(null); }}>⟳ Поворот</button>
+              <button className={`forge-chip ${mode === "modifier" ? "on" : ""}`}
+                onClick={() => { setMode("modifier"); setSelectedSide(null); }}>⬡ Модификатор</button>
             </div>
             <div className="forge-note">
               «маленькая» — специально мелкая: именно на таких кубики граней и стрелки

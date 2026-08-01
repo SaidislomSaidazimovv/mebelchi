@@ -869,22 +869,38 @@ details.controls-section.separator {
 .controls-card .forge-ro-row { font-size: 11px; }
 .controls-card .row-title { font-size: 9.5px; }
 
-/* the "+" affordances that appear after a tool is armed (F4-01) */
+/* F4 target-pins: a [⬡ ⊕] pill floated at a main-face corner (F4-01) */
 .target-pin {
-  width: 26px;
-  height: 26px;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 4px 3px 5px;
   border-radius: 999px;
-  border: 2px solid #ffffff;
+  border: 1.5px solid #d5dae1;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(27, 36, 48, 0.22);
+  cursor: pointer;
+  z-index: 11;
+}
+.target-pin .tp-hex { width: 20px; height: 20px; display: block; }
+.target-pin .tp-plus {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
   background: #2f8bff;
   color: #ffffff;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   line-height: 1;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(27, 36, 48, 0.28);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-
-.target-pin:hover { background: #1d4ed8; transform: scale(1.12); }
+.target-pin:hover { border-color: #9fb6d8; transform: translate(-50%, -50%) scale(1.06); }
+.target-pin.on { border-color: #2f8bff; background: #eff6ff; }
+.target-pin.on .tp-plus { background: #16a34a; }
 
 /* harness only — not part of the real app */
 .harness-log { display: flex; flex-direction: column; gap: 2px; }

@@ -21,6 +21,44 @@ export interface SideHandle {
 const MID_X = 3000;
 const MID_Z = 2800;
 
+/**
+ * The four corners of a panel's MAIN face — the face `orientation` names (width→X,
+ * height→Y, depth→Z), the remaining axis being the profile thickness — taken at
+ * mid-thickness. These are what a corner modifier (round / chamfer) would attach to.
+ * With no orientation the thinnest extent is assumed to be the thickness.
+ */
+function panelCorners(p: Panel): { id: string; x: number; y: number; z: number }[] {
+  const AX = ["width", "height", "depth"] as const;
+  const ox = p.orientation?.xAxis;
+  const oy = p.orientation?.yAxis;
+  const thick = ox && oy
+    ? AX.find((a) => a !== ox && a !== oy)!
+    : p.width <= p.height && p.width <= p.depth ? "width"
+      : p.height <= p.depth ? "height" : "depth";
+  const face = AX.filter((a) => a !== thick);
+  const fa = face[0]!;
+  const fb = face[1]!;
+  const lo = { width: p.x, height: p.y, depth: p.z };
+  const hi = { width: p.x + p.width, height: p.y + p.height, depth: p.z + p.depth };
+  const ctr = { width: p.x + p.width / 2, height: p.y + p.height / 2, depth: p.z + p.depth / 2 };
+  const euler = (p.rx || p.ry || p.rz) ? new THREE.Euler(p.rx || 0, p.ry || 0, p.rz || 0) : null;
+  const out: { id: string; x: number; y: number; z: number }[] = [];
+  for (const sa of [0, 1]) {
+    for (const sb of [0, 1]) {
+      const pos = { width: ctr.width, height: ctr.height, depth: ctr.depth };
+      pos[fa] = sa ? hi[fa] : lo[fa];
+      pos[fb] = sb ? hi[fb] : lo[fb];
+      let cx = pos.width, cy = pos.height, cz = pos.depth;
+      if (euler) {
+        const v = new THREE.Vector3(cx - ctr.width, cy - ctr.height, cz - ctr.depth).applyEuler(euler);
+        cx = ctr.width + v.x; cy = ctr.height + v.y; cz = ctr.depth + v.z;
+      }
+      out.push({ id: `c${sa}${sb}`, x: cx, y: cy, z: cz });
+    }
+  }
+  return out;
+}
+
 export function Stage3D({
   panels,
   holes,
@@ -40,6 +78,8 @@ export function Stage3D({
   overlays,
   rotationGizmo,
   groundY_mm10 = 0,
+  showTargets = false,
+  onPickTarget,
 }: {
   panels: Panel[];
   holes: Hole[];
@@ -101,6 +141,9 @@ export function Stage3D({
    * Horizontal moves ignore it — they read as travel from the drag's start.
    */
   groundY_mm10?: number;
+  /** F4: show the ⬡⊕ corner target-pins — the entry to a corner modifier. */
+  showTargets?: boolean;
+  onPickTarget?: (cornerId: string) => void;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [overlayPos, setOverlayPos] = useState<{ x: number; y: number } | null>(null);
@@ -249,6 +292,14 @@ export function Stage3D({
   };
 
   const selectedPanel = panels.find((p) => p.id === selectedPanelId) || null;
+
+  // F4 target-pins for the selected panel's main-face corners (empty unless armed).
+  const pins = showTargets && selectedPanel ? panelCorners(selectedPanel) : [];
+  const pinsRef = useRef(pins);
+  pinsRef.current = pins;
+  const [pickedPin, setPickedPin] = useState<string | null>(null);
+  const onPickTargetRef = useRef(onPickTarget);
+  onPickTargetRef.current = onPickTarget;
 
   useEffect(() => {
     const transformControls = transformRef.current;
@@ -828,9 +879,9 @@ export function Stage3D({
     // so there is no mode to switch and no handle to arm first. Side handles carry
     // their own drag.
     const target = selectedPanelId ? group.children.find((c) => c.name === selectedPanelId) : undefined;
-    if (target) transformControls.attach(target);
+    if (target && !showTargets) transformControls.attach(target);
     else transformControls.detach();
-  }, [panels, holes, selectedPanelId, envelope, handles, selectedHandleId]);
+  }, [panels, holes, selectedPanelId, envelope, handles, selectedHandleId, showTargets]);
 
   // ── the LIVE layer ──────────────────────────────────────────────────────────
   // Measurement lines, modifier outlines and the rotation disc live in their own
@@ -944,6 +995,7 @@ export function Stage3D({
       if (rz) project("__resize__", rz.x, rz.y, rz.z);
       const ra = rotAnchorRef.current;
       if (ra) project("__rot__", ra.x, ra.y, ra.z);
+      for (const pin of pinsRef.current) project(`__pin_${pin.id}__`, pin.x, pin.y, pin.z);
       setAnnPos(next);
       frame = requestAnimationFrame(tick);
     };
@@ -1019,6 +1071,7 @@ export function Stage3D({
     rotAnchorRef.current = null;
     setRotChip(null);
     setRotNumpad(null);
+    setPickedPin(null);
   }, [selectedPanelId]);
 
   return (
@@ -1079,6 +1132,25 @@ export function Stage3D({
           />
         </div>
       )}
+      {pins.map((pin) => {
+        const pos = annPos[`__pin_${pin.id}__`];
+        if (!pos) return null;
+        return (
+          <button
+            key={pin.id}
+            className={`target-pin${pickedPin === pin.id ? " on" : ""}`}
+            style={{ left: pos.x, top: pos.y }}
+            onClick={() => { setPickedPin(pin.id); onPickTargetRef.current?.(pin.id); }}
+            title="Добавить модификатор в этот угол"
+          >
+            <svg className="tp-hex" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2.5 L20.5 7.25 V16.75 L12 21.5 L3.5 16.75 V7.25 Z" fill="#c7ced6" />
+              <path d="M12 2.5 L20.5 7.25 L12 12 L3.5 7.25 Z" fill="#2f8bff" />
+            </svg>
+            <span className="tp-plus">+</span>
+          </button>
+        );
+      })}
       {selectedPanel && (
         <div className="floating-dims-card" style={{ position: "absolute", top: "16px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "12px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", border: "1px solid #e5e7eb", display: "flex", gap: "24px", zIndex: 10 }}>
           <div className="float-field">
