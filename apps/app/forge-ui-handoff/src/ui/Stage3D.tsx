@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
@@ -169,9 +169,10 @@ export function Stage3D({
   onApplyNotch,
   appliedNotches,
   onApplyWindow,
-  appliedWindow
+  appliedWindow,
+  panelCuts
 
-}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindow?: {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null;}) {
+}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindow?: {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null;panelCuts?: Record<string, {window?: {w: number;h: number;radius: number;cx: number;cy: number;} | null;rounds?: ReadonlyArray<{cornerId: string;radius: number;}>;notches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;}>;chamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;}>;}) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [overlayPos, setOverlayPos] = useState<{x: number;y: number;} | null>(null);
   const [annPos, setAnnPos] = useState<Record<string, {x: number;y: number;}>>({});
@@ -1162,6 +1163,29 @@ export function Stage3D({
     };
   }, []);
 
+  const panelCutsLive = useMemo(() => {
+    if (!selectedPanelId) return panelCuts;
+    const base = panelCuts?.[selectedPanelId] ?? {};
+    const roundsMap = new Map((base.rounds ?? []).map((r) => [r.cornerId, r.radius] as [string, number]));
+    if (round) for (const c of round.corners) roundsMap.set(c, round.radius);
+    const chamMap = new Map((base.chamfers ?? []).map((c) => [c.edgeId, { width: c.width, depth: c.depth }] as [string, {width: number;depth: number;}]));
+    if (chamfer) for (const e of chamfer.edges) chamMap.set(e, { width: chamfer.width, depth: chamfer.depth });
+    const notchMap = new Map((base.notches ?? []).map((n) => [n.edgeId, { edgeId: n.edgeId, width: n.width, depth: n.depth, radius: n.radius, pos: n.pos }] as [string, {edgeId: string;width: number;depth: number;radius: number;pos: number;}]));
+    if (notch) notchMap.set(notch.edgeId, { edgeId: notch.edgeId, width: notch.width, depth: notch.depth, radius: notch.radius, pos: notch.pos });
+    const windowCut = win ? { w: win.w, h: win.h, radius: win.radius, cx: win.cx, cy: win.cy } : base.window ?? null;
+    return {
+      ...panelCuts ?? {},
+      [selectedPanelId]: {
+        rounds: [...roundsMap].map(([cornerId, radius]) => ({ cornerId, radius })),
+        chamfers: [...chamMap].map(([edgeId, val]) => ({ edgeId, width: val.width, depth: val.depth })),
+        notches: [...notchMap.values()],
+        window: windowCut
+      }
+    };
+  }, [panelCuts, selectedPanelId, round, chamfer, notch, win]);
+
+  const geoCacheRef = useRef(new Map<string, {key: string;geo: THREE.BufferGeometry;edgesGeo: THREE.BufferGeometry;}>());
+
   useEffect(() => {
     const scene = sceneRef.current;
     const transformControls = transformRef.current;
@@ -1174,7 +1198,7 @@ export function Stage3D({
       groupRef.current = null;
     }
 
-    const group = buildBlockGroup(panels, holes, selectedPanelId);
+    const group = buildBlockGroup(panels, holes, selectedPanelId, panelCutsLive, geoCacheRef.current);
 
     for (const h of handles ?? []) {
       const isOn = h.id === selectedHandleId;
@@ -1232,7 +1256,7 @@ export function Stage3D({
     const target = selectedPanelId ? group.children.find((c) => c.name === selectedPanelId) : undefined;
     if (target && !showTargets) transformControls.attach(target);else
     transformControls.detach();
-  }, [panels, holes, selectedPanelId, envelope, handles, selectedHandleId, showTargets]);
+  }, [panels, holes, selectedPanelId, envelope, handles, selectedHandleId, showTargets, panelCutsLive]);
 
   useEffect(() => {
     const scene = sceneRef.current;

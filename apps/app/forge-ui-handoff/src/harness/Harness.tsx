@@ -74,6 +74,19 @@ export function Harness() {
   );
   const appliedWindow = useMemo(() => windows[selectedId ?? ""] ?? null, [windows, selectedId]);
 
+  const panelCuts = useMemo(() => {
+    const out: Record<string, {window: {w: number;h: number;radius: number;cx: number;cy: number;} | null;rounds: {cornerId: string;radius: number;}[];notches: {edgeId: string;width: number;depth: number;radius: number;pos: number;}[];chamfers: {edgeId: string;width: number;depth: number;}[];}> = {};
+    for (const p of panels) {
+      out[p.id] = {
+        window: windows[p.id] ?? null,
+        rounds: Object.entries(rounds[p.id] ?? {}).map(([cornerId, radius]) => ({ cornerId, radius })),
+        notches: Object.entries(notches[p.id] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth, radius: v.radius, pos: v.pos })),
+        chamfers: Object.entries(chamfers[p.id] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth }))
+      };
+    }
+    return out;
+  }, [panels, rounds, notches, chamfers, windows]);
+
   const move = (id: string, x: number, y: number, z: number) => {
     setPanels((ps) => ps.map((p) => p.id === id ? { ...p, x, y, z } : p));
   };
@@ -153,6 +166,7 @@ export function Harness() {
             say(`window ${mm10ToMm(w)}×${mm10ToMm(h)} r=${mm10ToMm(radius)}мм${lockT || lockR || lockB || lockL ? " 🔒" : ""}`);
           }}
           appliedWindow={appliedWindow}
+          panelCuts={panelCuts}
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}
           handles={mode === "translate" ? handles : []}
