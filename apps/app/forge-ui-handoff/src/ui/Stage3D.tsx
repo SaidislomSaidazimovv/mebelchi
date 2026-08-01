@@ -7,7 +7,7 @@ import { buildBlockGroup } from "./renderBlock";
 import { mm10ToMeters, mm10ToMm } from "../contract/types";
 import { MeasureChip } from "./MeasureChip";
 import { Numpad } from "./Numpad";
-import { toCm } from "./measure";
+import { toCm, roundMm10 } from "./measure";
 
 export interface SideHandle {
   id: string;
@@ -235,7 +235,7 @@ export function Stage3D({
     const next = { x: d.startPanel.x, y: d.startPanel.y, z: d.startPanel.z };
     if (d.axis === "y") next.y = groundYRef.current + v_mm10;else
     next[d.axis] = d.startPanel[d.axis] + d.sign * v_mm10;
-    onDragPanelRef.current(d.id, Math.round(next.x), Math.round(next.y), Math.round(next.z));
+    onDragPanelRef.current(d.id, roundMm10(next.x), roundMm10(next.y), roundMm10(next.z));
     clearMoveIndicator();
   };
 
@@ -265,7 +265,7 @@ export function Stage3D({
     setResizeNumpad(null);
     if (!rm) {clearResizeIndicator();return;}
     const newCoord = rm.oppositeCoord + rm.sign * v_mm10;
-    onDragHandleRef.current?.(rm.id, Math.round(newCoord));
+    onDragHandleRef.current?.(rm.id, roundMm10(newCoord));
     clearResizeIndicator();
   };
 
@@ -377,7 +377,7 @@ export function Stage3D({
     const startX = e.clientX;
     const startR = roundRef.current?.radius ?? 0;
     const onMove = (ev: PointerEvent) => {
-      const nr = Math.max(0, Math.round(startR + (ev.clientX - startX) * 5));
+      const nr = Math.max(0, roundMm10(startR + (ev.clientX - startX) * 5));
       setRound((r) => r ? { ...r, radius: nr } : r);
     };
     const onUp = () => {window.removeEventListener("pointermove", onMove);window.removeEventListener("pointerup", onUp);};
@@ -547,10 +547,10 @@ export function Stage3D({
       const mv = ((ev.clientX - startX) * ux + (ev.clientY - startY) * uy) / scale;
       setNotch((cur) => {
         if (!cur) return cur;
-        if (handle === "depth") return { ...cur, depth: Math.max(50, Math.round(s.depth + mv)) };
-        if (handle === "pos") return { ...cur, pos: Math.max(cur.width / 2, Math.min(s.len - cur.width / 2, Math.round(s.pos + mv))) };
-        if (handle === "left") {const nL = Math.min(sR - 100, sL + mv);return { ...cur, width: Math.round(sR - nL), pos: Math.round((nL + sR) / 2) };}
-        const nR = Math.max(sL + 100, sR + mv);return { ...cur, width: Math.round(nR - sL), pos: Math.round((sL + nR) / 2) };
+        if (handle === "depth") return { ...cur, depth: Math.max(50, roundMm10(s.depth + mv)) };
+        if (handle === "pos") return { ...cur, pos: Math.max(cur.width / 2, Math.min(s.len - cur.width / 2, roundMm10(s.pos + mv))) };
+        if (handle === "left") {const nL = Math.min(sR - 100, sL + mv);return { ...cur, width: roundMm10(sR - nL), pos: roundMm10((nL + sR) / 2) };}
+        const nR = Math.max(sL + 100, sR + mv);return { ...cur, width: roundMm10(nR - sL), pos: roundMm10((sL + nR) / 2) };
       });
     };
     const onUp = () => {window.removeEventListener("pointermove", onMove);window.removeEventListener("pointerup", onUp);};
@@ -572,7 +572,7 @@ export function Stage3D({
     const ap = appliedWindow ?? null;
     setWin(ap ?
     { w: ap.w, h: ap.h, radius: ap.radius, cx: ap.cx, cy: ap.cy, lockT: ap.lockT, lockR: ap.lockR, lockB: ap.lockB, lockL: ap.lockL } :
-    { w: Math.round(winFace.w * 0.4), h: Math.round(winFace.h * 0.4), radius: 0, cx: Math.round(winFace.w / 2), cy: Math.round(winFace.h / 2), lockT: false, lockR: false, lockB: false, lockL: false });
+    { w: roundMm10(winFace.w * 0.4), h: roundMm10(winFace.h * 0.4), radius: 0, cx: roundMm10(winFace.w / 2), cy: roundMm10(winFace.h / 2), lockT: false, lockR: false, lockB: false, lockL: false });
   };
   const applyWindow = () => {
     const w = winRef.current;
@@ -654,14 +654,14 @@ export function Stage3D({
       setWin((cur) => {
         if (!cur) return cur;
         if (handle === "C") {
-          const ncx = cur.lockL || cur.lockR ? cur.cx : Math.max(cur.w / 2, Math.min(f.w - cur.w / 2, Math.round(s.cx + du)));
-          const ncy = cur.lockT || cur.lockB ? cur.cy : Math.max(cur.h / 2, Math.min(f.h - cur.h / 2, Math.round(s.cy + dv)));
+          const ncx = cur.lockL || cur.lockR ? cur.cx : Math.max(cur.w / 2, Math.min(f.w - cur.w / 2, roundMm10(s.cx + du)));
+          const ncy = cur.lockT || cur.lockB ? cur.cy : Math.max(cur.h / 2, Math.min(f.h - cur.h / 2, roundMm10(s.cy + dv)));
           return { ...cur, cx: ncx, cy: ncy };
         }
-        if (handle === "L") {const x1 = s.cx + s.w / 2;const nx0 = Math.min(x1 - WIN_MIN, Math.max(0, s.cx - s.w / 2 + du));return { ...cur, w: Math.round(x1 - nx0), cx: Math.round((nx0 + x1) / 2) };}
-        if (handle === "R") {const x0 = s.cx - s.w / 2;const nx1 = Math.max(x0 + WIN_MIN, Math.min(f.w, s.cx + s.w / 2 + du));return { ...cur, w: Math.round(nx1 - x0), cx: Math.round((x0 + nx1) / 2) };}
-        if (handle === "T") {const y0 = s.cy - s.h / 2;const ny1 = Math.max(y0 + WIN_MIN, Math.min(f.h, s.cy + s.h / 2 + dv));return { ...cur, h: Math.round(ny1 - y0), cy: Math.round((y0 + ny1) / 2) };}
-        const y1 = s.cy + s.h / 2;const ny0 = Math.min(y1 - WIN_MIN, Math.max(0, s.cy - s.h / 2 + dv));return { ...cur, h: Math.round(y1 - ny0), cy: Math.round((ny0 + y1) / 2) };
+        if (handle === "L") {const x1 = s.cx + s.w / 2;const nx0 = Math.min(x1 - WIN_MIN, Math.max(0, s.cx - s.w / 2 + du));return { ...cur, w: roundMm10(x1 - nx0), cx: roundMm10((nx0 + x1) / 2) };}
+        if (handle === "R") {const x0 = s.cx - s.w / 2;const nx1 = Math.max(x0 + WIN_MIN, Math.min(f.w, s.cx + s.w / 2 + du));return { ...cur, w: roundMm10(nx1 - x0), cx: roundMm10((x0 + nx1) / 2) };}
+        if (handle === "T") {const y0 = s.cy - s.h / 2;const ny1 = Math.max(y0 + WIN_MIN, Math.min(f.h, s.cy + s.h / 2 + dv));return { ...cur, h: roundMm10(ny1 - y0), cy: roundMm10((y0 + ny1) / 2) };}
+        const y1 = s.cy + s.h / 2;const ny0 = Math.min(y1 - WIN_MIN, Math.max(0, s.cy - s.h / 2 + dv));return { ...cur, h: roundMm10(y1 - ny0), cy: roundMm10((ny0 + y1) / 2) };
       });
     };
     const onUp = () => {window.removeEventListener("pointermove", onMove);window.removeEventListener("pointerup", onUp);};
@@ -731,9 +731,9 @@ export function Stage3D({
       if (!mesh || !mesh.name || mesh.name.startsWith("handle:")) return;
       const p = panelsRef.current.find((x) => x.id === mesh.name);
       if (!p) return;
-      const curX = Math.round(mesh.position.x * 10000 + MID_X - p.width / 2);
-      const curY = Math.round(mesh.position.y * 10000 - p.height / 2);
-      const curZ = Math.round(mesh.position.z * 10000 + MID_Z - p.depth / 2);
+      const curX = roundMm10(mesh.position.x * 10000 + MID_X - p.width / 2);
+      const curY = roundMm10(mesh.position.y * 10000 - p.height / 2);
+      const curZ = roundMm10(mesh.position.z * 10000 + MID_Z - p.depth / 2);
       onLiveDragPanelRef.current?.(mesh.name, curX, curY, curZ);
 
       const d = moveDragRef.current;
@@ -856,7 +856,7 @@ export function Stage3D({
             const coord = h.axis === "x" ? mesh.position.x * 10000 + MID_X :
             h.axis === "y" ? mesh.position.y * 10000 :
             mesh.position.z * 10000 + MID_Z;
-            if (isFinite(coord)) onDragHandleRef.current?.(id, Math.round(coord));
+            if (isFinite(coord)) onDragHandleRef.current?.(id, roundMm10(coord));
           }
           return;
         }
@@ -879,7 +879,7 @@ export function Stage3D({
             const rz = snapAngle(mesh.rotation.z);
 
             if (isFinite(rawX) && isFinite(rawY) && isFinite(rawZ)) {
-              onDragPanelRef.current(mesh.name, Math.round(rawX), Math.round(rawY), Math.round(rawZ), rx, ry, rz);
+              onDragPanelRef.current(mesh.name, roundMm10(rawX), roundMm10(rawY), roundMm10(rawZ), rx, ry, rz);
             }
           }
         }
@@ -894,9 +894,9 @@ export function Stage3D({
           const panelMesh = transformControls.object;
           const pp = panelsRef.current.find((x) => x.id === dRel.id);
           if (panelMesh && pp) {
-            const cur = dRel.axis === "x" ? Math.round(panelMesh.position.x * 10000 + MID_X - pp.width / 2) :
-            dRel.axis === "y" ? Math.round(panelMesh.position.y * 10000 - pp.height / 2) :
-            Math.round(panelMesh.position.z * 10000 + MID_Z - pp.depth / 2);
+            const cur = dRel.axis === "x" ? roundMm10(panelMesh.position.x * 10000 + MID_X - pp.width / 2) :
+            dRel.axis === "y" ? roundMm10(panelMesh.position.y * 10000 - pp.height / 2) :
+            roundMm10(panelMesh.position.z * 10000 + MID_Z - pp.depth / 2);
             dRel.sign = Math.sign(cur - dRel.startPanel[dRel.axis]) || 1;
           }
           setMoveChip((c) => c ? { ...c, resting: true } : null);
@@ -1018,7 +1018,7 @@ export function Stage3D({
       d.axisVec.y ? along * 10000 :
       along * 10000 + MID_Z;
       if (!isFinite(coord)) return;
-      const live = Math.round(coord);
+      const live = roundMm10(coord);
       onDragHandleRef.current?.(d.id, live);
 
       const rm = resizeMetaRef.current;
@@ -1723,8 +1723,8 @@ export function Stage3D({
       {notch && pickedEdge && annPos[`__edge_${pickedEdge}__`] && (() => {
         const ne = edges.find((x) => x.id === notch.edgeId);
         const len = ne ? ne.len : 0;
-        const offL = Math.max(0, Math.round(notch.pos - notch.width / 2));
-        const offR = Math.max(0, Math.round(len - notch.pos - notch.width / 2));
+        const offL = Math.max(0, roundMm10(notch.pos - notch.width / 2));
+        const offR = Math.max(0, roundMm10(len - notch.pos - notch.width / 2));
         return (
           <div
             className="round-editor"
@@ -1769,10 +1769,10 @@ export function Stage3D({
         </button>
       }
       {win && winFace && (() => {
-        const offT = Math.max(0, Math.round(winFace.h - (win.cy + win.h / 2)));
-        const offB = Math.max(0, Math.round(win.cy - win.h / 2));
-        const offL = Math.max(0, Math.round(win.cx - win.w / 2));
-        const offR = Math.max(0, Math.round(winFace.w - (win.cx + win.w / 2)));
+        const offT = Math.max(0, roundMm10(winFace.h - (win.cy + win.h / 2)));
+        const offB = Math.max(0, roundMm10(win.cy - win.h / 2));
+        const offL = Math.max(0, roundMm10(win.cx - win.w / 2));
+        const offR = Math.max(0, roundMm10(winFace.w - (win.cx + win.w / 2)));
         const chip = (id: string, node: ReactNode, dx = 0, dy = 0) => {
           const p = annPos[`__win_${id}__`];
           if (!p) return null;

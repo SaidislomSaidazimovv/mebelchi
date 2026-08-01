@@ -3,6 +3,10 @@ import type { mm10 } from "../contract/types";
 
 const MM10_PER_CM = 100;
 
+export function roundMm10(v: number): mm10 {
+  return Math.round(v);
+}
+
 export function toCm(v_mm10: mm10): string {
   const cm = v_mm10 / MM10_PER_CM;
   return cm.
