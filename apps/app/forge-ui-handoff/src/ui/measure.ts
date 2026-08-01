@@ -53,4 +53,10 @@ export type MeasureTone =
 
 "angle" |
 
-"radius";
+"radius" |
+
+"axisX" |
+
+"axisY" |
+
+"axisZ";

@@ -653,6 +653,10 @@ body {
 
 .chip-radius { background: #ffffff; color: #1b2430; }
 
+.chip-axisX { background: #ffffff; color: #e5342b; }
+.chip-axisY { background: #ffffff; color: #16a34a; }
+.chip-axisZ { background: #ffffff; color: #1d4ed8; }
+
 .chip-pen { font-size: 12px; opacity: 0.65; }
 .chip-unit { margin-left: -2px; font-size: 12px; }
 
@@ -1083,6 +1087,27 @@ details.controls-section.separator {
 }
 .focus-btn:hover { border-color: #9fb6d8; }
 .focus-btn svg { width: 24px; height: 24px; display: block; }
+
+.link-toggle {
+  position: absolute;
+  left: 16px;
+  bottom: 70px;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 14px rgba(27, 36, 48, 0.2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  z-index: 12;
+}
+.link-toggle svg { width: 22px; height: 22px; display: block; }
+.link-toggle:hover { border-color: #9fb6d8; }
+.link-toggle.on { background: #2f8bff; border-color: #2f8bff; color: #ffffff; }
 
 
 .harness-log { display: flex; flex-direction: column; gap: 2px; }

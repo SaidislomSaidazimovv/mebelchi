@@ -239,11 +239,14 @@ export function Stage3D({
     clearMoveIndicator();
   };
 
-  const resizeMetaRef = useRef<{id: string;axis: "x" | "y" | "z";oppositeCoord: number;sign: number;center: {x: number;y: number;z: number;};} | null>(null);
+  const resizeMetaRef = useRef<{id: string;axis: "x" | "y" | "z";oppositeCoord: number;sign: number;center: {x: number;y: number;z: number;};oldW: number;oldH: number;panelX: number;panelY: number;} | null>(null);
+  const [uniform, setUniform] = useState(false);
+  const uniformRef = useRef(uniform);
+  uniformRef.current = uniform;
   const resizeLeaderRef = useRef<THREE.Line | null>(null);
   const resizeAnchorRef = useRef<{x: number;y: number;z: number;} | null>(null);
   const resizeAutoHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [resizeChip, setResizeChip] = useState<{value: number;resting: boolean;} | null>(null);
+  const [resizeChip, setResizeChip] = useState<{value: number;resting: boolean;axis: "x" | "y" | "z";} | null>(null);
   const [resizeNumpad, setResizeNumpad] = useState<{value: number;} | null>(null);
   const resizeNumpadRef = useRef(resizeNumpad);
   resizeNumpadRef.current = resizeNumpad;
@@ -274,7 +277,7 @@ export function Stage3D({
   const rotWedgeMeshRef = useRef<THREE.Mesh | null>(null);
   const rotAnchorRef = useRef<{x: number;y: number;z: number;} | null>(null);
   const rotAutoHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [rotChip, setRotChip] = useState<{value: number;resting: boolean;} | null>(null);
+  const [rotChip, setRotChip] = useState<{value: number;resting: boolean;axis: "x" | "y" | "z";} | null>(null);
   const [rotNumpad, setRotNumpad] = useState<{value: number;} | null>(null);
   const rotNumpadRef = useRef(rotNumpad);
   rotNumpadRef.current = rotNumpad;
@@ -775,7 +778,7 @@ export function Stage3D({
         wm.geometry.dispose();
         wm.geometry = new THREE.CircleGeometry(r, 48, sweptRad < 0 ? sweptRad : 0, Math.abs(sweptRad) || 0.0001);
         rotAnchorRef.current = rd.center;
-        setRotChip({ value: Math.round(sweptRad * 180 / Math.PI), resting: false });
+        setRotChip({ value: Math.round(sweptRad * 180 / Math.PI), resting: false, axis: rd.axis });
       }
     });
 
@@ -958,9 +961,6 @@ export function Stage3D({
 
       if (selectedHandleIdRef.current !== id) {
         onSelectHandleRef.current?.(id);
-        e.stopPropagation();
-        e.preventDefault();
-        return;
       }
       const anchor = onCube.object.position.clone();
 
@@ -981,10 +981,17 @@ export function Stage3D({
       const oppositeCoord = opp ? h.axis === "x" ? opp.x : h.axis === "y" ? opp.y : opp.z :
       h.axis === "x" ? h.x : h.axis === "y" ? h.y : h.z;
       const startCoord = h.axis === "x" ? h.x : h.axis === "y" ? h.y : h.z;
+      const hs = handlesRef.current ?? [];
+      const xH = hs.filter((o) => o.axis === "x");
+      const yH = hs.filter((o) => o.axis === "y");
       resizeMetaRef.current = {
         id, axis: h.axis, oppositeCoord,
         sign: Math.sign(startCoord - oppositeCoord) || 1,
-        center: { x: h.x, y: h.y, z: h.z }
+        center: { x: h.x, y: h.y, z: h.z },
+        oldW: xH.length === 2 ? Math.abs(xH[0].x - xH[1].x) : 0,
+        oldH: yH.length === 2 ? Math.abs(yH[0].y - yH[1].y) : 0,
+        panelX: xH.length ? Math.min(...xH.map((o) => o.x)) : 0,
+        panelY: yH.length ? Math.min(...yH.map((o) => o.y)) : 0
       };
       if (resizeAutoHideRef.current) {clearTimeout(resizeAutoHideRef.current);resizeAutoHideRef.current = null;}
       if (resizeLeaderRef.current) {scene.remove(resizeLeaderRef.current);resizeLeaderRef.current.geometry.dispose();resizeLeaderRef.current = null;}
@@ -1021,6 +1028,22 @@ export function Stage3D({
       const live = roundMm10(coord);
       onDragHandleRef.current?.(d.id, live);
 
+      if (uniformRef.current) {
+        const um = resizeMetaRef.current;
+        if (um && um.id === d.id && (um.axis === "x" || um.axis === "y")) {
+          const oldDragged = um.axis === "x" ? um.oldW : um.oldH;
+          if (oldDragged > 0) {
+            const factor = Math.abs(live - um.oppositeCoord) / oldDragged;
+            const otherAxis = um.axis === "x" ? "y" : "x";
+            const oldOther = otherAxis === "x" ? um.oldW : um.oldH;
+            const otherMin = otherAxis === "x" ? um.panelX : um.panelY;
+            const otherHs = (handlesRef.current ?? []).filter((o) => o.axis === otherAxis);
+            const otherMaxH = otherHs.length ? otherHs.reduce((p, q) => (otherAxis === "x" ? q.x > p.x : q.y > p.y) ? q : p) : null;
+            if (otherMaxH) onDragHandleRef.current?.(otherMaxH.id, roundMm10(otherMin + oldOther * factor));
+          }
+        }
+      }
+
       const rm = resizeMetaRef.current;
       const rl = resizeLeaderRef.current;
       if (rm && rl && rm.id === d.id) {
@@ -1032,7 +1055,7 @@ export function Stage3D({
         rl.geometry.setFromPoints([a, b]);
         rl.computeLineDistances();
         resizeAnchorRef.current = anchor;
-        setResizeChip({ value: Math.abs(live - rm.oppositeCoord), resting: false });
+        setResizeChip({ value: Math.abs(live - rm.oppositeCoord), resting: false, axis: rm.axis });
       }
     };
 
@@ -1156,10 +1179,15 @@ export function Stage3D({
     for (const h of handles ?? []) {
       const isOn = h.id === selectedHandleId;
 
-      const size = isOn ? 0.05 : 0.035;
+      const side = isOn ? 0.075 : 0.06;
+      const thin = 0.014;
+      const geo = h.axis === "x" ? new THREE.BoxGeometry(thin, side, side) :
+      h.axis === "y" ? new THREE.BoxGeometry(side, thin, side) :
+      new THREE.BoxGeometry(side, side, thin);
+      const color = h.axis === "x" ? 0xef4444 : h.axis === "y" ? 0x22c55e : 0x3b82f6;
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(size, size, size),
-        new THREE.MeshStandardMaterial({ color: isOn ? 0x1d4ed8 : 0xf59e0b, roughness: 0.4 })
+        geo,
+        new THREE.MeshStandardMaterial({ color, roughness: 0.35, emissive: color, emissiveIntensity: isOn ? 0.5 : 0.18 })
       );
       mesh.name = `handle:${h.id}`;
       mesh.position.set(
@@ -1581,6 +1609,17 @@ export function Stage3D({
           </svg>
         </button>
       }
+      {selectedPanel && (handles?.length ?? 0) > 0 && !showTargets &&
+      <button
+        className={`link-toggle${uniform ? " on" : ""}`}
+        onClick={() => setUniform((u) => !u)}
+        title={uniform ? "Пропорционально — вкл" : "Пропорционально — выкл"}>
+
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 12 H15 M8.5 8 H7 a4 4 0 0 0 0 8 H8.5 M15.5 8 H17 a4 4 0 0 1 0 8 H15.5" />
+          </svg>
+        </button>
+      }
       {showTargets && selectedPanel &&
       <div className="target-toggle">
           <button className={targetKind === "corners" ? "on" : ""} onClick={() => setTargetKind("corners")}>⌜ Углы</button>
@@ -1617,7 +1656,7 @@ export function Stage3D({
       <div className="stage-annotation" style={{ left: annPos["__resize__"].x, top: annPos["__resize__"].y }}>
           <MeasureChip
           value={resizeChip.value}
-          tone="size"
+          tone={resizeChip.axis === "x" ? "axisX" : resizeChip.axis === "y" ? "axisY" : "axisZ"}
           live={!resizeChip.resting}
           title="Размер"
           onEdit={
@@ -1632,7 +1671,7 @@ export function Stage3D({
       <div className="stage-annotation" style={{ left: annPos["__rot__"].x, top: annPos["__rot__"].y }}>
           <MeasureChip
           value={rotChip.value}
-          tone="angle"
+          tone={rotChip.axis === "x" ? "axisX" : rotChip.axis === "y" ? "axisY" : "axisZ"}
           unit="deg"
           live={!rotChip.resting}
           title="Угол поворота"
