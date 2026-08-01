@@ -1064,6 +1064,26 @@ details.controls-section.separator {
   justify-content: center;
 }
 
+.focus-btn {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 14px rgba(27, 36, 48, 0.2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1b2430;
+  z-index: 12;
+}
+.focus-btn:hover { border-color: #9fb6d8; }
+.focus-btn svg { width: 24px; height: 24px; display: block; }
+
 
 .harness-log { display: flex; flex-direction: column; gap: 2px; }
 .harness-log-row {

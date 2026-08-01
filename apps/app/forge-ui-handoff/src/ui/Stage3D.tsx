@@ -306,6 +306,28 @@ export function Stage3D({
 
   const selectedPanel = panels.find((p) => p.id === selectedPanelId) || null;
 
+  const focusSelected = () => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls || !selectedPanel) return;
+    const f = panelFace(selectedPanel);
+    const cxm = f.ox + f.uax * f.w / 2 + f.ubx * f.h / 2;
+    const cym = f.oy + f.uay * f.w / 2 + f.uby * f.h / 2;
+    const czm = f.oz + f.uaz * f.w / 2 + f.ubz * f.h / 2;
+    const center = new THREE.Vector3(mm10ToMeters(cxm - MID_X), mm10ToMeters(cym), mm10ToMeters(czm - MID_Z));
+    const ua = new THREE.Vector3(f.uax, f.uay, f.uaz);
+    const ub = new THREE.Vector3(f.ubx, f.uby, f.ubz);
+    const normal = new THREE.Vector3().crossVectors(ua, ub).normalize();
+    const camDir = new THREE.Vector3().subVectors(camera.position, center);
+    if (normal.dot(camDir) < 0) normal.negate();
+    const half = mm10ToMeters(Math.max(f.w, f.h)) / 2;
+    const dist = half / Math.tan(22.5 * Math.PI / 180) * 1.4;
+    camera.position.copy(center).addScaledVector(normal, dist);
+    controls.target.copy(center);
+    camera.lookAt(center);
+    controls.update();
+  };
+
   const [targetKind, setTargetKind] = useState<"corners" | "edges" | "notches" | "windows">("corners");
 
   const pins = showTargets && selectedPanel && targetKind === "corners" ? panelCorners(selectedPanel) : [];
@@ -1551,6 +1573,14 @@ export function Stage3D({
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
+      {selectedPanel &&
+      <button className="focus-btn" onClick={focusSelected} title="Навести камеру на панель">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.5" />
+            <path d="M12 2 V5 M12 19 V22 M2 12 H5 M19 12 H22" />
+          </svg>
+        </button>
+      }
       {showTargets && selectedPanel &&
       <div className="target-toggle">
           <button className={targetKind === "corners" ? "on" : ""} onClick={() => setTargetKind("corners")}>⌜ Углы</button>
