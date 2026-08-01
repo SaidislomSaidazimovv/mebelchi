@@ -98,6 +98,46 @@ function panelThickMm10(p: Panel): number {
   return p[thick];
 }
 
+function panelBoxCorners(p: Panel): THREE.Vector3[] {
+  const cx = p.x + p.width / 2,cy = p.y + p.height / 2,cz = p.z + p.depth / 2;
+  const euler = p.rx || p.ry || p.rz ? new THREE.Euler(p.rx || 0, p.ry || 0, p.rz || 0) : null;
+  const out: THREE.Vector3[] = [];
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+    const o = new THREE.Vector3(sx * p.width / 2, sy * p.height / 2, sz * p.depth / 2);
+    if (euler) o.applyEuler(euler);
+    out.push(new THREE.Vector3(mm10ToMeters(cx + o.x - MID_X), mm10ToMeters(cy + o.y), mm10ToMeters(cz + o.z - MID_Z)));
+  }
+  return out;
+}
+
+const BOX_EDGES: [number, number][] = [[0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]];
+
+function snapMeasure(p: Panel, hit: THREE.Vector3, tx: number, ty: number, camera: THREE.PerspectiveCamera, rect: DOMRect): THREE.Vector3 {
+  const corners = panelBoxCorners(p);
+  const toPx = (v: THREE.Vector3) => {
+    const q = v.clone().project(camera);
+    return { x: (q.x * 0.5 + 0.5) * rect.width, y: (-(q.y * 0.5) + 0.5) * rect.height };
+  };
+  let best: THREE.Vector3 | null = null,bestD = 22;
+  for (const c of corners) {
+    const s = toPx(c);
+    const d = Math.hypot(s.x - tx, s.y - ty);
+    if (d < bestD) {bestD = d;best = c;}
+  }
+  if (best) return best;
+  let bestE: THREE.Vector3 | null = null,bestED = 16;
+  for (const [a, b] of BOX_EDGES) {
+    const A = corners[a],B = corners[b];
+    const AB = B.clone().sub(A);
+    const t = Math.max(0, Math.min(1, hit.clone().sub(A).dot(AB) / AB.lengthSq()));
+    const pt = A.clone().addScaledVector(AB, t);
+    const s = toPx(pt);
+    const d = Math.hypot(s.x - tx, s.y - ty);
+    if (d < bestED) {bestED = d;bestE = pt;}
+  }
+  return bestE ?? hit;
+}
+
 function panelEdges(p: Panel): {id: string;x: number;y: number;z: number;ax: number;ay: number;az: number;ix: number;iy: number;iz: number;len: number;}[] {
   const AX = ["width", "height", "depth"] as const;
   const AXVEC: Record<"width" | "height" | "depth", [number, number, number]> = { width: [1, 0, 0], height: [0, 1, 0], depth: [0, 0, 1] };
@@ -170,6 +210,7 @@ export function Stage3D({
   groundY_mm10 = 0,
   showTargets = false,
   showGizmo = true,
+  showMeasure = false,
   onPickTarget,
   onApplyRound,
   appliedRounds,
@@ -181,7 +222,7 @@ export function Stage3D({
   appliedWindow,
   panelCuts
 
-}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;showGizmo?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindow?: {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null;panelCuts?: Record<string, {window?: {w: number;h: number;radius: number;cx: number;cy: number;} | null;rounds?: ReadonlyArray<{cornerId: string;radius: number;}>;notches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;}>;chamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;}>;}) {
+}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;showGizmo?: boolean;showMeasure?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindow?: {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null;panelCuts?: Record<string, {window?: {w: number;h: number;radius: number;cx: number;cy: number;} | null;rounds?: ReadonlyArray<{cornerId: string;radius: number;}>;notches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;}>;chamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;}>;}) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [overlayPos, setOverlayPos] = useState<{x: number;y: number;} | null>(null);
   const [annPos, setAnnPos] = useState<Record<string, {x: number;y: number;}>>({});
@@ -339,6 +380,94 @@ export function Stage3D({
     controls.target.copy(center);
     camera.lookAt(center);
     controls.update();
+  };
+
+  const putOnGround = () => {
+    const p = selectedPanel;
+    if (!p) return;
+    const cy = p.y + p.height / 2;
+    const hx = p.width / 2,hy = p.height / 2,hz = p.depth / 2;
+    const euler = p.rx || p.ry || p.rz ? new THREE.Euler(p.rx || 0, p.ry || 0, p.rz || 0) : null;
+    let minY = Infinity;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+      const v = new THREE.Vector3(sx * hx, sy * hy, sz * hz);
+      if (euler) v.applyEuler(euler);
+      minY = Math.min(minY, cy + v.y);
+    }
+    const shift = groundY_mm10 - minY;
+    onDragPanelRef.current?.(p.id, p.x, roundMm10(p.y + shift), p.z, p.rx, p.ry, p.rz);
+  };
+
+  const centerRomb = selectedPanel && transformMode === "translate" && showGizmo && !showTargets ?
+  { x: selectedPanel.x + selectedPanel.width / 2, y: selectedPanel.y + selectedPanel.height / 2, z: selectedPanel.z + selectedPanel.depth / 2 } :
+  null;
+  const centerRombRef = useRef(centerRomb);
+  centerRombRef.current = centerRomb;
+
+  const showMeasureRef = useRef(showMeasure);
+  showMeasureRef.current = showMeasure;
+  const [measurePts, setMeasurePts] = useState<{x: number;y: number;z: number;panelId: string;}[]>([]);
+  const measurePtsRef = useRef(measurePts);
+  measurePtsRef.current = measurePts;
+  const [measureNumpad, setMeasureNumpad] = useState<{value: number;} | null>(null);
+  useEffect(() => {if (!showMeasure) {setMeasurePts([]);setMeasureNumpad(null);}}, [showMeasure]);
+
+  const commitMeasure = (newDist: number) => {
+    setMeasureNumpad(null);
+    const pts = measurePtsRef.current;
+    if (pts.length !== 2) return;
+    const A = pts[0],B = pts[1];
+    if (A.panelId === B.panelId) return;
+    const dx = B.x - A.x,dy = B.y - A.y,dz = B.z - A.z;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1) return;
+    const nbx = A.x + dx / len * newDist,nby = A.y + dy / len * newDist,nbz = A.z + dz / len * newDist;
+    const panel = panelsRef.current.find((p) => p.id === B.panelId);
+    if (!panel) return;
+    onDragPanelRef.current?.(panel.id, roundMm10(panel.x + (nbx - B.x)), roundMm10(panel.y + (nby - B.y)), roundMm10(panel.z + (nbz - B.z)), panel.rx, panel.ry, panel.rz);
+    setMeasurePts([A, { x: roundMm10(nbx), y: roundMm10(nby), z: roundMm10(nbz), panelId: B.panelId }]);
+  };
+
+  const startCenterMove = (ev0: ReactPointerEvent) => {
+    ev0.preventDefault();
+    ev0.stopPropagation();
+    const p = selectedPanel;
+    const cam = cameraRef.current;
+    if (!p || !cam) return;
+    const cx = p.x + p.width / 2,cy = p.y + p.height / 2,cz = p.z + p.depth / 2;
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+    const L = 1000;
+    const p0 = projectMm10(cx, cy, cz);
+    const pr = projectMm10(cx + right.x * L, cy + right.y * L, cz + right.z * L);
+    const pu = projectMm10(cx + up.x * L, cy + up.y * L, cz + up.z * L);
+    if (!p0 || !pr || !pu) return;
+    const Rx = pr.x - p0.x,Ry = pr.y - p0.y,Ux = pu.x - p0.x,Uy = pu.y - p0.y;
+    const det = Rx * Uy - Ry * Ux;
+    if (Math.abs(det) < 1e-6) return;
+    const startX = ev0.clientX,startY = ev0.clientY;
+    const sx0 = p.x,sy0 = p.y,sz0 = p.z;
+    const solve = (dsx: number, dsy: number) => {
+      const a = (Uy * dsx - Ux * dsy) / det;
+      const b = (-Ry * dsx + Rx * dsy) / det;
+      return {
+        x: roundMm10(sx0 + (right.x * a + up.x * b) * L),
+        y: roundMm10(sy0 + (right.y * a + up.y * b) * L),
+        z: roundMm10(sz0 + (right.z * a + up.z * b) * L)
+      };
+    };
+    const onMove = (ev: PointerEvent) => {
+      const n = solve(ev.clientX - startX, ev.clientY - startY);
+      onLiveDragPanelRef.current?.(p.id, n.x, n.y, n.z);
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      const n = solve(ev.clientX - startX, ev.clientY - startY);
+      onDragPanelRef.current?.(p.id, n.x, n.y, n.z, p.rx, p.ry, p.rz);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   const frameModel = (reposition: boolean) => {
@@ -1256,6 +1385,19 @@ export function Stage3D({
       );
       raycaster.setFromCamera(mouse, camera);
 
+      if (showMeasureRef.current) {
+        if (!groupRef.current) return;
+        const hits = raycaster.intersectObjects(groupRef.current.children, true);
+        const hit = hits.find((int) => int.object instanceof THREE.Mesh && int.object.name && !int.object.name.startsWith("handle:"));
+        if (!hit) return;
+        const panel = panelsRef.current.find((pp) => pp.id === hit.object.name);
+        if (!panel) return;
+        const sn = snapMeasure(panel, hit.point, e.clientX - rect.left, e.clientY - rect.top, camera, rect);
+        const pt = { x: sn.x * 10000 + MID_X, y: sn.y * 10000, z: sn.z * 10000 + MID_Z, panelId: panel.id };
+        setMeasurePts((prev) => prev.length >= 2 ? [pt] : [...prev, pt]);
+        return;
+      }
+
       if (groupRef.current) {
         const intersects = raycaster.intersectObjects(groupRef.current.children, true);
         const picked = intersects.find((int) => int.object instanceof THREE.Mesh && int.object.name);
@@ -1517,6 +1659,9 @@ export function Stage3D({
       if (chh) project("__ch__", chh.x, chh.y, chh.z);
       const cdh = chamferDepthHandleRef.current;
       if (cdh) project("__cd__", cdh.x, cdh.y, cdh.z);
+      const cr = centerRombRef.current;
+      if (cr) project("__center__", cr.x, cr.y, cr.z);
+      measurePtsRef.current.forEach((mp, i) => project(`__mpt${i}__`, mp.x, mp.y, mp.z));
       setAnnPos(next);
       frame = requestAnimationFrame(tick);
     };
@@ -1781,6 +1926,13 @@ export function Stage3D({
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <circle cx="12" cy="12" r="4.5" />
             <path d="M12 2 V5 M12 19 V22 M2 12 H5 M19 12 H22" />
+          </svg>
+        </button>
+      }
+      {selectedPanel && !showTargets &&
+      <button className="ground-btn" onClick={putOnGround} title="Поставить на пол">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 3 V13 M8 9 L12 13 L16 9 M4 20 H20" />
           </svg>
         </button>
       }
@@ -2059,6 +2211,43 @@ export function Stage3D({
           </svg>
         </button>
       }
+      {centerRomb && annPos["__center__"] &&
+      <button
+        className="center-romb"
+        style={{ left: annPos["__center__"].x, top: annPos["__center__"].y }}
+        onPointerDown={startCenterMove}
+        title="Двигать по плоскости экрана">
+
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 4 L9 7 M12 4 L15 7 M12 20 L9 17 M12 20 L15 17 M4 12 L7 9 M4 12 L7 15 M20 12 L17 9 M20 12 L17 15" />
+          </svg>
+        </button>
+      }
+      {showMeasure && measurePts.length === 2 && annPos["__mpt0__"] && annPos["__mpt1__"] &&
+      <svg className="measure-svg" aria-hidden="true">
+          <line
+          x1={annPos["__mpt0__"].x} y1={annPos["__mpt0__"].y}
+          x2={annPos["__mpt1__"].x} y2={annPos["__mpt1__"].y}
+          stroke="#16a34a" strokeWidth="2" strokeDasharray="6 4" strokeLinecap="round" />
+        </svg>
+      }
+      {showMeasure && measurePts.map((_, i) =>
+      annPos[`__mpt${i}__`] ?
+      <div key={i} className="measure-dot" style={{ left: annPos[`__mpt${i}__`]!.x, top: annPos[`__mpt${i}__`]!.y }} /> :
+      null
+      )}
+      {showMeasure && measurePts.length === 2 && annPos["__mpt0__"] && annPos["__mpt1__"] && (() => {
+        const d = roundMm10(Math.hypot(measurePts[1].x - measurePts[0].x, measurePts[1].y - measurePts[0].y, measurePts[1].z - measurePts[0].z));
+        const editable = measurePts[0].panelId !== measurePts[1].panelId;
+        return (
+          <div className="stage-annotation" style={{ left: (annPos["__mpt0__"]!.x + annPos["__mpt1__"]!.x) / 2, top: (annPos["__mpt0__"]!.y + annPos["__mpt1__"]!.y) / 2 }}>
+            <MeasureChip value={d} tone="live" title={editable ? "Расстояние — измените, чтобы сдвинуть" : "Расстояние (одна панель)"} onEdit={editable ? () => setMeasureNumpad({ value: d }) : undefined} />
+          </div>);
+
+      })()}
+      {showMeasure && measurePts.length < 2 &&
+      <div className="measure-hint">Коснитесь двух точек (углы/кромки)</div>
+      }
       {selectedPanel &&
       <div className="floating-dims-card" style={{ position: "absolute", top: "16px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "12px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", border: "1px solid #e5e7eb", display: "flex", gap: "24px", zIndex: 10 }}>
           <div className="float-field">
@@ -2099,6 +2288,15 @@ export function Stage3D({
         mode="cm"
         onCommit={commitMove}
         onCancel={() => {setMoveNumpad(null);clearMoveIndicator();}} />
+
+      }
+      {measureNumpad &&
+      <Numpad
+        initial={measureNumpad.value}
+        label="Расстояние, см"
+        mode="cm"
+        onCommit={commitMeasure}
+        onCancel={() => setMeasureNumpad(null)} />
 
       }
       {resizeNumpad &&
