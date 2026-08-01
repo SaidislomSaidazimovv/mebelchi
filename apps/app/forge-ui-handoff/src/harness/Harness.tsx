@@ -31,7 +31,7 @@ export function Harness() {
   const [panels, setPanels] = useState<Panel[]>(START);
   const [selectedId, setSelectedId] = useState<string | null>("P1");
   const [selectedSide, setSelectedSide] = useState<string | null>(null);
-  const [mode, setMode] = useState<"translate" | "rotate" | "modifier">("translate");
+  const [mode, setMode] = useState<"translate" | "resize" | "rotate" | "modifier">("translate");
   const [log, setLog] = useState<string[]>([]);
 
   const [rounds, setRounds] = useState<Record<string, Record<string, number>>>({});
@@ -125,6 +125,7 @@ export function Harness() {
           onUpdateDim={() => {}}
           transformMode={mode === "rotate" ? "rotate" : "translate"}
           showTargets={mode === "modifier"}
+          showGizmo={mode !== "resize"}
           onPickTarget={(c) => say(`target ${c}`)}
           onApplyRound={(corners, r) => {
             const pid = selectedId ?? "";
@@ -169,7 +170,7 @@ export function Harness() {
           panelCuts={panelCuts}
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}
-          handles={mode === "translate" ? handles : []}
+          handles={mode === "resize" ? handles : []}
           selectedHandleId={selectedSide}
           onSelectHandle={(id) => {setSelectedSide(id);say(`side ${id ?? "—"}`);}}
           onDragHandle={(id, coord) => {resizeSide(id, coord);say(`resize ${id} → ${mm10ToMm(coord)}мм`);}} />
@@ -188,7 +189,9 @@ export function Harness() {
             </div>
             <div className="forge-panel-list" style={{ marginTop: 8 }}>
               <button className={`forge-chip ${mode === "translate" ? "on" : ""}`}
-              onClick={() => setMode("translate")}>↔ Двигать / размер</button>
+              onClick={() => {setMode("translate");setSelectedSide(null);}}>↔ Двигать</button>
+              <button className={`forge-chip ${mode === "resize" ? "on" : ""}`}
+              onClick={() => setMode("resize")}>⇲ Размер</button>
               <button className={`forge-chip ${mode === "rotate" ? "on" : ""}`}
               onClick={() => {setMode("rotate");setSelectedSide(null);}}>⟳ Поворот</button>
               <button className={`forge-chip ${mode === "modifier" ? "on" : ""}`}
