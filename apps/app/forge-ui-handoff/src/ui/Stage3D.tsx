@@ -798,6 +798,25 @@ export function Stage3D({
   const notchHandlesRef = useRef(notchHandles);
   notchHandlesRef.current = notchHandles;
 
+  const notchAnchors = (() => {
+    if (!notch || !pickedEdge) return [] as {id: string;x: number;y: number;z: number;}[];
+    const e = edges.find((x) => x.id === notch.edgeId);
+    if (!e) return [];
+    const at = (t: number) => ({ x: e.x + e.ax * (t - e.len / 2), y: e.y + e.ay * (t - e.len / 2), z: e.z + e.az * (t - e.len / 2) });
+    const inw = (p: {x: number;y: number;z: number;}, d: number) => ({ x: p.x + e.ix * d, y: p.y + e.iy * d, z: p.z + e.iz * d });
+    const Lt = notch.pos - notch.width / 2,Rt = notch.pos + notch.width / 2;
+    return [
+    { id: "offL", ...inw(at(Lt / 2), -180) },
+    { id: "offR", ...inw(at((Rt + e.len) / 2), -180) },
+    { id: "w", ...inw(at(notch.pos), -820) },
+    { id: "d", ...inw(at(Rt + 300), notch.depth * 0.5 + 150) },
+    { id: "radius", ...inw(at(Lt - 300), notch.depth * 0.5 + 150) },
+    { id: "ok", ...inw(at(notch.pos), notch.depth + 450) }];
+
+  })();
+  const notchAnchorsRef = useRef(notchAnchors);
+  notchAnchorsRef.current = notchAnchors;
+
   const startNotchDrag = (ev0: ReactPointerEvent, handle: "left" | "right" | "depth" | "pos") => {
     ev0.preventDefault();
     ev0.stopPropagation();
@@ -1668,6 +1687,7 @@ export function Stage3D({
       for (const pin of pinsRef.current) project(`__pin_${pin.id}__`, pin.x, pin.y, pin.z);
       for (const e of edgesRef.current) project(`__edge_${e.id}__`, e.x, e.y, e.z);
       for (const h of notchHandlesRef.current) project(`__nh_${h.id}__`, h.x, h.y, h.z);
+      for (const a of notchAnchorsRef.current) project(`__notch_${a.id}__`, a.x, a.y, a.z);
       for (const a of winAnchorsRef.current) project(`__win_${a.id}__`, a.x, a.y, a.z);
       for (const h of winHandlesRef.current) project(`__wh_${h.id}__`, h.x, h.y, h.z);
       for (const wpin of winPinsRef.current) project(`__winpin_${wpin.id}__`, wpin.x, wpin.y, wpin.z);
@@ -1972,12 +1992,24 @@ export function Stage3D({
           </svg>
         </button>
       }
-      {showTargets && selectedPanel &&
+      {showTargets && selectedPanel && !round && !chamfer && !notch && !win &&
       <div className="target-toggle">
           <button className={targetKind === "corners" ? "on" : ""} onClick={() => setTargetKind("corners")}>⌜ Углы</button>
           <button className={targetKind === "edges" ? "on" : ""} onClick={() => setTargetKind("edges")}>⌐ Кромки</button>
           <button className={targetKind === "notches" ? "on" : ""} onClick={() => setTargetKind("notches")}>⊔ Вырез</button>
           <button className={targetKind === "windows" ? "on" : ""} onClick={() => setTargetKind("windows")}>▢ Окно</button>
+        </div>
+      }
+      {(round || chamfer || notch || win) &&
+      <div className="mod-sheet">
+          {win &&
+        <button className="ms-dup" onClick={duplicateWindow} title="Дублировать окно">⧉ Дублировать</button>
+        }
+          <button
+          className="ms-del"
+          onClick={() => {if (round) deleteRound();else if (chamfer) deleteChamfer();else if (notch) deleteNotch();else deleteWindow();}}
+          title="Удалить">
+          🗑 Удалить</button>
         </div>
       }
       {(annotations ?? []).map((a) => {
@@ -2038,6 +2070,7 @@ export function Stage3D({
       {pins.map((pin) => {
         const pos = annPos[`__pin_${pin.id}__`];
         if (!pos) return null;
+        if (round) return null;
         const r = cornerRadius(pin.id);
         const rounded = r > 0;
         const rot = cornerRotation(pos.x, pos.y);
@@ -2069,12 +2102,12 @@ export function Stage3D({
           <MeasureChip value={round.radius} tone="radius" onEdit={() => setRoundNumpad(true)} title="Радиус угла" />
           <button className="re-drag" onPointerDown={startRoundDrag} title="Тяните вбок, чтобы менять радиус">↔</button>
           <button className="re-ok" onClick={applyRound} title="Применить">✓</button>
-          <button className="re-del" onClick={deleteRound} title="Удалить">✕</button>
         </div>
       }
       {edges.map((edge) => {
         const pos = annPos[`__edge_${edge.id}__`];
         if (!pos) return null;
+        if (chamfer || notch) return null;
         const isNotch = targetKind === "notches";
         const state = isNotch ? notchOf(edge.id) : edgeMachining(edge.id);
         const active = !!state;
@@ -2105,30 +2138,37 @@ export function Stage3D({
           onClick={toggleChamferLink}
           title={chamfer.linked ? "Кромки связаны — нажмите, чтобы разъединить" : "Связать все кромки"}>
           🔗</button>
-          <MeasureChip value={chamfer.width} tone="size" onEdit={() => setChamferNumpad("width")} title="Ширина (вдоль лица)" />
-          <MeasureChip value={chamfer.depth} tone="offset" onEdit={() => setChamferNumpad("depth")} title="Глубина" />
           <button className="re-ok" onClick={applyChamfer} title="Применить">✓</button>
-          <button className="re-del" onClick={deleteChamfer} title="Удалить">✕</button>
         </div>
       }
-      {notch && pickedEdge && annPos[`__edge_${pickedEdge}__`] && (() => {
+      {chamfer && pickedEdge && annPos["__ch__"] &&
+      <div className="stage-annotation" style={{ left: annPos["__ch__"].x, top: annPos["__ch__"].y - 40 }}>
+          <MeasureChip value={chamfer.width} tone="size" onEdit={() => setChamferNumpad("width")} title="Ширина (вдоль лица)" />
+        </div>
+      }
+      {chamfer && pickedEdge && annPos["__cd__"] &&
+      <div className="stage-annotation" style={{ left: annPos["__cd__"].x, top: annPos["__cd__"].y - 40 }}>
+          <MeasureChip value={chamfer.depth} tone="offset" onEdit={() => setChamferNumpad("depth")} title="Глубина" />
+        </div>
+      }
+      {notch && pickedEdge && (() => {
         const ne = edges.find((x) => x.id === notch.edgeId);
         const len = ne ? ne.len : 0;
         const offL = Math.max(0, roundMm10(notch.pos - notch.width / 2));
         const offR = Math.max(0, roundMm10(len - notch.pos - notch.width / 2));
+        const nchip = (id: string, node: ReactNode) => {
+          const p = annPos[`__notch_${id}__`];
+          return p ? <div key={id} className="stage-annotation" style={{ left: p.x, top: p.y }}>{node}</div> : null;
+        };
         return (
-          <div
-            className="round-editor"
-            style={{ left: annPos[`__edge_${pickedEdge}__`]!.x, top: annPos[`__edge_${pickedEdge}__`]!.y - 52 }}>
-
-            <MeasureChip value={offL} tone="offset" locked={notch.lockL} onToggleLock={() => setNotch((n) => n ? { ...n, lockL: !n.lockL } : n)} onEdit={notch.lockL ? undefined : () => setNotchNumpad("offL")} title="До левого края" />
-            <MeasureChip value={notch.width} tone="size" onEdit={() => setNotchNumpad("width")} title="Ширина выреза" />
-            <MeasureChip value={notch.depth} tone="size" onEdit={() => setNotchNumpad("depth")} title="Глубина выреза" />
-            <MeasureChip value={notch.radius} tone="radius" onEdit={() => setNotchNumpad("radius")} title="Радиус углов" />
-            <MeasureChip value={offR} tone="offset" locked={notch.lockR} onToggleLock={() => setNotch((n) => n ? { ...n, lockR: !n.lockR } : n)} onEdit={notch.lockR ? undefined : () => setNotchNumpad("offR")} title="До правого края" />
-            <button className="re-ok" onClick={applyNotch} title="Применить">✓</button>
-            <button className="re-del" onClick={deleteNotch} title="Удалить">✕</button>
-          </div>);
+          <>
+            {nchip("offL", <MeasureChip value={offL} tone="offset" locked={notch.lockL} onToggleLock={() => setNotch((n) => n ? { ...n, lockL: !n.lockL } : n)} onEdit={notch.lockL ? undefined : () => setNotchNumpad("offL")} title="До левого края" />)}
+            {nchip("offR", <MeasureChip value={offR} tone="offset" locked={notch.lockR} onToggleLock={() => setNotch((n) => n ? { ...n, lockR: !n.lockR } : n)} onEdit={notch.lockR ? undefined : () => setNotchNumpad("offR")} title="До правого края" />)}
+            {nchip("w", <MeasureChip value={notch.width} tone="size" onEdit={() => setNotchNumpad("width")} title="Ширина выреза" />)}
+            {nchip("d", <MeasureChip value={notch.depth} tone="size" onEdit={() => setNotchNumpad("depth")} title="Глубина выреза" />)}
+            {nchip("radius", <MeasureChip value={notch.radius} tone="radius" onEdit={() => setNotchNumpad("radius")} title="Радиус углов" />)}
+            {annPos["__notch_ok__"] && <div className="stage-annotation" style={{ left: annPos["__notch_ok__"].x, top: annPos["__notch_ok__"].y }}><button className="re-ok win-btn" onClick={applyNotch} title="Применить">✓</button></div>}
+          </>);
 
       })()}
       {notchHandles.map((h) => {
@@ -2179,12 +2219,10 @@ export function Stage3D({
             {chip("offB", <MeasureChip value={offB} tone="offset" locked={win.lockB} onToggleLock={() => setWin((w) => w ? { ...w, lockB: !w.lockB } : w)} onEdit={win.lockB ? undefined : () => setWinNumpad("offB")} title="До нижнего края" />)}
             {chip("offL", <MeasureChip value={offL} tone="offset" locked={win.lockL} onToggleLock={() => setWin((w) => w ? { ...w, lockL: !w.lockL } : w)} onEdit={win.lockL ? undefined : () => setWinNumpad("offL")} title="До левого края" />)}
             {chip("offR", <MeasureChip value={offR} tone="offset" locked={win.lockR} onToggleLock={() => setWin((w) => w ? { ...w, lockR: !w.lockR } : w)} onEdit={win.lockR ? undefined : () => setWinNumpad("offR")} title="До правого края" />)}
-            {chip("w", <MeasureChip value={win.w} tone="size" onEdit={() => setWinNumpad("w")} title="Ширина окна" />, 0, 36)}
-            {chip("h", <MeasureChip value={win.h} tone="size" onEdit={() => setWinNumpad("h")} title="Высота окна" />, -52, 0)}
-            {chip("radius", <MeasureChip value={win.radius} tone="radius" onEdit={() => setWinNumpad("radius")} title="Радиус углов" />)}
-            {annPos["__win_ok__"] && <div className="stage-annotation" style={{ left: annPos["__win_ok__"].x, top: annPos["__win_ok__"].y }}><button className="re-ok win-btn" onClick={applyWindow} title="Применить">✓</button></div>}
-            {annPos["__win_ok__"] && <div className="stage-annotation" style={{ left: annPos["__win_ok__"].x + 42, top: annPos["__win_ok__"].y }}><button className="win-btn win-dup" onClick={duplicateWindow} title="Дублировать окно">⧉</button></div>}
-            {annPos["__win_del__"] && <div className="stage-annotation" style={{ left: annPos["__win_del__"].x, top: annPos["__win_del__"].y }}><button className="re-del win-btn" onClick={deleteWindow} title="Удалить">✕</button></div>}
+            {chip("w", <MeasureChip value={win.w} tone="size" onEdit={() => setWinNumpad("w")} title="Ширина окна" />, 0, 62)}
+            {chip("h", <MeasureChip value={win.h} tone="size" onEdit={() => setWinNumpad("h")} title="Высота окна" />, -82, 0)}
+            {chip("radius", <MeasureChip value={win.radius} tone="radius" onEdit={() => setWinNumpad("radius")} title="Радиус углов" />, 30, -30)}
+            {annPos["__win_ok__"] && <div className="stage-annotation" style={{ left: annPos["__win_ok__"].x - 30, top: annPos["__win_ok__"].y - 30 }}><button className="re-ok win-btn" onClick={applyWindow} title="Применить">✓</button></div>}
           </>);
 
       })()}

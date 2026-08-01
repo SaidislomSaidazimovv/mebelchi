@@ -965,6 +965,35 @@ details.controls-section.separator {
   box-shadow: 0 4px 14px rgba(27, 36, 48, 0.2);
   z-index: 12;
 }
+.mod-sheet {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 14px rgba(27, 36, 48, 0.22);
+  z-index: 13;
+}
+.mod-sheet button {
+  border: none;
+  cursor: pointer;
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mod-sheet .ms-del { background: #fee2e2; color: #dc2626; }
+.mod-sheet .ms-del:hover { background: #fecaca; }
+.mod-sheet .ms-dup { background: #eef2f7; color: #334155; }
+.mod-sheet .ms-dup:hover { background: #e2e8f0; }
 .target-toggle button {
   border: none;
   background: transparent;
