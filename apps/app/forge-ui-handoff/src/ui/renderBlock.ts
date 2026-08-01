@@ -3,21 +3,19 @@ import { mm10ToMeters } from "../contract/types";
 import type { Panel, Hole } from "../contract/types";
 import { ldspMaterial, edgeMaterial, hdfMaterial } from "./materials";
 
-/** A physical axis name → the renderer's own axis. Panel.width is X, height Y, depth Z. */
 const RENDER_AXIS = { width: "x", height: "y", depth: "z" } as const;
 
-/** BoxGeometry material-group order is [+X, −X, +Y, −Y, +Z, −Z]. */
 const BOX_FACES = {
   x: { max: 0, min: 1 },
   y: { max: 2, min: 3 },
-  z: { max: 4, min: 5 },
+  z: { max: 4, min: 5 }
 } as const;
 
 export function buildBlockGroup(
-  panels: Panel[],
-  holes: Hole[],
-  selectedPanelId: string | null,
-): THREE.Group {
+panels: Panel[],
+holes: Hole[],
+selectedPanelId: string | null)
+: THREE.Group {
   const group = new THREE.Group();
   const ldspMat = ldspMaterial();
   const hdfMat = hdfMaterial();
@@ -27,10 +25,10 @@ export function buildBlockGroup(
   const selectedMaterial = new THREE.MeshStandardMaterial({
     color: 0xbed6f5,
     roughness: 0.5,
-    metalness: 0.1,
+    metalness: 0.1
   });
   const selectedEdgeMaterial = new THREE.LineBasicMaterial({
-    color: 0x3b82f6,
+    color: 0x3b82f6
   });
 
   const midX = 3000;
@@ -40,7 +38,7 @@ export function buildBlockGroup(
     const w = Math.max(mm10ToMeters(p.width), 0.001);
     const h = Math.max(mm10ToMeters(p.height), 0.001);
     const d = Math.max(mm10ToMeters(p.depth), 0.001);
-    
+
     const geometry = new THREE.BoxGeometry(w, h, d);
     const px = mm10ToMeters(p.x + p.width / 2 - midX);
     const py = mm10ToMeters(p.y + p.height / 2);
@@ -55,15 +53,10 @@ export function buildBlockGroup(
     const k2Mat = new THREE.MeshStandardMaterial({ color: 0x27ae60, roughness: 0.8 });
     const getBMat = (thick: number) => {
       if (thick <= 0) return meshMat;
-      if (thick <= 5) return k2Mat; // Thin banding (<= 0.5mm)
-      return k1Mat; // Thick banding (> 0.5mm)
+      if (thick <= 5) return k2Mat;
+      return k1Mat;
     };
 
-    // Banding is placed by ORIENTATION, not by role. `bands` are SWJ008 machine faces
-    // [face1, face2, face3, face4] = [Y max, Y 0, X max, X 0] in the PART's frame;
-    // `orientation` says which physical axis that part-X and part-Y are, and the
-    // renderer's own axes are fixed (width→X, height→Y, depth→Z). One mapping, no
-    // per-role special cases — a new role can never be silently mis-banded again.
     let faceMaterials: THREE.Material | THREE.Material[] = meshMat;
     if (p.bands && p.orientation && !isSelected) {
       const mats: THREE.Material[] = [meshMat, meshMat, meshMat, meshMat, meshMat, meshMat];
