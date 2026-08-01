@@ -4,5 +4,5 @@ import { Harness } from "./Harness";
 import "../ui/styles.css";
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><Harness /></StrictMode>,
+  <StrictMode><Harness /></StrictMode>
 );

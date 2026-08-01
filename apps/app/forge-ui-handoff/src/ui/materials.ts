@@ -11,7 +11,7 @@ export function ldspMaterial(): THREE.MeshStandardMaterial {
     map: ldspTex,
     color: 0xffffff,
     roughness: 0.85,
-    metalness: 0.05,
+    metalness: 0.05
   });
 }
 
@@ -29,6 +29,6 @@ export function hdfMaterial(): THREE.MeshStandardMaterial {
     map: hdfTex,
     color: 0xffffff,
     roughness: 0.9,
-    metalness: 0,
+    metalness: 0
   });
 }

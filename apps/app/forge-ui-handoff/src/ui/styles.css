@@ -421,7 +421,7 @@ body {
 }
 
 
-/* ─────────────────────────────────────────────── Каркас / Forge */
+
 
 .forge-badge {
   font-size: 11px;
@@ -610,7 +610,7 @@ body {
   border-color: #a01b1b;
 }
 
-/* ─────────────────────────────── Forge measurement layer (F1–F7 reference) */
+
 
 .stage-annotation {
   position: absolute;
@@ -642,15 +642,15 @@ body {
 
 .chip:disabled { cursor: default; }
 
-/* live delta while the finger is down — solid green, white text (F1) */
+
 .chip-live, .chip-live:disabled { background: #22c55e; color: #ffffff; }
-/* a size this edit owns (F2-04, F7) */
+
 .chip-size { background: #ffffff; color: #e5342b; }
-/* a distance to a neighbour — lockable (F6, F7) */
+
 .chip-offset { background: #7c8b9c; color: #ffffff; }
-/* an angle (F3) */
+
 .chip-angle { background: #ffffff; color: #1d4ed8; }
-/* a corner radius (F7) */
+
 .chip-radius { background: #ffffff; color: #1b2430; }
 
 .chip-pen { font-size: 12px; opacity: 0.65; }
@@ -669,7 +669,7 @@ body {
 
 .chip-lock.on { background: #1d4ed8; }
 
-/* ── the numpad sheet (F2-03) ── */
+
 
 .numpad-sheet {
   position: absolute;
@@ -808,7 +808,7 @@ body {
 
 .forge-modname { flex: 1; font-size: 12px; font-weight: 600; color: #1b2430; }
 
-/* ── compact accordion: the whole panel fits the viewport, no page scroll ── */
+
 
 .controls-card {
   width: 300px;
@@ -833,7 +833,7 @@ details.controls-section > summary {
 
 details.controls-section > summary::-webkit-details-marker { display: none; }
 
-/* a caret that turns — the only affordance the header needs */
+
 details.controls-section > summary::before {
   content: "›";
   display: inline-block;
@@ -846,7 +846,7 @@ details.controls-section > summary::before {
 details.controls-section[open] > summary::before { transform: rotate(90deg); }
 details.controls-section[open] > summary { color: #1d4ed8; }
 
-/* everything inside a section stacks tightly once opened */
+
 details.controls-section > *:not(summary) { margin-bottom: 6px; }
 details.controls-section > *:last-child { margin-bottom: 8px; }
 
@@ -855,7 +855,7 @@ details.controls-section.separator {
   border-top: 1px solid #eceff3;
 }
 
-/* the verbose explanations are the biggest space cost — keep them, shrink them */
+
 .forge-note {
   font-size: 10.5px;
   line-height: 1.35;
@@ -869,7 +869,7 @@ details.controls-section.separator {
 .controls-card .forge-ro-row { font-size: 11px; }
 .controls-card .row-title { font-size: 9.5px; }
 
-/* F4 target-pins: a [⬡ ⊕] pill floated at a main-face corner (F4-01) */
+
 .target-pin {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -904,13 +904,13 @@ details.controls-section.separator {
 .target-pin.on { border-color: #2f8bff; background: #eff6ff; }
 .target-pin.on .tp-plus { background: #16a34a; }
 
-/* a corner that already carries a round: green arc + radius, tap to re-edit */
+
 .target-pin.rounded { border-color: #16a34a; color: #16a34a; }
 .target-pin .tp-arc { width: 18px; height: 18px; display: block; }
 .target-pin .tp-radius { font-size: 13px; font-weight: 700; padding: 0 4px 0 1px; }
 .target-pin.rounded.on { border-color: #16a34a; background: #ecfdf3; }
 
-/* F5 edge-machining pins — same pill, an L-step (rabbet) glyph */
+
 .edge-pin {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -946,7 +946,7 @@ details.controls-section.separator {
 .edge-pin.machined { border-color: #16a34a; color: #16a34a; }
 .edge-pin.machined.on { background: #ecfdf3; }
 
-/* corner/edge family switch (modifier mode) — keeps only 4 pins on screen at once */
+
 .target-toggle {
   position: absolute;
   bottom: 16px;
@@ -973,7 +973,31 @@ details.controls-section.separator {
 }
 .target-toggle button.on { background: #2f8bff; color: #ffffff; }
 
-/* F03 round-corner editor: [link] [radius ✎] [drag] [✓] [✕], floated by the corner */
+
+.notch-handle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+  background: #cf5b4b;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  box-shadow: 0 2px 8px rgba(27, 36, 48, 0.3);
+  z-index: 13;
+  touch-action: none;
+}
+.notch-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.1); }
+.notch-handle.nh-pos { background: #2f8bff; }
+
+
 .round-editor {
   position: absolute;
   transform: translate(-50%, -100%);
@@ -1007,7 +1031,7 @@ details.controls-section.separator {
 .re-ok { background: #16a34a; color: #ffffff; }
 .re-del { background: #fdecec; color: #e5342b; }
 
-/* harness only — not part of the real app */
+
 .harness-log { display: flex; flex-direction: column; gap: 2px; }
 .harness-log-row {
   font-size: 11px;
