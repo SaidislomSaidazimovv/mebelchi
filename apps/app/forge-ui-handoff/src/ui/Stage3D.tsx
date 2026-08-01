@@ -297,9 +297,8 @@ export function Stage3D({
     const d = rotDragRef.current;
     setRotNumpad(null);
     if (!d) {clearRotIndicator();return;}
-    const snapped = Math.round(deg / 90) * 90;
     const rot = { x: d.startRot.x, y: d.startRot.y, z: d.startRot.z };
-    rot[d.axis] = d.startRot[d.axis] + snapped * Math.PI / 180;
+    rot[d.axis] = d.startRot[d.axis] + deg * Math.PI / 180;
     const p = panelsRef.current.find((x) => x.id === d.id);
     if (p) onDragPanelRef.current(d.id, p.x, p.y, p.z, rot.x, rot.y, rot.z);
     clearRotIndicator();
@@ -847,9 +846,11 @@ export function Stage3D({
             const rawY = mesh.position.y * 10000 - p.height / 2;
             const rawZ = mesh.position.z * 10000 + midZ - p.depth / 2;
 
+            const SNAP_TOL = 4 * Math.PI / 180;
             const snapAngle = (val: number) => {
               const step = Math.PI / 2;
-              return Math.round(val / step) * step;
+              const nearest = Math.round(val / step) * step;
+              return Math.abs(val - nearest) < SNAP_TOL ? nearest : val;
             };
             const rx = snapAngle(mesh.rotation.x);
             const ry = snapAngle(mesh.rotation.y);
