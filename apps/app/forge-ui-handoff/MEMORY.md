@@ -150,7 +150,23 @@ Founder FAZALADI: avval A, keyin B, keyin qolgan mayda ishlar. Barchasi bitди.
 ## ✅ IZOHLAR TOZALANDI (2026-08-01) — «izoh yozmaslik» qonuni [[no-comments-handwritten]] forge'ga ENDI qo'llanadi
 Founder «izohlarини tozала». Babel bilan (`@babel/parser` → `@babel/generator {comments:false, retainLines:true}` + `\n{3,}`→`\n\n`) BARCHA `src/ui/*.{ts,tsx}` (Stage3D, MeasureChip, Numpad, renderBlock, materials, measure) + `src/harness/*.tsx` (Harness, main) tozalandi; CSS regex bilan. **`src/contract/types.ts` TEGILMADI (qonun #1).** ui+harnessда 0 izoh qoldi. typecheck exit=0, build ✓ 6.29s, f6c.mjs runtime bir xil → hech narsа buzilmadi. Bundан keyin forge kodидa izoh YOZILMAYDI.
 
-VAZIFALAR (README «Что плохо», muhimlik): 1)✅ F6/F7 kesim tutqichlari 3Dда sudralsin (F6 to'liq; F7 qoldi);
-2)✅ jonli yashil chip (F1); 3)🟡 kichik panelда kub↔o'q hamma o'lchamда sinalsin (P2);
-4)✅ F4 nishon-pin (⬡⊕); 5)✅ sudrab-burish (F3). +F2 +F4 +F03 +F5 +F6(to'liq) BAJARILDI.
-Qolgan: **F7 (yuz o'rtасида teshik — oxirgi modifikator)** → #3 kichik-panel sinovi. Izohlar tozalandi.
+## ✅ F7 · ОКНО (yuz o'rtасида deraza) — FAZA A BAJARILDI + BARMOQ-TEST (2026-08-01), commit qilinmagan
+Founder qarorlar: chip-joylashuv = **FAZOVIY (Moblo 1:1, F7-01)**, pill emas; **avval A keyin B**; **bitta yuzга bitta (MVP)**.
+`src/ui/Stage3D.tsx` + `harness`(onApplyWindow+saqlash) + `styles.css`(.window-pin,.win-btn).
+- F7 = yuz ichида to'rtburchak teshik (contract `Hole`=parmalash, tekshirildi — deraза F6 kabi model-tomon). Yangi `targetKind:"windows"` (4-toggle «▢ Окно»).
+- `panelFace(p)` = parametrik yuz-ramка {O=min-burchak (qalinlik o'rtасида), ua/ub birlik o'qlar, w/h yuz o'lchamлари}, rx/ry/rz aylantirilган; `world(u,v)=O+ua*u+ub*v`.
+- Окно rejimда bitta markaz-pin (⊞ qo'shish / ▣ bor) → bosilса markazлашган deraза (w=yuzW*0.4, h=yuzH*0.4, radius 0).
+- **FAZOVIY chiplar** (har biri o'z yuz-nuqтасида, `.stage-annotation`): 4 kulrang qulflanadigan offset (offT/offB/offL/offR = 4 qirragача masофа) + 2 qizil size (eni past, bo'yi chap) + oq radius (yuqori-o'ng) + yashil ✓ (yuqori-chap) + qizil ✕ (past-o'ng). Offsetни numpad bilan o'zgartirsa deraза markazi (cx/cy) suriladi.
+- Guide = **qizil yumaloq-to'rtburchak** LineLoop (4 burchak yoy, rr=min(radius,w/2,h/2)); tahrirдаги YOKI saqланган deraза uchun chiziladi.
+- Saqlanadi (onApplyWindow + 4 qulф) → harness `windows[panelId]` → openWindow qayta ochганда qulфни ham tiklayди (F6 saboги boshidаноқ).
+- Barmoq-test (f7a.mjs): Окно→1 pin; ochish→4 offset/2 size/1 radius + ✓/✕, tahrirда pin yashirin; offT qulф→✓→log «window 288×224 r=0мм 🔒», pin machined; qayta ochish→offT qulф saqlanган. typecheck exit=0, build ✓ 4.68s.
+- **FAZA B — BAJARILDI + BARMOQ-TEST (2026-08-01):** 5 sudraladigan tutқич (win muharrir ochiqда, `.notch-handle` qayta ishlatilди): ◀L/▶R (eni, fa bo'ylab) · ▲T/▼B (bo'y, fb bo'ylab) · ✥C (markaз 4-tomon surish, ko'k). `startWindowDrag` = yuz-origin + O+ua·1000 + O+ub·1000 ni CLIENT px'ga proyeksiya → 2×2 ekran-bazа; pointermoveда delta'ni yuz-tekislиkка (du,dv) ajratади (teskari-2×2). L/R du, T/B dv (qarama-qarshi tomon qotiriladi, min 200); C: cx+=du, cy+=dv (clamp; qulflaнган o'q o'tkazilmaydi). HAR qanday orientatsiyaда. Qulф-hisobли: qulflaнган tomon tutқичи bail + 0.4 opacity. Test (f7d.mjs, P3): ▶→eni 20→35; ▲→bo'y 14→24,5; ✥→offsetlar o'zgаради; qulф→▶ 0.4+eni qotди; log «window 350×245 r=0мм 🔒». typecheck+build toza.
+- **FIX (offset chiplar tutқични to'sди):** offset chiplar gap-o'rtасида → L/R tutқични to'sди (chip z-20 > handle z-13). Offset anchorlар **panel qirrаларига** ko'chirilди (offT=(cx,faceH), offB=(cx,0), offL=(0,cy), offR=(faceW,cy)) — tutқич ochilди + Moblo F7-01ga mos (offsetlar qirrада).
+- **HARNESS P3 (founder tasdiqлади):** `P3 · щит (фасад)` — KATTA old-yuзли panel (5000×3500×180, width×height → yuz normali Z, kameraga qaraydi). P1 (side, depth edge-on) va P2 (12×9cm) oyna uchun noqulay (tutқичlar ustma-ust); P3 katta frontal yuza — 5 tutқич yoyilади, to'liq ishlaydi+tekshirilди. **Faqat harness (test), yetkazilmaydi.**
+
+**✅ F7 TO'LIQ (A+B) — bu OXIRGI modifikator edi. F1–F7 + F03 HAMMASI BAJARILDI.**
+
+VAZIFALAR (README «Что плохо», muhimlik): 1)✅ F6/F7 kesim tutqичlari 3Dда sudralsin (HAR IKKALASI TO'LIQ);
+2)✅ jonli yashil chip (F1); 3)🟡 kichik panelда kub↔o'q hamma o'lchamда sinalsin (P2 declutter — ochiq);
+4)✅ F4 nishon-pin (⬡⊕); 5)✅ sudrab-burish (F3). +F2 +F4 +F03 +F5 +F6(to'liq) +F7(to'liq) BAJARILDI.
+Qolgan (ixtiyoriy): kichik-panel declutter (#3) · F7 ko'p-oyna · commit + Vercel prod-branch qarori. Izohlar tozalandi.

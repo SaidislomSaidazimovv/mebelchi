@@ -117,6 +117,30 @@ function panelEdges(p: Panel): {id: string;x: number;y: number;z: number;ax: num
   return [make(fa, fb, 0, "e0"), make(fa, fb, 1, "e1"), make(fb, fa, 0, "e2"), make(fb, fa, 1, "e3")];
 }
 
+function panelFace(p: Panel): {ox: number;oy: number;oz: number;uax: number;uay: number;uaz: number;ubx: number;uby: number;ubz: number;w: number;h: number;} {
+  const AX = ["width", "height", "depth"] as const;
+  const AXVEC: Record<"width" | "height" | "depth", [number, number, number]> = { width: [1, 0, 0], height: [0, 1, 0], depth: [0, 0, 1] };
+  const ox = p.orientation?.xAxis;
+  const oy = p.orientation?.yAxis;
+  const thick = ox && oy ? AX.find((a) => a !== ox && a !== oy)! : p.width <= p.height && p.width <= p.depth ? "width" : p.height <= p.depth ? "height" : "depth";
+  const face = AX.filter((a) => a !== thick);
+  const fa = face[0]!;
+  const fb = face[1]!;
+  const lo = { width: p.x, height: p.y, depth: p.z };
+  const ctr = { width: p.x + p.width / 2, height: p.y + p.height / 2, depth: p.z + p.depth / 2 };
+  const ext = { width: p.width, height: p.height, depth: p.depth };
+  const origin = { width: ctr.width, height: ctr.height, depth: ctr.depth };
+  origin[fa] = lo[fa];
+  origin[fb] = lo[fb];
+  const euler = p.rx || p.ry || p.rz ? new THREE.Euler(p.rx || 0, p.ry || 0, p.rz || 0) : null;
+  const pc = new THREE.Vector3(ctr.width, ctr.height, ctr.depth);
+  let O = new THREE.Vector3(origin.width, origin.height, origin.depth);
+  const ua = new THREE.Vector3(...AXVEC[fa]);
+  const ub = new THREE.Vector3(...AXVEC[fb]);
+  if (euler) {O = O.sub(pc).applyEuler(euler).add(pc);ua.applyEuler(euler);ub.applyEuler(euler);}
+  return { ox: O.x, oy: O.y, oz: O.z, uax: ua.x, uay: ua.y, uaz: ua.z, ubx: ub.x, uby: ub.y, ubz: ub.z, w: ext[fa], h: ext[fb] };
+}
+
 export function Stage3D({
   panels,
   holes,
@@ -143,9 +167,11 @@ export function Stage3D({
   onApplyChamfer,
   appliedChamfers,
   onApplyNotch,
-  appliedNotches
+  appliedNotches,
+  onApplyWindow,
+  appliedWindow
 
-}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;}) {
+}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindow?: {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null;}) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [overlayPos, setOverlayPos] = useState<{x: number;y: number;} | null>(null);
   const [annPos, setAnnPos] = useState<Record<string, {x: number;y: number;}>>({});
@@ -281,7 +307,7 @@ export function Stage3D({
 
   const selectedPanel = panels.find((p) => p.id === selectedPanelId) || null;
 
-  const [targetKind, setTargetKind] = useState<"corners" | "edges" | "notches">("corners");
+  const [targetKind, setTargetKind] = useState<"corners" | "edges" | "notches" | "windows">("corners");
 
   const pins = showTargets && selectedPanel && targetKind === "corners" ? panelCorners(selectedPanel) : [];
   const pinsRef = useRef(pins);
@@ -504,6 +530,117 @@ export function Stage3D({
         if (handle === "pos") return { ...cur, pos: Math.max(cur.width / 2, Math.min(s.len - cur.width / 2, Math.round(s.pos + mv))) };
         if (handle === "left") {const nL = Math.min(sR - 100, sL + mv);return { ...cur, width: Math.round(sR - nL), pos: Math.round((nL + sR) / 2) };}
         const nR = Math.max(sL + 100, sR + mv);return { ...cur, width: Math.round(nR - sL), pos: Math.round((sL + nR) / 2) };
+      });
+    };
+    const onUp = () => {window.removeEventListener("pointermove", onMove);window.removeEventListener("pointerup", onUp);};
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  const winFace = showTargets && selectedPanel && targetKind === "windows" ? panelFace(selectedPanel) : null;
+  const [win, setWin] = useState<{w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null>(null);
+  const winRef = useRef(win);
+  winRef.current = win;
+  const onApplyWindowRef = useRef(onApplyWindow);
+  onApplyWindowRef.current = onApplyWindow;
+  const winGroupRef = useRef<THREE.Group | null>(null);
+  const [winNumpad, setWinNumpad] = useState<"w" | "h" | "radius" | "offT" | "offR" | "offB" | "offL" | null>(null);
+
+  const openWindow = () => {
+    if (!winFace) return;
+    const ap = appliedWindow ?? null;
+    setWin(ap ?
+    { w: ap.w, h: ap.h, radius: ap.radius, cx: ap.cx, cy: ap.cy, lockT: ap.lockT, lockR: ap.lockR, lockB: ap.lockB, lockL: ap.lockL } :
+    { w: Math.round(winFace.w * 0.4), h: Math.round(winFace.h * 0.4), radius: 0, cx: Math.round(winFace.w / 2), cy: Math.round(winFace.h / 2), lockT: false, lockR: false, lockB: false, lockL: false });
+  };
+  const applyWindow = () => {
+    const w = winRef.current;
+    setWinNumpad(null);
+    if (w) onApplyWindowRef.current?.(w.w, w.h, w.radius, w.cx, w.cy, w.lockT, w.lockR, w.lockB, w.lockL);
+    setWin(null);
+  };
+  const deleteWindow = () => {
+    setWinNumpad(null);
+    onApplyWindowRef.current?.(0, 0, 0, 0, 0, false, false, false, false);
+    setWin(null);
+  };
+
+  const winAnchors = (() => {
+    if (!win || !winFace) return [] as {id: string;x: number;y: number;z: number;}[];
+    const wp = (u: number, v: number) => ({ x: winFace.ox + winFace.uax * u + winFace.ubx * v, y: winFace.oy + winFace.uay * u + winFace.uby * v, z: winFace.oz + winFace.uaz * u + winFace.ubz * v });
+    const x0 = win.cx - win.w / 2,x1 = win.cx + win.w / 2,y0 = win.cy - win.h / 2,y1 = win.cy + win.h / 2;
+    return [
+    { id: "offT", ...wp(win.cx, winFace.h) },
+    { id: "offB", ...wp(win.cx, 0) },
+    { id: "offL", ...wp(0, win.cy) },
+    { id: "offR", ...wp(winFace.w, win.cy) },
+    { id: "w", ...wp(win.cx, y0) },
+    { id: "h", ...wp(x0, win.cy) },
+    { id: "radius", ...wp(x1, y1) },
+    { id: "ok", ...wp(x0, y1) },
+    { id: "del", ...wp(x1, y0) }];
+  })();
+  const winAnchorsRef = useRef(winAnchors);
+  winAnchorsRef.current = winAnchors;
+
+  const winPin = (() => {
+    if (win || !winFace) return null;
+    const ap = appliedWindow ?? null;
+    const u = ap ? ap.cx : winFace.w / 2;
+    const v = ap ? ap.cy : winFace.h / 2;
+    return { active: !!ap, x: winFace.ox + winFace.uax * u + winFace.ubx * v, y: winFace.oy + winFace.uay * u + winFace.uby * v, z: winFace.oz + winFace.uaz * u + winFace.ubz * v };
+  })();
+  const winPinRef = useRef(winPin);
+  winPinRef.current = winPin;
+
+  const winHandles = (() => {
+    if (!win || !winFace) return [] as {id: "L" | "R" | "T" | "B" | "C";x: number;y: number;z: number;}[];
+    const wp = (u: number, v: number) => ({ x: winFace.ox + winFace.uax * u + winFace.ubx * v, y: winFace.oy + winFace.uay * u + winFace.uby * v, z: winFace.oz + winFace.uaz * u + winFace.ubz * v });
+    const x0 = win.cx - win.w / 2,x1 = win.cx + win.w / 2,y0 = win.cy - win.h / 2,y1 = win.cy + win.h / 2;
+    return [
+    { id: "L" as const, ...wp(x0, win.cy) },
+    { id: "R" as const, ...wp(x1, win.cy) },
+    { id: "T" as const, ...wp(win.cx, y1) },
+    { id: "B" as const, ...wp(win.cx, y0) },
+    { id: "C" as const, ...wp(win.cx, win.cy) }];
+  })();
+  const winHandlesRef = useRef(winHandles);
+  winHandlesRef.current = winHandles;
+
+  const WIN_MIN = 200;
+  const startWindowDrag = (ev0: ReactPointerEvent, handle: "L" | "R" | "T" | "B" | "C") => {
+    ev0.preventDefault();
+    ev0.stopPropagation();
+    const w0 = winRef.current;
+    const f = winFace;
+    if (!w0 || !f) return;
+    if (handle === "L" && w0.lockL || handle === "R" && w0.lockR || handle === "T" && w0.lockT || handle === "B" && w0.lockB) return;
+    const base = { x: f.ox + f.uax * w0.cx + f.ubx * w0.cy, y: f.oy + f.uay * w0.cx + f.uby * w0.cy, z: f.oz + f.uaz * w0.cx + f.ubz * w0.cy };
+    const LEN = 1000;
+    const p0 = projectMm10(base.x, base.y, base.z);
+    const pa = projectMm10(base.x + f.uax * LEN, base.y + f.uay * LEN, base.z + f.uaz * LEN);
+    const pb = projectMm10(base.x + f.ubx * LEN, base.y + f.uby * LEN, base.z + f.ubz * LEN);
+    if (!p0 || !pa || !pb) return;
+    const Uax = (pa.x - p0.x) / LEN,Uay = (pa.y - p0.y) / LEN;
+    const Ubx = (pb.x - p0.x) / LEN,Uby = (pb.y - p0.y) / LEN;
+    const det = Uax * Uby - Ubx * Uay;
+    const startX = ev0.clientX,startY = ev0.clientY;
+    const s = { w: w0.w, h: w0.h, cx: w0.cx, cy: w0.cy };
+    const onMove = (ev: PointerEvent) => {
+      const dsx = ev.clientX - startX,dsy = ev.clientY - startY;
+      let du = 0,dv = 0;
+      if (Math.abs(det) > 1e-6) {du = (Uby * dsx - Ubx * dsy) / det;dv = (-Uay * dsx + Uax * dsy) / det;}
+      setWin((cur) => {
+        if (!cur) return cur;
+        if (handle === "C") {
+          const ncx = cur.lockL || cur.lockR ? cur.cx : Math.max(cur.w / 2, Math.min(f.w - cur.w / 2, Math.round(s.cx + du)));
+          const ncy = cur.lockT || cur.lockB ? cur.cy : Math.max(cur.h / 2, Math.min(f.h - cur.h / 2, Math.round(s.cy + dv)));
+          return { ...cur, cx: ncx, cy: ncy };
+        }
+        if (handle === "L") {const x1 = s.cx + s.w / 2;const nx0 = Math.min(x1 - WIN_MIN, Math.max(0, s.cx - s.w / 2 + du));return { ...cur, w: Math.round(x1 - nx0), cx: Math.round((nx0 + x1) / 2) };}
+        if (handle === "R") {const x0 = s.cx - s.w / 2;const nx1 = Math.max(x0 + WIN_MIN, Math.min(f.w, s.cx + s.w / 2 + du));return { ...cur, w: Math.round(nx1 - x0), cx: Math.round((x0 + nx1) / 2) };}
+        if (handle === "T") {const y0 = s.cy - s.h / 2;const ny1 = Math.max(y0 + WIN_MIN, Math.min(f.h, s.cy + s.h / 2 + dv));return { ...cur, h: Math.round(ny1 - y0), cy: Math.round((y0 + ny1) / 2) };}
+        const y1 = s.cy + s.h / 2;const ny0 = Math.min(y1 - WIN_MIN, Math.max(0, s.cy - s.h / 2 + dv));return { ...cur, h: Math.round(y1 - ny0), cy: Math.round((ny0 + y1) / 2) };
       });
     };
     const onUp = () => {window.removeEventListener("pointermove", onMove);window.removeEventListener("pointerup", onUp);};
@@ -1150,6 +1287,10 @@ export function Stage3D({
       for (const pin of pinsRef.current) project(`__pin_${pin.id}__`, pin.x, pin.y, pin.z);
       for (const e of edgesRef.current) project(`__edge_${e.id}__`, e.x, e.y, e.z);
       for (const h of notchHandlesRef.current) project(`__nh_${h.id}__`, h.x, h.y, h.z);
+      for (const a of winAnchorsRef.current) project(`__win_${a.id}__`, a.x, a.y, a.z);
+      for (const h of winHandlesRef.current) project(`__wh_${h.id}__`, h.x, h.y, h.z);
+      const wpin = winPinRef.current;
+      if (wpin) project("__winpin__", wpin.x, wpin.y, wpin.z);
       setAnnPos(next);
       frame = requestAnimationFrame(tick);
     };
@@ -1232,6 +1373,8 @@ export function Stage3D({
     setPickedEdge(null);
     setNotch(null);
     setNotchNumpad(null);
+    setWin(null);
+    setWinNumpad(null);
   }, [selectedPanelId]);
 
   useEffect(() => {
@@ -1239,6 +1382,7 @@ export function Stage3D({
       setRound(null);setRoundNumpad(false);setPickedPin(null);
       setChamfer(null);setChamferNumpad(null);setPickedEdge(null);
       setNotch(null);setNotchNumpad(null);
+      setWin(null);setWinNumpad(null);
     }
   }, [showTargets]);
 
@@ -1246,6 +1390,7 @@ export function Stage3D({
     setRound(null);setRoundNumpad(false);setPickedPin(null);
     setChamfer(null);setChamferNumpad(null);setPickedEdge(null);
     setNotch(null);setNotchNumpad(null);
+    setWin(null);setWinNumpad(null);
   }, [targetKind]);
 
   useEffect(() => {
@@ -1368,6 +1513,40 @@ export function Stage3D({
     };
   }, [notch, appliedNotches, panels, selectedPanelId]);
 
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const sel = panels.find((p) => p.id === selectedPanelId) || null;
+    const mat = new THREE.LineBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.95 });
+    mat.depthTest = false;
+    let grp: THREE.Group | null = null;
+    const w = win ?? appliedWindow ?? null;
+    if (sel && w && w.w > 0 && w.h > 0) {
+      const f = panelFace(sel);
+      const wm = (mx: number, my: number, mz: number) => new THREE.Vector3(mm10ToMeters(mx - MID_X), mm10ToMeters(my), mm10ToMeters(mz - MID_Z));
+      const uv = (u: number, v: number) => wm(f.ox + f.uax * u + f.ubx * v, f.oy + f.uay * u + f.uby * v, f.oz + f.uaz * u + f.ubz * v);
+      const x0 = w.cx - w.w / 2,x1 = w.cx + w.w / 2,y0 = w.cy - w.h / 2,y1 = w.cy + w.h / 2;
+      const rr = Math.max(0, Math.min(w.radius, w.w / 2, w.h / 2));
+      const pts: THREE.Vector3[] = [];
+      const arc = (ccx: number, ccy: number, a0: number, a1: number) => {for (let i = 0; i <= 6; i++) {const a = a0 + (a1 - a0) * (i / 6);pts.push(uv(ccx + rr * Math.cos(a), ccy + rr * Math.sin(a)));}};
+      arc(x1 - rr, y0 + rr, -Math.PI / 2, 0);
+      arc(x1 - rr, y1 - rr, 0, Math.PI / 2);
+      arc(x0 + rr, y1 - rr, Math.PI / 2, Math.PI);
+      arc(x0 + rr, y0 + rr, Math.PI, Math.PI * 1.5);
+      const loop = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), mat);
+      loop.renderOrder = 6;
+      grp = new THREE.Group();
+      grp.add(loop);
+      scene.add(grp);
+    }
+    winGroupRef.current = grp;
+    return () => {
+      if (grp) {scene.remove(grp);grp.traverse((o) => {const m = o as THREE.Line;if (m.geometry) m.geometry.dispose();});}
+      mat.dispose();
+      if (winGroupRef.current === grp) winGroupRef.current = null;
+    };
+  }, [win, appliedWindow, panels, selectedPanelId]);
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
@@ -1376,6 +1555,7 @@ export function Stage3D({
           <button className={targetKind === "corners" ? "on" : ""} onClick={() => setTargetKind("corners")}>⌜ Углы</button>
           <button className={targetKind === "edges" ? "on" : ""} onClick={() => setTargetKind("edges")}>⌐ Кромки</button>
           <button className={targetKind === "notches" ? "on" : ""} onClick={() => setTargetKind("notches")}>⊔ Вырез</button>
+          <button className={targetKind === "windows" ? "on" : ""} onClick={() => setTargetKind("windows")}>▢ Окно</button>
         </div>
       }
       {(annotations ?? []).map((a) => {
@@ -1544,6 +1724,59 @@ export function Stage3D({
           </button>);
 
       })}
+      {winPin && annPos["__winpin__"] &&
+      <button
+        className={`window-pin${winPin.active ? " machined" : ""}`}
+        style={{ left: annPos["__winpin__"].x, top: annPos["__winpin__"].y }}
+        onClick={openWindow}
+        title={winPin.active ? "Окно — нажмите, чтобы изменить" : "Добавить окно"}>
+
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="5" y="6" width="14" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="2" />
+            {!winPin.active && <path d="M12 9 V15 M9 12 H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />}
+          </svg>
+        </button>
+      }
+      {win && winFace && (() => {
+        const offT = Math.max(0, Math.round(winFace.h - (win.cy + win.h / 2)));
+        const offB = Math.max(0, Math.round(win.cy - win.h / 2));
+        const offL = Math.max(0, Math.round(win.cx - win.w / 2));
+        const offR = Math.max(0, Math.round(winFace.w - (win.cx + win.w / 2)));
+        const chip = (id: string, node: ReactNode, dx = 0, dy = 0) => {
+          const p = annPos[`__win_${id}__`];
+          if (!p) return null;
+          return <div key={id} className="stage-annotation" style={{ left: p.x + dx, top: p.y + dy }}>{node}</div>;
+        };
+        return (
+          <>
+            {chip("offT", <MeasureChip value={offT} tone="offset" locked={win.lockT} onToggleLock={() => setWin((w) => w ? { ...w, lockT: !w.lockT } : w)} onEdit={win.lockT ? undefined : () => setWinNumpad("offT")} title="До верхнего края" />)}
+            {chip("offB", <MeasureChip value={offB} tone="offset" locked={win.lockB} onToggleLock={() => setWin((w) => w ? { ...w, lockB: !w.lockB } : w)} onEdit={win.lockB ? undefined : () => setWinNumpad("offB")} title="До нижнего края" />)}
+            {chip("offL", <MeasureChip value={offL} tone="offset" locked={win.lockL} onToggleLock={() => setWin((w) => w ? { ...w, lockL: !w.lockL } : w)} onEdit={win.lockL ? undefined : () => setWinNumpad("offL")} title="До левого края" />)}
+            {chip("offR", <MeasureChip value={offR} tone="offset" locked={win.lockR} onToggleLock={() => setWin((w) => w ? { ...w, lockR: !w.lockR } : w)} onEdit={win.lockR ? undefined : () => setWinNumpad("offR")} title="До правого края" />)}
+            {chip("w", <MeasureChip value={win.w} tone="size" onEdit={() => setWinNumpad("w")} title="Ширина окна" />, 0, 36)}
+            {chip("h", <MeasureChip value={win.h} tone="size" onEdit={() => setWinNumpad("h")} title="Высота окна" />, -52, 0)}
+            {chip("radius", <MeasureChip value={win.radius} tone="radius" onEdit={() => setWinNumpad("radius")} title="Радиус углов" />)}
+            {annPos["__win_ok__"] && <div className="stage-annotation" style={{ left: annPos["__win_ok__"].x, top: annPos["__win_ok__"].y }}><button className="re-ok win-btn" onClick={applyWindow} title="Применить">✓</button></div>}
+            {annPos["__win_del__"] && <div className="stage-annotation" style={{ left: annPos["__win_del__"].x, top: annPos["__win_del__"].y }}><button className="re-del win-btn" onClick={deleteWindow} title="Удалить">✕</button></div>}
+          </>);
+
+      })()}
+      {winHandles.map((h) => {
+        const p = annPos[`__wh_${h.id}__`];
+        if (!p) return null;
+        const locked = h.id === "L" && win?.lockL || h.id === "R" && win?.lockR || h.id === "T" && win?.lockT || h.id === "B" && win?.lockB;
+        return (
+          <button
+            key={h.id}
+            className={`notch-handle${h.id === "C" ? " nh-pos" : ""}`}
+            style={{ left: p.x, top: p.y, opacity: locked ? 0.4 : 1 }}
+            onPointerDown={(e) => startWindowDrag(e, h.id)}
+            title={h.id === "C" ? "Двигать окно" : h.id === "L" ? "Левая сторона" : h.id === "R" ? "Правая сторона" : h.id === "T" ? "Верх" : "Низ"}>
+
+            {h.id === "L" ? "◀" : h.id === "R" ? "▶" : h.id === "T" ? "▲" : h.id === "B" ? "▼" : "✥"}
+          </button>);
+
+      })}
       {selectedPanel &&
       <div className="floating-dims-card" style={{ position: "absolute", top: "16px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "12px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", border: "1px solid #e5e7eb", display: "flex", gap: "24px", zIndex: 10 }}>
           <div className="float-field">
@@ -1644,6 +1877,37 @@ export function Stage3D({
               setNotchNumpad(null);
             }}
             onCancel={() => setNotchNumpad(null)} />);
+
+      })()}
+      {winNumpad && win && winFace && (() => {
+        const f = winFace;
+        const initial = winNumpad === "w" ? win.w : winNumpad === "h" ? win.h : winNumpad === "radius" ? win.radius :
+        winNumpad === "offT" ? Math.max(0, f.h - (win.cy + win.h / 2)) :
+        winNumpad === "offB" ? Math.max(0, win.cy - win.h / 2) :
+        winNumpad === "offL" ? Math.max(0, win.cx - win.w / 2) :
+        Math.max(0, f.w - (win.cx + win.w / 2));
+        const label = winNumpad === "w" ? "Ширина, см" : winNumpad === "h" ? "Высота, см" : winNumpad === "radius" ? "Радиус, см" : "До края, см";
+        return (
+          <Numpad
+            initial={initial}
+            label={label}
+            mode="cm"
+            onCommit={(v) => {
+              setWin((w) => {
+                if (!w) return w;
+                const clampU = (u: number) => Math.max(w.w / 2, Math.min(f.w - w.w / 2, u));
+                const clampV = (vv: number) => Math.max(w.h / 2, Math.min(f.h - w.h / 2, vv));
+                if (winNumpad === "w") return { ...w, w: v };
+                if (winNumpad === "h") return { ...w, h: v };
+                if (winNumpad === "radius") return { ...w, radius: v };
+                if (winNumpad === "offL") return { ...w, cx: clampU(v + w.w / 2) };
+                if (winNumpad === "offR") return { ...w, cx: clampU(f.w - v - w.w / 2) };
+                if (winNumpad === "offB") return { ...w, cy: clampV(v + w.h / 2) };
+                return { ...w, cy: clampV(f.h - v - w.h / 2) };
+              });
+              setWinNumpad(null);
+            }}
+            onCancel={() => setWinNumpad(null)} />);
 
       })()}
     </div>);

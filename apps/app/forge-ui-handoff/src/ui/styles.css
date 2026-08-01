@@ -1031,6 +1031,39 @@ details.controls-section.separator {
 .re-ok { background: #16a34a; color: #ffffff; }
 .re-del { background: #fdecec; color: #e5342b; }
 
+.window-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1.5px solid #d5dae1;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(27, 36, 48, 0.22);
+  cursor: pointer;
+  color: #64748b;
+  z-index: 11;
+}
+.window-pin svg { width: 22px; height: 22px; display: block; }
+.window-pin:hover { border-color: #9fb6d8; transform: translate(-50%, -50%) scale(1.06); }
+.window-pin.machined { border-color: #16a34a; color: #16a34a; }
+
+.win-btn {
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 
 .harness-log { display: flex; flex-direction: column; gap: 2px; }
 .harness-log-row {

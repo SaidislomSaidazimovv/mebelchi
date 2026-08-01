@@ -19,6 +19,12 @@ const START: Panel[] = [
   x: 2000, y: 0, z: 2000, width: 1200, height: 900, depth: 160,
   material: "ldsp", bands: [10, 0, 10, 0],
   orientation: { xAxis: "width", yAxis: "height" }
+},
+{
+  id: "P3", name: "P3 · щит (фасад)", role: "other",
+  x: 500, y: 250, z: 2710, width: 5000, height: 3500, depth: 180,
+  material: "ldsp", bands: [10, 10, 10, 10],
+  orientation: { xAxis: "width", yAxis: "height" }
 }];
 
 export function Harness() {
@@ -33,6 +39,8 @@ export function Harness() {
   const [chamfers, setChamfers] = useState<Record<string, Record<string, {width: number;depth: number;}>>>({});
 
   const [notches, setNotches] = useState<Record<string, Record<string, {width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>>>({});
+
+  const [windows, setWindows] = useState<Record<string, {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;}>>({});
 
   const say = (m: string) => setLog((l) => [m, ...l].slice(0, 14));
   const selected = panels.find((p) => p.id === selectedId) ?? null;
@@ -64,6 +72,7 @@ export function Harness() {
     () => Object.entries(notches[selectedId ?? ""] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth, radius: v.radius, pos: v.pos, lockL: v.lockL, lockR: v.lockR })),
     [notches, selectedId]
   );
+  const appliedWindow = useMemo(() => windows[selectedId ?? ""] ?? null, [windows, selectedId]);
 
   const move = (id: string, x: number, y: number, z: number) => {
     setPanels((ps) => ps.map((p) => p.id === id ? { ...p, x, y, z } : p));
@@ -134,6 +143,16 @@ export function Harness() {
             say(`notch ${edgeId} w=${mm10ToMm(w)} d=${mm10ToMm(d)} r=${mm10ToMm(r)}мм${lockL ? " L🔒" : ""}${lockR ? " R🔒" : ""}`);
           }}
           appliedNotches={appliedNotches}
+          onApplyWindow={(w, h, radius, cx, cy, lockT, lockR, lockB, lockL) => {
+            const pid = selectedId ?? "";
+            setWindows((prev) => {
+              const cur = { ...prev };
+              if (w > 0) cur[pid] = { w, h, radius, cx, cy, lockT, lockR, lockB, lockL };else delete cur[pid];
+              return cur;
+            });
+            say(`window ${mm10ToMm(w)}×${mm10ToMm(h)} r=${mm10ToMm(radius)}мм${lockT || lockR || lockB || lockL ? " 🔒" : ""}`);
+          }}
+          appliedWindow={appliedWindow}
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}
           handles={mode === "translate" ? handles : []}
