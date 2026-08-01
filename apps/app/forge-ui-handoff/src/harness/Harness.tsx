@@ -40,7 +40,7 @@ export function Harness() {
 
   const [notches, setNotches] = useState<Record<string, Record<string, {width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>>>({});
 
-  const [windows, setWindows] = useState<Record<string, {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;}>>({});
+  const [windows, setWindows] = useState<Record<string, {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;}[]>>({});
 
   const say = (m: string) => setLog((l) => [m, ...l].slice(0, 14));
   const selected = panels.find((p) => p.id === selectedId) ?? null;
@@ -72,13 +72,13 @@ export function Harness() {
     () => Object.entries(notches[selectedId ?? ""] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth, radius: v.radius, pos: v.pos, lockL: v.lockL, lockR: v.lockR })),
     [notches, selectedId]
   );
-  const appliedWindow = useMemo(() => windows[selectedId ?? ""] ?? null, [windows, selectedId]);
+  const appliedWindows = useMemo(() => windows[selectedId ?? ""] ?? [], [windows, selectedId]);
 
   const panelCuts = useMemo(() => {
-    const out: Record<string, {window: {w: number;h: number;radius: number;cx: number;cy: number;} | null;rounds: {cornerId: string;radius: number;}[];notches: {edgeId: string;width: number;depth: number;radius: number;pos: number;}[];chamfers: {edgeId: string;width: number;depth: number;}[];}> = {};
+    const out: Record<string, {windows: {w: number;h: number;radius: number;cx: number;cy: number;}[];rounds: {cornerId: string;radius: number;}[];notches: {edgeId: string;width: number;depth: number;radius: number;pos: number;}[];chamfers: {edgeId: string;width: number;depth: number;}[];}> = {};
     for (const p of panels) {
       out[p.id] = {
-        window: windows[p.id] ?? null,
+        windows: windows[p.id] ?? [],
         rounds: Object.entries(rounds[p.id] ?? {}).map(([cornerId, radius]) => ({ cornerId, radius })),
         notches: Object.entries(notches[p.id] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth, radius: v.radius, pos: v.pos })),
         chamfers: Object.entries(chamfers[p.id] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth }))
@@ -158,16 +158,20 @@ export function Harness() {
             say(`notch ${edgeId} w=${mm10ToMm(w)} d=${mm10ToMm(d)} r=${mm10ToMm(r)}мм${lockL ? " L🔒" : ""}${lockR ? " R🔒" : ""}`);
           }}
           appliedNotches={appliedNotches}
-          onApplyWindow={(w, h, radius, cx, cy, lockT, lockR, lockB, lockL) => {
+          onApplyWindow={(idx, w, h, radius, cx, cy, lockT, lockR, lockB, lockL) => {
             const pid = selectedId ?? "";
             setWindows((prev) => {
+              const arr = [...(prev[pid] ?? [])];
+              if (w <= 0) {if (idx >= 0 && idx < arr.length) arr.splice(idx, 1);} else
+              if (idx < 0 || idx >= arr.length) arr.push({ w, h, radius, cx, cy, lockT, lockR, lockB, lockL });else
+              arr[idx] = { w, h, radius, cx, cy, lockT, lockR, lockB, lockL };
               const cur = { ...prev };
-              if (w > 0) cur[pid] = { w, h, radius, cx, cy, lockT, lockR, lockB, lockL };else delete cur[pid];
+              if (arr.length) cur[pid] = arr;else delete cur[pid];
               return cur;
             });
-            say(`window ${mm10ToMm(w)}×${mm10ToMm(h)} r=${mm10ToMm(radius)}мм${lockT || lockR || lockB || lockL ? " 🔒" : ""}`);
+            say(`window[${idx}] ${mm10ToMm(w)}×${mm10ToMm(h)} r=${mm10ToMm(radius)}мм${lockT || lockR || lockB || lockL ? " 🔒" : ""}`);
           }}
-          appliedWindow={appliedWindow}
+          appliedWindows={appliedWindows}
           panelCuts={panelCuts}
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}

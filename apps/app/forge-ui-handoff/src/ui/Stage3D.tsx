@@ -219,10 +219,10 @@ export function Stage3D({
   onApplyNotch,
   appliedNotches,
   onApplyWindow,
-  appliedWindow,
+  appliedWindows,
   panelCuts
 
-}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;showGizmo?: boolean;showMeasure?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindow?: {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null;panelCuts?: Record<string, {window?: {w: number;h: number;radius: number;cx: number;cy: number;} | null;rounds?: ReadonlyArray<{cornerId: string;radius: number;}>;notches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;}>;chamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;}>;}) {
+}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;showGizmo?: boolean;showMeasure?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (idx: number, width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindows?: ReadonlyArray<{w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;}>;panelCuts?: Record<string, {windows?: ReadonlyArray<{w: number;h: number;radius: number;cx: number;cy: number;}>;rounds?: ReadonlyArray<{cornerId: string;radius: number;}>;notches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;}>;chamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;}>;}) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [overlayPos, setOverlayPos] = useState<{x: number;y: number;} | null>(null);
   const [annPos, setAnnPos] = useState<Record<string, {x: number;y: number;}>>({});
@@ -839,7 +839,7 @@ export function Stage3D({
   };
 
   const winFace = showTargets && selectedPanel && targetKind === "windows" ? panelFace(selectedPanel) : null;
-  const [win, setWin] = useState<{w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;} | null>(null);
+  const [win, setWin] = useState<{w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;idx: number;} | null>(null);
   const winRef = useRef(win);
   winRef.current = win;
   const onApplyWindowRef = useRef(onApplyWindow);
@@ -847,22 +847,33 @@ export function Stage3D({
   const winGroupRef = useRef<THREE.Group | null>(null);
   const [winNumpad, setWinNumpad] = useState<"w" | "h" | "radius" | "offT" | "offR" | "offB" | "offL" | null>(null);
 
-  const openWindow = () => {
+  const openWindow = (idx: number) => {
     if (!winFace) return;
-    const ap = appliedWindow ?? null;
+    const ap = (appliedWindows ?? [])[idx] ?? null;
     setWin(ap ?
-    { w: ap.w, h: ap.h, radius: ap.radius, cx: ap.cx, cy: ap.cy, lockT: ap.lockT, lockR: ap.lockR, lockB: ap.lockB, lockL: ap.lockL } :
-    { w: roundMm10(winFace.w * 0.4), h: roundMm10(winFace.h * 0.4), radius: 0, cx: roundMm10(winFace.w / 2), cy: roundMm10(winFace.h / 2), lockT: false, lockR: false, lockB: false, lockL: false });
+    { w: ap.w, h: ap.h, radius: ap.radius, cx: ap.cx, cy: ap.cy, lockT: ap.lockT, lockR: ap.lockR, lockB: ap.lockB, lockL: ap.lockL, idx } :
+    { w: roundMm10(winFace.w * 0.4), h: roundMm10(winFace.h * 0.4), radius: 0, cx: roundMm10(winFace.w / 2), cy: roundMm10(winFace.h / 2), lockT: false, lockR: false, lockB: false, lockL: false, idx: -1 });
   };
   const applyWindow = () => {
     const w = winRef.current;
     setWinNumpad(null);
-    if (w) onApplyWindowRef.current?.(w.w, w.h, w.radius, w.cx, w.cy, w.lockT, w.lockR, w.lockB, w.lockL);
+    if (w) onApplyWindowRef.current?.(w.idx, w.w, w.h, w.radius, w.cx, w.cy, w.lockT, w.lockR, w.lockB, w.lockL);
     setWin(null);
   };
   const deleteWindow = () => {
+    const w = winRef.current;
     setWinNumpad(null);
-    onApplyWindowRef.current?.(0, 0, 0, 0, 0, false, false, false, false);
+    if (w) onApplyWindowRef.current?.(w.idx, 0, 0, 0, 0, 0, false, false, false, false);
+    setWin(null);
+  };
+  const duplicateWindow = () => {
+    const w = winRef.current;
+    if (!w || !winFace) return;
+    setWinNumpad(null);
+    onApplyWindowRef.current?.(w.idx, w.w, w.h, w.radius, w.cx, w.cy, w.lockT, w.lockR, w.lockB, w.lockL);
+    const ncx = roundMm10(Math.max(w.w / 2, Math.min(winFace.w - w.w / 2, w.cx + w.w * 1.2)));
+    const ncy = roundMm10(Math.max(w.h / 2, Math.min(winFace.h - w.h / 2, w.cy)));
+    onApplyWindowRef.current?.(-1, w.w, w.h, w.radius, ncx, ncy, false, false, false, false);
     setWin(null);
   };
 
@@ -884,15 +895,15 @@ export function Stage3D({
   const winAnchorsRef = useRef(winAnchors);
   winAnchorsRef.current = winAnchors;
 
-  const winPin = (() => {
-    if (win || !winFace) return null;
-    const ap = appliedWindow ?? null;
-    const u = ap ? ap.cx : winFace.w / 2;
-    const v = ap ? ap.cy : winFace.h / 2;
-    return { active: !!ap, x: winFace.ox + winFace.uax * u + winFace.ubx * v, y: winFace.oy + winFace.uay * u + winFace.uby * v, z: winFace.oz + winFace.uaz * u + winFace.ubz * v };
+  const winPins = (() => {
+    if (win || !winFace) return [] as {id: string;active: boolean;x: number;y: number;z: number;}[];
+    const wp = (u: number, v: number) => ({ x: winFace.ox + winFace.uax * u + winFace.ubx * v, y: winFace.oy + winFace.uay * u + winFace.uby * v, z: winFace.oz + winFace.uaz * u + winFace.ubz * v });
+    const aw = appliedWindows ?? [];
+    if (aw.length === 0) return [{ id: "add", active: false, ...wp(winFace.w / 2, winFace.h / 2) }];
+    return aw.map((w, i) => ({ id: `${i}`, active: true, ...wp(w.cx, w.cy) }));
   })();
-  const winPinRef = useRef(winPin);
-  winPinRef.current = winPin;
+  const winPinsRef = useRef(winPins);
+  winPinsRef.current = winPins;
 
   const winHandles = (() => {
     if (!win || !winFace) return [] as {id: "L" | "R" | "T" | "B" | "C";x: number;y: number;z: number;}[];
@@ -909,6 +920,7 @@ export function Stage3D({
   winHandlesRef.current = winHandles;
 
   const WIN_MIN = 200;
+  const WIN_M = 20;
   const startWindowDrag = (ev0: ReactPointerEvent, handle: "L" | "R" | "T" | "B" | "C") => {
     ev0.preventDefault();
     ev0.stopPropagation();
@@ -934,14 +946,14 @@ export function Stage3D({
       setWin((cur) => {
         if (!cur) return cur;
         if (handle === "C") {
-          const ncx = cur.lockL || cur.lockR ? cur.cx : Math.max(cur.w / 2, Math.min(f.w - cur.w / 2, roundMm10(s.cx + du)));
-          const ncy = cur.lockT || cur.lockB ? cur.cy : Math.max(cur.h / 2, Math.min(f.h - cur.h / 2, roundMm10(s.cy + dv)));
+          const ncx = cur.lockL || cur.lockR ? cur.cx : Math.max(cur.w / 2 + WIN_M, Math.min(f.w - cur.w / 2 - WIN_M, roundMm10(s.cx + du)));
+          const ncy = cur.lockT || cur.lockB ? cur.cy : Math.max(cur.h / 2 + WIN_M, Math.min(f.h - cur.h / 2 - WIN_M, roundMm10(s.cy + dv)));
           return { ...cur, cx: ncx, cy: ncy };
         }
-        if (handle === "L") {const x1 = s.cx + s.w / 2;const nx0 = Math.min(x1 - WIN_MIN, Math.max(0, s.cx - s.w / 2 + du));return { ...cur, w: roundMm10(x1 - nx0), cx: roundMm10((nx0 + x1) / 2) };}
-        if (handle === "R") {const x0 = s.cx - s.w / 2;const nx1 = Math.max(x0 + WIN_MIN, Math.min(f.w, s.cx + s.w / 2 + du));return { ...cur, w: roundMm10(nx1 - x0), cx: roundMm10((x0 + nx1) / 2) };}
-        if (handle === "T") {const y0 = s.cy - s.h / 2;const ny1 = Math.max(y0 + WIN_MIN, Math.min(f.h, s.cy + s.h / 2 + dv));return { ...cur, h: roundMm10(ny1 - y0), cy: roundMm10((y0 + ny1) / 2) };}
-        const y1 = s.cy + s.h / 2;const ny0 = Math.min(y1 - WIN_MIN, Math.max(0, s.cy - s.h / 2 + dv));return { ...cur, h: roundMm10(y1 - ny0), cy: roundMm10((ny0 + y1) / 2) };
+        if (handle === "L") {const x1 = s.cx + s.w / 2;const nx0 = Math.min(x1 - WIN_MIN, Math.max(WIN_M, s.cx - s.w / 2 + du));return { ...cur, w: roundMm10(x1 - nx0), cx: roundMm10((nx0 + x1) / 2) };}
+        if (handle === "R") {const x0 = s.cx - s.w / 2;const nx1 = Math.max(x0 + WIN_MIN, Math.min(f.w - WIN_M, s.cx + s.w / 2 + du));return { ...cur, w: roundMm10(nx1 - x0), cx: roundMm10((x0 + nx1) / 2) };}
+        if (handle === "T") {const y0 = s.cy - s.h / 2;const ny1 = Math.max(y0 + WIN_MIN, Math.min(f.h - WIN_M, s.cy + s.h / 2 + dv));return { ...cur, h: roundMm10(ny1 - y0), cy: roundMm10((y0 + ny1) / 2) };}
+        const y1 = s.cy + s.h / 2;const ny0 = Math.min(y1 - WIN_MIN, Math.max(WIN_M, s.cy - s.h / 2 + dv));return { ...cur, h: roundMm10(y1 - ny0), cy: roundMm10((ny0 + y1) / 2) };
       });
     };
     const onUp = () => {window.removeEventListener("pointermove", onMove);window.removeEventListener("pointerup", onUp);};
@@ -1459,14 +1471,21 @@ export function Stage3D({
     if (chamfer) for (const e of chamfer.edges) chamMap.set(e, { width: chamfer.width, depth: chamfer.depth });
     const notchMap = new Map((base.notches ?? []).map((n) => [n.edgeId, { edgeId: n.edgeId, width: n.width, depth: n.depth, radius: n.radius, pos: n.pos }] as [string, {edgeId: string;width: number;depth: number;radius: number;pos: number;}]));
     if (notch) notchMap.set(notch.edgeId, { edgeId: notch.edgeId, width: notch.width, depth: notch.depth, radius: notch.radius, pos: notch.pos });
-    const windowCut = win ? { w: win.w, h: win.h, radius: win.radius, cx: win.cx, cy: win.cy } : base.window ?? null;
+    const windowsCut = (() => {
+      const arr = (base.windows ?? []).map((w) => ({ w: w.w, h: w.h, radius: w.radius, cx: w.cx, cy: w.cy }));
+      if (win) {
+        const editing = { w: win.w, h: win.h, radius: win.radius, cx: win.cx, cy: win.cy };
+        if (win.idx >= 0 && win.idx < arr.length) arr[win.idx] = editing;else arr.push(editing);
+      }
+      return arr;
+    })();
     return {
       ...panelCuts ?? {},
       [selectedPanelId]: {
         rounds: [...roundsMap].map(([cornerId, radius]) => ({ cornerId, radius })),
         chamfers: [...chamMap].map(([edgeId, val]) => ({ edgeId, width: val.width, depth: val.depth })),
         notches: [...notchMap.values()],
-        window: windowCut
+        windows: windowsCut
       }
     };
   }, [panelCuts, selectedPanelId, round, chamfer, notch, win]);
@@ -1651,8 +1670,7 @@ export function Stage3D({
       for (const h of notchHandlesRef.current) project(`__nh_${h.id}__`, h.x, h.y, h.z);
       for (const a of winAnchorsRef.current) project(`__win_${a.id}__`, a.x, a.y, a.z);
       for (const h of winHandlesRef.current) project(`__wh_${h.id}__`, h.x, h.y, h.z);
-      const wpin = winPinRef.current;
-      if (wpin) project("__winpin__", wpin.x, wpin.y, wpin.z);
+      for (const wpin of winPinsRef.current) project(`__winpin_${wpin.id}__`, wpin.x, wpin.y, wpin.z);
       const rh = roundHandleRef.current;
       if (rh) project("__rh__", rh.x, rh.y, rh.z);
       const chh = chamferHandleRef.current;
@@ -1891,23 +1909,30 @@ export function Stage3D({
     const mat = new THREE.LineBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.95 });
     mat.depthTest = false;
     let grp: THREE.Group | null = null;
-    const w = win ?? appliedWindow ?? null;
-    if (sel && w && w.w > 0 && w.h > 0) {
+    const list = (appliedWindows ?? []).map((wn) => ({ w: wn.w, h: wn.h, radius: wn.radius, cx: wn.cx, cy: wn.cy }));
+    if (win) {
+      const editing = { w: win.w, h: win.h, radius: win.radius, cx: win.cx, cy: win.cy };
+      if (win.idx >= 0 && win.idx < list.length) list[win.idx] = editing;else list.push(editing);
+    }
+    const draw = list.filter((wn) => wn.w > 0 && wn.h > 0);
+    if (sel && draw.length) {
       const f = panelFace(sel);
       const wm = (mx: number, my: number, mz: number) => new THREE.Vector3(mm10ToMeters(mx - MID_X), mm10ToMeters(my), mm10ToMeters(mz - MID_Z));
       const uv = (u: number, v: number) => wm(f.ox + f.uax * u + f.ubx * v, f.oy + f.uay * u + f.uby * v, f.oz + f.uaz * u + f.ubz * v);
-      const x0 = w.cx - w.w / 2,x1 = w.cx + w.w / 2,y0 = w.cy - w.h / 2,y1 = w.cy + w.h / 2;
-      const rr = Math.max(0, Math.min(w.radius, w.w / 2, w.h / 2));
-      const pts: THREE.Vector3[] = [];
-      const arc = (ccx: number, ccy: number, a0: number, a1: number) => {for (let i = 0; i <= 6; i++) {const a = a0 + (a1 - a0) * (i / 6);pts.push(uv(ccx + rr * Math.cos(a), ccy + rr * Math.sin(a)));}};
-      arc(x1 - rr, y0 + rr, -Math.PI / 2, 0);
-      arc(x1 - rr, y1 - rr, 0, Math.PI / 2);
-      arc(x0 + rr, y1 - rr, Math.PI / 2, Math.PI);
-      arc(x0 + rr, y0 + rr, Math.PI, Math.PI * 1.5);
-      const loop = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), mat);
-      loop.renderOrder = 6;
       grp = new THREE.Group();
-      grp.add(loop);
+      for (const w of draw) {
+        const x0 = w.cx - w.w / 2,x1 = w.cx + w.w / 2,y0 = w.cy - w.h / 2,y1 = w.cy + w.h / 2;
+        const rr = Math.max(0, Math.min(w.radius, w.w / 2, w.h / 2));
+        const pts: THREE.Vector3[] = [];
+        const arc = (ccx: number, ccy: number, a0: number, a1: number) => {for (let i = 0; i <= 6; i++) {const a = a0 + (a1 - a0) * (i / 6);pts.push(uv(ccx + rr * Math.cos(a), ccy + rr * Math.sin(a)));}};
+        arc(x1 - rr, y0 + rr, -Math.PI / 2, 0);
+        arc(x1 - rr, y1 - rr, 0, Math.PI / 2);
+        arc(x0 + rr, y1 - rr, Math.PI / 2, Math.PI);
+        arc(x0 + rr, y0 + rr, Math.PI, Math.PI * 1.5);
+        const loop = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), mat);
+        loop.renderOrder = 6;
+        grp.add(loop);
+      }
       scene.add(grp);
     }
     winGroupRef.current = grp;
@@ -1916,7 +1941,7 @@ export function Stage3D({
       mat.dispose();
       if (winGroupRef.current === grp) winGroupRef.current = null;
     };
-  }, [win, appliedWindow, panels, selectedPanelId]);
+  }, [win, appliedWindows, panels, selectedPanelId]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -2122,19 +2147,22 @@ export function Stage3D({
           </button>);
 
       })}
-      {winPin && annPos["__winpin__"] &&
+      {winPins.map((wpin) =>
+      annPos[`__winpin_${wpin.id}__`] ?
       <button
-        className={`window-pin${winPin.active ? " machined" : ""}`}
-        style={{ left: annPos["__winpin__"].x, top: annPos["__winpin__"].y }}
-        onClick={openWindow}
-        title={winPin.active ? "Окно — нажмите, чтобы изменить" : "Добавить окно"}>
+        key={wpin.id}
+        className={`window-pin${wpin.active ? " machined" : ""}`}
+        style={{ left: annPos[`__winpin_${wpin.id}__`]!.x, top: annPos[`__winpin_${wpin.id}__`]!.y }}
+        onClick={() => openWindow(wpin.id === "add" ? -1 : Number(wpin.id))}
+        title={wpin.active ? "Окно — нажмите, чтобы изменить" : "Добавить окно"}>
 
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <rect x="5" y="6" width="14" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="2" />
-            {!winPin.active && <path d="M12 9 V15 M9 12 H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />}
+            {!wpin.active && <path d="M12 9 V15 M9 12 H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />}
           </svg>
-        </button>
-      }
+        </button> :
+      null
+      )}
       {win && winFace && (() => {
         const offT = Math.max(0, roundMm10(winFace.h - (win.cy + win.h / 2)));
         const offB = Math.max(0, roundMm10(win.cy - win.h / 2));
@@ -2155,6 +2183,7 @@ export function Stage3D({
             {chip("h", <MeasureChip value={win.h} tone="size" onEdit={() => setWinNumpad("h")} title="Высота окна" />, -52, 0)}
             {chip("radius", <MeasureChip value={win.radius} tone="radius" onEdit={() => setWinNumpad("radius")} title="Радиус углов" />)}
             {annPos["__win_ok__"] && <div className="stage-annotation" style={{ left: annPos["__win_ok__"].x, top: annPos["__win_ok__"].y }}><button className="re-ok win-btn" onClick={applyWindow} title="Применить">✓</button></div>}
+            {annPos["__win_ok__"] && <div className="stage-annotation" style={{ left: annPos["__win_ok__"].x + 42, top: annPos["__win_ok__"].y }}><button className="win-btn win-dup" onClick={duplicateWindow} title="Дублировать окно">⧉</button></div>}
             {annPos["__win_del__"] && <div className="stage-annotation" style={{ left: annPos["__win_del__"].x, top: annPos["__win_del__"].y }}><button className="re-del win-btn" onClick={deleteWindow} title="Удалить">✕</button></div>}
           </>);
 

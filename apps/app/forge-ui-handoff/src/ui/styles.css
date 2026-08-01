@@ -1166,6 +1166,11 @@ details.controls-section.separator {
   align-items: center;
   justify-content: center;
 }
+.win-dup {
+  background: #64748b;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(27, 36, 48, 0.28);
+}
 
 .focus-btn {
   position: absolute;
