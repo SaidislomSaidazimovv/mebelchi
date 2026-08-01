@@ -103,6 +103,38 @@ function cornerArc(p: Panel, cornerId: string, radius: number): { x: number; y: 
   return out;
 }
 
+/**
+ * The four perimeter edges of a panel's MAIN face: midpoint, the unit direction ALONG
+ * the edge, the unit direction INWARD (toward the centre) and the edge length. Edge
+ * machining (F5) attaches to one of these. All mm10 world, rotated by rx/ry/rz.
+ */
+function panelEdges(p: Panel): { id: string; x: number; y: number; z: number; ax: number; ay: number; az: number; ix: number; iy: number; iz: number; len: number }[] {
+  const AX = ["width", "height", "depth"] as const;
+  const AXVEC: Record<"width" | "height" | "depth", [number, number, number]> = { width: [1, 0, 0], height: [0, 1, 0], depth: [0, 0, 1] };
+  const ox = p.orientation?.xAxis;
+  const oy = p.orientation?.yAxis;
+  const thick = ox && oy ? AX.find((a) => a !== ox && a !== oy)! : p.width <= p.height && p.width <= p.depth ? "width" : p.height <= p.depth ? "height" : "depth";
+  const face = AX.filter((a) => a !== thick);
+  const fa = face[0]!;
+  const fb = face[1]!;
+  const lo = { width: p.x, height: p.y, depth: p.z };
+  const hi = { width: p.x + p.width, height: p.y + p.height, depth: p.z + p.depth };
+  const ctr = { width: p.x + p.width / 2, height: p.y + p.height / 2, depth: p.z + p.depth / 2 };
+  const ext = { width: p.width, height: p.height, depth: p.depth };
+  const euler = (p.rx || p.ry || p.rz) ? new THREE.Euler(p.rx || 0, p.ry || 0, p.rz || 0) : null;
+  const pc = new THREE.Vector3(ctr.width, ctr.height, ctr.depth);
+  const make = (edgeAxis: "width" | "height" | "depth", otherAxis: "width" | "height" | "depth", side: 0 | 1, id: string) => {
+    const mid = { width: ctr.width, height: ctr.height, depth: ctr.depth };
+    mid[otherAxis] = side ? hi[otherAxis] : lo[otherAxis];
+    const along = new THREE.Vector3(...AXVEC[edgeAxis]);
+    const inward = new THREE.Vector3(...AXVEC[otherAxis]).multiplyScalar(side ? -1 : 1);
+    let m = new THREE.Vector3(mid.width, mid.height, mid.depth);
+    if (euler) { m = m.sub(pc).applyEuler(euler).add(pc); along.applyEuler(euler); inward.applyEuler(euler); }
+    return { id, x: m.x, y: m.y, z: m.z, ax: along.x, ay: along.y, az: along.z, ix: inward.x, iy: inward.y, iz: inward.z, len: ext[edgeAxis] };
+  };
+  return [make(fa, fb, 0, "e0"), make(fa, fb, 1, "e1"), make(fb, fa, 0, "e2"), make(fb, fa, 1, "e3")];
+}
+
 export function Stage3D({
   panels,
   holes,
@@ -126,6 +158,8 @@ export function Stage3D({
   onPickTarget,
   onApplyRound,
   appliedRounds,
+  onApplyChamfer,
+  appliedChamfers,
 }: {
   panels: Panel[];
   holes: Hole[];
@@ -194,6 +228,10 @@ export function Stage3D({
   onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;
   /** F03: rounds already applied to the selected panel — drawn as persistent arcs. */
   appliedRounds?: ReadonlyArray<{ cornerId: string; radius: number }>;
+  /** F5: apply an edge machining (rabbet) — the cut is the model's; the UI emits the spec. */
+  onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;
+  /** F5: edge machinings already on the selected panel — drawn as persistent guides. */
+  appliedChamfers?: ReadonlyArray<{ edgeId: string; width: number; depth: number }>;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [overlayPos, setOverlayPos] = useState<{ x: number; y: number } | null>(null);
@@ -343,8 +381,12 @@ export function Stage3D({
 
   const selectedPanel = panels.find((p) => p.id === selectedPanelId) || null;
 
+  // Which target family to show in modifier mode — corners (round) or edges (machining).
+  // One family at a time keeps small panels readable.
+  const [targetKind, setTargetKind] = useState<"corners" | "edges">("corners");
+
   // F4 target-pins for the selected panel's main-face corners (empty unless armed).
-  const pins = showTargets && selectedPanel ? panelCorners(selectedPanel) : [];
+  const pins = showTargets && selectedPanel && targetKind === "corners" ? panelCorners(selectedPanel) : [];
   const pinsRef = useRef(pins);
   pinsRef.current = pins;
   const [pickedPin, setPickedPin] = useState<string | null>(null);
@@ -418,6 +460,56 @@ export function Stage3D({
     if (top && !left) return 90;    // top-right ⌝
     if (!top && !left) return 180;  // bottom-right ⌟
     return 270;                     // bottom-left ⌞
+  };
+
+  // ── F5 EDGE MACHINING: the 4 perimeter-edge targets + the rabbet editor ──
+  const edges = showTargets && selectedPanel && targetKind === "edges" ? panelEdges(selectedPanel) : [];
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
+  const allEdgeIds = edges.map((e) => e.id);
+  const CHAMFER_W = 490; // 49 mm — a visible starting width
+  const CHAMFER_D = 80;  // 8 mm
+  const [chamfer, setChamfer] = useState<{ edges: string[]; width: number; depth: number; linked: boolean } | null>(null);
+  const chamferRef = useRef(chamfer);
+  chamferRef.current = chamfer;
+  const onApplyChamferRef = useRef(onApplyChamfer);
+  onApplyChamferRef.current = onApplyChamfer;
+  const chamferGroupRef = useRef<THREE.Group | null>(null);
+  const [chamferNumpad, setChamferNumpad] = useState<"width" | "depth" | null>(null);
+  const [pickedEdge, setPickedEdge] = useState<string | null>(null);
+
+  const openChamfer = (edgeId: string) => {
+    setChamfer((c) => {
+      const linked = c?.linked ?? false;
+      const width = c && c.width > 0 ? c.width : CHAMFER_W;
+      const depth = c && c.depth > 0 ? c.depth : CHAMFER_D;
+      return { edges: linked ? allEdgeIds : [edgeId], width, depth, linked };
+    });
+  };
+  const toggleChamferLink = () => {
+    setChamfer((c) => {
+      if (!c) return c;
+      const linked = !c.linked;
+      return { ...c, linked, edges: linked ? allEdgeIds : [pickedEdge ?? c.edges[0] ?? "e0"] };
+    });
+  };
+  const applyChamfer = () => {
+    const c = chamferRef.current;
+    setChamferNumpad(null);
+    if (c) onApplyChamferRef.current?.(c.edges, c.width, c.depth);
+    setChamfer(null);
+  };
+  const deleteChamfer = () => {
+    const c = chamferRef.current;
+    setChamferNumpad(null);
+    if (c) onApplyChamferRef.current?.(c.edges, 0, 0);
+    setChamfer(null);
+  };
+  /** The machining shown at an edge now: the one being edited wins, else applied. */
+  const edgeMachining = (eid: string): { width: number; depth: number } | null => {
+    if (chamfer && chamfer.edges.includes(eid)) return { width: chamfer.width, depth: chamfer.depth };
+    const ac = (appliedChamfers ?? []).find((a) => a.edgeId === eid);
+    return ac ? { width: ac.width, depth: ac.depth } : null;
   };
 
   useEffect(() => {
@@ -1115,6 +1207,7 @@ export function Stage3D({
       const ra = rotAnchorRef.current;
       if (ra) project("__rot__", ra.x, ra.y, ra.z);
       for (const pin of pinsRef.current) project(`__pin_${pin.id}__`, pin.x, pin.y, pin.z);
+      for (const e of edgesRef.current) project(`__edge_${e.id}__`, e.x, e.y, e.z);
       setAnnPos(next);
       frame = requestAnimationFrame(tick);
     };
@@ -1193,12 +1286,24 @@ export function Stage3D({
     setPickedPin(null);
     setRound(null);
     setRoundNumpad(false);
+    setChamfer(null);
+    setChamferNumpad(null);
+    setPickedEdge(null);
   }, [selectedPanelId]);
 
-  // Leaving modifier mode drops any open round editor.
+  // Leaving modifier mode drops any open modifier editor.
   useEffect(() => {
-    if (!showTargets) { setRound(null); setRoundNumpad(false); setPickedPin(null); }
+    if (!showTargets) {
+      setRound(null); setRoundNumpad(false); setPickedPin(null);
+      setChamfer(null); setChamferNumpad(null); setPickedEdge(null);
+    }
   }, [showTargets]);
+
+  // Switching the corner/edge family closes any editor from the other family.
+  useEffect(() => {
+    setRound(null); setRoundNumpad(false); setPickedPin(null);
+    setChamfer(null); setChamferNumpad(null); setPickedEdge(null);
+  }, [targetKind]);
 
   // F03 arc guide — grey quarter-circles: the rounds already applied to this panel
   // (persistent, so a re-selected panel still shows them) plus the one being edited
@@ -1238,9 +1343,55 @@ export function Stage3D({
     };
   }, [round, appliedRounds, panels, selectedPanelId]);
 
+  // F5 edge-machining guide — a grey strip along each machined edge (applied + editing).
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const sel = panels.find((p) => p.id === selectedPanelId) || null;
+    const mat = new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.9 });
+    mat.depthTest = false;
+    let grp: THREE.Group | null = null;
+    if (sel) {
+      const eds = panelEdges(sel);
+      const editing = new Set(chamfer ? chamfer.edges : []);
+      const draw: { eid: string; w: number }[] = [];
+      for (const ac of appliedChamfers ?? []) if (!editing.has(ac.edgeId) && ac.width > 0) draw.push({ eid: ac.edgeId, w: ac.width });
+      if (chamfer && chamfer.width > 0) for (const eid of chamfer.edges) draw.push({ eid, w: chamfer.width });
+      if (draw.length) {
+        grp = new THREE.Group();
+        const wm = (mx: number, my: number, mz: number) => new THREE.Vector3(mm10ToMeters(mx - MID_X), mm10ToMeters(my), mm10ToMeters(mz - MID_Z));
+        for (const { eid, w } of draw) {
+          const e = eds.find((x) => x.id === eid);
+          if (!e) continue;
+          const half = e.len / 2;
+          const a = wm(e.x - e.ax * half, e.y - e.ay * half, e.z - e.az * half);
+          const b = wm(e.x + e.ax * half, e.y + e.ay * half, e.z + e.az * half);
+          const c = wm(e.x + e.ax * half + e.ix * w, e.y + e.ay * half + e.iy * w, e.z + e.az * half + e.iz * w);
+          const d = wm(e.x - e.ax * half + e.ix * w, e.y - e.ay * half + e.iy * w, e.z - e.az * half + e.iz * w);
+          const loop = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([a, b, c, d]), mat);
+          loop.renderOrder = 5;
+          grp.add(loop);
+        }
+        scene.add(grp);
+      }
+    }
+    chamferGroupRef.current = grp;
+    return () => {
+      if (grp) { scene.remove(grp); grp.traverse((o) => { const m = o as THREE.Line; if (m.geometry) m.geometry.dispose(); }); }
+      mat.dispose();
+      if (chamferGroupRef.current === grp) chamferGroupRef.current = null;
+    };
+  }, [chamfer, appliedChamfers, panels, selectedPanelId]);
+
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
+      {showTargets && selectedPanel && (
+        <div className="target-toggle">
+          <button className={targetKind === "corners" ? "on" : ""} onClick={() => setTargetKind("corners")}>⌜ Углы</button>
+          <button className={targetKind === "edges" ? "on" : ""} onClick={() => setTargetKind("edges")}>⌐ Кромки</button>
+        </div>
+      )}
       {(annotations ?? []).map((a) => {
         const p = annPos[a.id];
         if (!p) return null;
@@ -1333,6 +1484,42 @@ export function Stage3D({
           <button className="re-del" onClick={deleteRound} title="Удалить">✕</button>
         </div>
       )}
+      {edges.map((edge) => {
+        const pos = annPos[`__edge_${edge.id}__`];
+        if (!pos) return null;
+        const m = edgeMachining(edge.id);
+        const machined = !!m;
+        return (
+          <button
+            key={edge.id}
+            className={`edge-pin${machined ? " machined" : ""}${pickedEdge === edge.id ? " on" : ""}`}
+            style={{ left: pos.x, top: pos.y }}
+            onClick={() => { setPickedEdge(edge.id); openChamfer(edge.id); }}
+            title={machined ? "Обработка кромки — нажмите, чтобы изменить" : "Обработать эту кромку"}
+          >
+            <svg className="ep-glyph" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 8 H14 V14 H20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {machined ? <span className="ep-val">{toCm(m!.width)}</span> : <span className="ep-plus">+</span>}
+          </button>
+        );
+      })}
+      {chamfer && pickedEdge && annPos[`__edge_${pickedEdge}__`] && (
+        <div
+          className="round-editor"
+          style={{ left: annPos[`__edge_${pickedEdge}__`]!.x, top: annPos[`__edge_${pickedEdge}__`]!.y - 52 }}
+        >
+          <button
+            className={`re-link${chamfer.linked ? " on" : ""}`}
+            onClick={toggleChamferLink}
+            title={chamfer.linked ? "Кромки связаны — нажмите, чтобы разъединить" : "Связать все кромки"}
+          >🔗</button>
+          <MeasureChip value={chamfer.width} tone="size" onEdit={() => setChamferNumpad("width")} title="Ширина (вдоль лица)" />
+          <MeasureChip value={chamfer.depth} tone="offset" onEdit={() => setChamferNumpad("depth")} title="Глубина" />
+          <button className="re-ok" onClick={applyChamfer} title="Применить">✓</button>
+          <button className="re-del" onClick={deleteChamfer} title="Удалить">✕</button>
+        </div>
+      )}
       {selectedPanel && (
         <div className="floating-dims-card" style={{ position: "absolute", top: "16px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "12px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", border: "1px solid #e5e7eb", display: "flex", gap: "24px", zIndex: 10 }}>
           <div className="float-field">
@@ -1400,6 +1587,15 @@ export function Stage3D({
           mode="cm"
           onCommit={(v) => { setRound((r) => (r ? { ...r, radius: v } : r)); setRoundNumpad(false); }}
           onCancel={() => setRoundNumpad(false)}
+        />
+      )}
+      {chamferNumpad && chamfer && (
+        <Numpad
+          initial={chamferNumpad === "width" ? chamfer.width : chamfer.depth}
+          label={chamferNumpad === "width" ? "Ширина, см" : "Глубина, см"}
+          mode="cm"
+          onCommit={(v) => { setChamfer((c) => (c ? (chamferNumpad === "width" ? { ...c, width: v } : { ...c, depth: v }) : c)); setChamferNumpad(null); }}
+          onCancel={() => setChamferNumpad(null)}
         />
       )}
     </div>

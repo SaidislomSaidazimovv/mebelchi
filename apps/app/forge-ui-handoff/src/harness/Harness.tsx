@@ -43,6 +43,8 @@ export function Harness() {
   const [log, setLog] = useState<string[]>([]);
   /** Applied corner rounds, per panel — the model's job, faked here so they persist. */
   const [rounds, setRounds] = useState<Record<string, Record<string, number>>>({});
+  /** Applied edge machinings, per panel — same idea. */
+  const [chamfers, setChamfers] = useState<Record<string, Record<string, { width: number; depth: number }>>>({});
 
   const say = (m: string) => setLog((l) => [m, ...l].slice(0, 14));
   const selected = panels.find((p) => p.id === selectedId) ?? null;
@@ -67,6 +69,10 @@ export function Harness() {
   const appliedRounds = useMemo(
     () => Object.entries(rounds[selectedId ?? ""] ?? {}).map(([cornerId, radius]) => ({ cornerId, radius })),
     [rounds, selectedId],
+  );
+  const appliedChamfers = useMemo(
+    () => Object.entries(chamfers[selectedId ?? ""] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth })),
+    [chamfers, selectedId],
   );
 
   const move = (id: string, x: number, y: number, z: number) => {
@@ -121,6 +127,16 @@ export function Harness() {
             say(`round ${corners.join(",")} r=${mm10ToMm(r)}мм`);
           }}
           appliedRounds={appliedRounds}
+          onApplyChamfer={(edgeIds, w, d) => {
+            const pid = selectedId ?? "";
+            setChamfers((prev) => {
+              const cur = { ...(prev[pid] ?? {}) };
+              for (const e of edgeIds) { if (w > 0) cur[e] = { width: w, depth: d }; else delete cur[e]; }
+              return { ...prev, [pid]: cur };
+            });
+            say(`chamfer ${edgeIds.join(",")} w=${mm10ToMm(w)} d=${mm10ToMm(d)}мм`);
+          }}
+          appliedChamfers={appliedChamfers}
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}
           handles={mode === "translate" ? handles : []}

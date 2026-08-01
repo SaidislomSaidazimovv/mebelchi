@@ -910,6 +910,69 @@ details.controls-section.separator {
 .target-pin .tp-radius { font-size: 13px; font-weight: 700; padding: 0 4px 0 1px; }
 .target-pin.rounded.on { border-color: #16a34a; background: #ecfdf3; }
 
+/* F5 edge-machining pins — same pill, an L-step (rabbet) glyph */
+.edge-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 5px 3px 6px;
+  border-radius: 999px;
+  border: 1.5px solid #d5dae1;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(27, 36, 48, 0.22);
+  cursor: pointer;
+  color: #64748b;
+  z-index: 11;
+}
+.edge-pin .ep-glyph { width: 20px; height: 20px; display: block; }
+.edge-pin .ep-plus {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #2f8bff;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.edge-pin .ep-val { font-size: 13px; font-weight: 700; padding: 0 4px 0 1px; }
+.edge-pin:hover { border-color: #9fb6d8; transform: translate(-50%, -50%) scale(1.06); }
+.edge-pin.on { border-color: #2f8bff; background: #eff6ff; }
+.edge-pin.machined { border-color: #16a34a; color: #16a34a; }
+.edge-pin.machined.on { background: #ecfdf3; }
+
+/* corner/edge family switch (modifier mode) — keeps only 4 pins on screen at once */
+.target-toggle {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 14px rgba(27, 36, 48, 0.2);
+  z-index: 12;
+}
+.target-toggle button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+.target-toggle button.on { background: #2f8bff; color: #ffffff; }
+
 /* F03 round-corner editor: [link] [radius ✎] [drag] [✓] [✕], floated by the corner */
 .round-editor {
   position: absolute;

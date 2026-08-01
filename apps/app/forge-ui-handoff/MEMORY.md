@@ -125,7 +125,14 @@ Faqat `src/ui/Stage3D.tsx` (+ `MeasureChip`/`Numpad`/`measure` qayta ishlatildi;
 - Barmoq-test: Модификатор→4 pin (⬡+⊕)→click→«target c00»+1 pin .on→qaytish→pin yo'q. typecheck+build toza.
 - Pinlar = F5/F03/F6/F7 muharrirlariга **KIRISH** (hozir faqat tanlaydi; muharrir keyingi). Kichik: orqa-burchak pin dims-kartaga tegishi mumkin.
 
+## ✅ F03 · ROUND — BAJARILDI + BARMOQ-TEST (2026-08-01), commit qilinmagan
+`src/ui/Stage3D.tsx` + `styles.css` (.round-editor) + `harness` (onApplyRound log) + README (model-need).
+- F4 pin bosilsa → round muharriri: `[⌾ link] [radius ✎ chip(oq)] [⋮ drag] [✓] [✕]` + burchakda **kulrang chorak-doira yoy** (`cornerArc()` — 2 qirraga tegib, qalinlik o'rtasi, rx/ry/rz aylantirilgan).
+- radius: numpad (cm, tone="radius"=oq) YOKI drag-tutqich (5 mm10/px). link YONIQ → 4 burchak bir radiusга (×4). ✓→onApplyRound(burchaklar,radius); ✕→r=0.
+- Qarorlar (founder): cm(ha), yoy(ha), link(tushuntirildi+ha), drag(ha), geometriya=MODEL(tushuntirildi+ha — contractда round yo'q, UI spec+yoy beradi, model kesadi).
+- Test: pin→editor(1,5)→link→numpad→4→`round c00,c01,c10,c11 r=40мм`; drag ⋮→1,5→7,5; yoy katta radiusда ko'rinadi (15-40mm mayda=real). typecheck+build toza.
+
 VAZIFALAR (README «Что плохо», muhimlik): 1)🔴 F6/F7 kesim tutqichlari 3Dда sudralsin (eng katta);
 2)✅ jonli yashil chip (F1); 3)🟡 kichik panelда kub↔o'q hamma o'lchamда sinalsin (P2);
-4)✅ F4 nishon-pin (⬡⊕ — BAJARILDI); 5)✅ sudrab-burish (F3). +F2 RESIZE +F4 BAJARILDI.
-Qolgan: F5 chamfer/F03 round (pin→muharrir) → F6/F7 kesim (eng katta) → #3 kichik-panel sinovi.
+4)✅ F4 nishon-pin (⬡⊕); 5)✅ sudrab-burish (F3). +F2 RESIZE +F4 +F03 ROUND BAJARILDI.
+Qolgan: F5 chamfer (F03 kabi, qirra) → F6/F7 kesim (eng katta) → #3 kichik-panel sinovi.
