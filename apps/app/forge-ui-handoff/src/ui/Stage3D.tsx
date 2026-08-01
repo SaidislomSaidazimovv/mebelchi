@@ -340,6 +340,44 @@ export function Stage3D({
     controls.update();
   };
 
+  const frameModel = (reposition: boolean) => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+    const ps = panelsRef.current;
+    const box = new THREE.Box3();
+    if (ps && ps.length) {
+      for (const p of ps) {
+        const cx = mm10ToMeters(p.x + p.width / 2 - MID_X);
+        const cy = mm10ToMeters(p.y + p.height / 2);
+        const cz = mm10ToMeters(p.z + p.depth / 2 - MID_Z);
+        const r = mm10ToMeters(Math.hypot(p.width, p.height, p.depth) / 2);
+        box.expandByPoint(new THREE.Vector3(cx - r, cy - r, cz - r));
+        box.expandByPoint(new THREE.Vector3(cx + r, cy + r, cz + r));
+      }
+    } else {
+      box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
+    }
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 0.05);
+    controls.target.copy(center);
+    controls.minDistance = 0.03;
+    controls.maxDistance = radius * 8;
+    if (reposition) {
+      const dir = new THREE.Vector3(0.8, 0.5, 1.8).normalize();
+      const dist = radius / Math.sin(22.5 * Math.PI / 180) * 1.1;
+      camera.position.copy(center).addScaledVector(dir, dist);
+      camera.lookAt(center);
+    }
+    controls.update();
+  };
+
+  const panelIdsKey = panels.map((p) => p.id).join(",");
+  useEffect(() => {
+    if (dragRef.current || gizmoDraggingRef.current) return;
+    frameModel(false);
+  }, [panelIdsKey]);
+
   const [targetKind, setTargetKind] = useState<"corners" | "edges" | "notches" | "windows">("corners");
 
   const pins = showTargets && selectedPanel && targetKind === "corners" ? panelCorners(selectedPanel) : [];
@@ -1191,9 +1229,7 @@ export function Stage3D({
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
 
-    camera.position.set(0.8, 0.5, 1.8);
-    controls.target.set(0, 0, 0);
-    controls.update();
+    frameModel(true);
 
     const resize = () => {
       const w = mount.clientWidth;
