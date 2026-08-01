@@ -32,6 +32,7 @@ export function Harness() {
   const [selectedId, setSelectedId] = useState<string | null>("P1");
   const [selectedSide, setSelectedSide] = useState<string | null>(null);
   const [mode, setMode] = useState<"translate" | "resize" | "rotate" | "modifier" | "measure">("translate");
+  const [panelOpen, setPanelOpen] = useState(false);
   const [log, setLog] = useState<string[]>([]);
 
   const [rounds, setRounds] = useState<Record<string, Record<string, number>>>({});
@@ -42,7 +43,7 @@ export function Harness() {
 
   const [windows, setWindows] = useState<Record<string, {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;}[]>>({});
 
-  const say = (m: string) => setLog((l) => [m, ...l].slice(0, 14));
+  const say = (m: string) => setLog((l) => [m, ...l].slice(0, 6));
   const selected = panels.find((p) => p.id === selectedId) ?? null;
 
   const handles = useMemo(() => {
@@ -121,7 +122,7 @@ export function Harness() {
             filter(([, v]) => v).map(([k, v]) => `${k}=${Math.round((v as number) * 180 / Math.PI)}°`).join(" ");
             say(`drop ${id} → ${mm10ToMm(x)},${mm10ToMm(y)},${mm10ToMm(z)}мм${rot ? " · " + rot : ""}`);
           }}
-          onLiveDragPanel={(id, x, y, z) => {move(id, x, y, z);say(`live ${id} → ${mm10ToMm(x)}мм`);}}
+          onLiveDragPanel={(id, x, y, z) => {move(id, x, y, z);}}
           onUpdateDim={() => {}}
           transformMode={mode === "rotate" ? "rotate" : "translate"}
           showTargets={mode === "modifier"}
@@ -180,7 +181,8 @@ export function Harness() {
           onSelectHandle={(id) => {setSelectedSide(id);say(`side ${id ?? "—"}`);}}
           onDragHandle={(id, coord) => {resizeSide(id, coord);say(`resize ${id} → ${mm10ToMm(coord)}мм`);}} />
 
-        <aside className="controls-card">
+        <button className="panel-toggle" onClick={() => setPanelOpen((o) => !o)} title="Тест-панель">{panelOpen ? "✕" : "☰"}</button>
+        <aside className={`controls-card${panelOpen ? " open" : ""}`}>
           <div className="controls-section">
             <div className="controls-head"><span className="controls-title">Панели</span></div>
             <div className="forge-panel-list">

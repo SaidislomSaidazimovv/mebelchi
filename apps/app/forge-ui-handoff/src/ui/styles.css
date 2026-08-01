@@ -51,6 +51,7 @@ body {
   position: relative;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   background: radial-gradient(120% 80% at 50% 0%, #ffffff 0%, #eef1f5 60%);
 }
 
@@ -1271,4 +1272,61 @@ details.controls-section.separator {
   background: #f7f8fa;
   border-radius: 5px;
   padding: 2px 6px;
+}
+
+.panel-toggle { display: none; }
+
+@media (max-width: 760px) {
+  .panel-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 42px;
+    height: 42px;
+    border-radius: 999px;
+    border: 1px solid #e2e6ec;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 4px 14px rgba(27, 36, 48, 0.18);
+    font-size: 18px;
+    color: #1b2430;
+    z-index: 40;
+    cursor: pointer;
+  }
+  .controls-card {
+    top: auto;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-height: 62vh;
+    border-radius: 16px 16px 0 0;
+    transform: translateY(102%);
+    transition: transform 0.22s ease;
+    z-index: 35;
+  }
+  .controls-card.open { transform: translateY(0); }
+
+  .floating-dims-card { display: none !important; }
+
+  .target-toggle {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: 92vw;
+    bottom: 14px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .target-toggle::-webkit-scrollbar { display: none; }
+  .target-toggle button { padding: 8px 12px; font-size: 12.5px; white-space: nowrap; flex: 0 0 auto; }
+  .mod-sheet { flex-wrap: nowrap; max-width: 92vw; }
+  .mod-sheet button { padding: 9px 15px; white-space: nowrap; }
+
+  .focus-btn, .ground-btn, .link-toggle { width: 48px; height: 48px; }
+  .center-romb { width: 40px; height: 40px; }
+  .notch-handle, .chamfer-handle, .round-handle { width: 40px; height: 40px; }
+  .chip { padding: 6px 11px; font-size: 13px; }
+  .chip-lock { width: 26px; height: 26px; }
 }
