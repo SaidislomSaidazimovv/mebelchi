@@ -1,0 +1,1019 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  background: #f4f5f7;
+  color: #1b2430;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.studio {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.studio-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid #e2e6ec;
+  background: #ffffff;
+}
+
+.studio-brand {
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.studio-mode {
+  font-size: 12px;
+  color: #6b7787;
+  border: 1px solid #d7dde5;
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.studio-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: radial-gradient(120% 80% at 50% 0%, #ffffff 0%, #eef1f5 60%);
+}
+
+.stage3d {
+  position: absolute;
+  inset: 0;
+}
+
+.stage3d canvas {
+  display: block;
+}
+
+.cutlist {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: auto;
+  min-width: 320px;
+  max-width: calc(100% - 24px);
+  max-height: 46%;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #e2e6ec;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(27, 36, 48, 0.12);
+  backdrop-filter: blur(4px);
+}
+
+.cutlist-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 11px 14px 6px;
+}
+
+.cutlist-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.cutlist-sub {
+  font-size: 11px;
+  color: #6b7787;
+}
+
+.cutlist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.cutlist-table th {
+  text-align: left;
+  font-weight: 600;
+  color: #6b7787;
+  font-size: 11px;
+  padding: 4px 14px;
+  border-bottom: 1px solid #eceff3;
+}
+
+.cutlist-table td {
+  padding: 6px 14px;
+  border-bottom: 1px solid #f1f3f6;
+  font-variant-numeric: tabular-nums;
+}
+
+.cutlist-foot {
+  padding: 8px 14px 11px;
+  font-size: 12px;
+  color: #1b2430;
+  font-weight: 600;
+}
+
+.controls-card {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 280px;
+  max-height: calc(100vh - 84px);
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #e2e6ec;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(27, 36, 48, 0.12);
+  backdrop-filter: blur(4px);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.controls-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.controls-section.separator {
+  padding-top: 12px;
+  border-top: 1px solid #eceff3;
+}
+
+.controls-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.controls-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #1b2430;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.panel-select {
+  width: 100%;
+  height: 32px;
+  border: 1px solid #d7dde5;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1b2430;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.panel-select:focus {
+  outline: none;
+  border-color: #9a9284;
+}
+
+.panel-edit-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #eceff3;
+  padding: 10px;
+}
+
+.panel-edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.row-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #6b7787;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.panel-name-input {
+  width: 100%;
+  height: 28px;
+  border: 1px solid #d7dde5;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1b2430;
+  background: #ffffff;
+}
+
+.panel-name-input:focus {
+  outline: none;
+  border-color: #9a9284;
+}
+
+.thickness-select {
+  width: 100%;
+  height: 28px;
+  border: 1px solid #d7dde5;
+  border-radius: 6px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1b2430;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.thickness-select:focus {
+  outline: none;
+  border-color: #9a9284;
+}
+
+.dim-pos-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.grid-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #6b7787;
+  text-transform: uppercase;
+}
+
+.grid-field input {
+  width: 100%;
+  height: 26px;
+  border: 1px solid #d7dde5;
+  border-radius: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+  color: #1b2430;
+  background: #ffffff;
+}
+
+.grid-field input:focus {
+  outline: none;
+  border-color: #9a9284;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1b2430;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: #9a9284;
+}
+
+.bands-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.add-block-btn {
+  margin-left: auto;
+  background: #1b2430;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.add-block-btn:hover {
+  background: #2b394b;
+}
+
+.delete-block-btn {
+  display: block;
+  width: 100%;
+  height: 30px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-top: 6px;
+}
+
+.delete-block-btn:hover {
+  background: #fecaca;
+}
+
+.holes-summary {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #eceff3;
+}
+
+.holes-summary-title {
+  font-weight: 700;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.holes-summary-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: #6b7787;
+}
+
+.holes-summary-item strong {
+  color: #1b2430;
+}
+
+.holes-summary-note {
+  font-size: 11px;
+  color: #9a9284;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.floating-dims-card {
+  position: absolute;
+  transform: translate(-50%, -120%);
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #d7dde5;
+  border-radius: 8px;
+  padding: 6px 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  pointer-events: auto;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+}
+
+.float-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+
+.float-lbl {
+  font-size: 8px;
+  font-weight: 700;
+  color: #6b7787;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.float-field input {
+  width: 58px;
+  height: 24px;
+  border: 1px solid #d7dde5;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  color: #1b2430;
+  background: #ffffff;
+}
+
+.float-field input:focus {
+  outline: none;
+  border-color: #9a9284;
+}
+
+
+/* ─────────────────────────────────────────────── Каркас / Forge */
+
+.forge-badge {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: auto;
+}
+
+.forge-badge.ok {
+  color: #0f7b46;
+  background: #e6f6ee;
+  border: 1px solid #b6e3cd;
+}
+
+.forge-badge.bad {
+  color: #a01b1b;
+  background: #fdecec;
+  border: 1px solid #f3c2c2;
+}
+
+.forge-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #6b7787;
+}
+
+.forge-note code {
+  font-size: 11px;
+  background: #eef1f5;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.forge-dim {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.forge-dim input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.forge-dim input[type="number"] {
+  width: 72px;
+  text-align: right;
+}
+
+.forge-magnet {
+  font-size: 11px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px dashed #d7dde5;
+  color: #8b96a5;
+}
+
+.forge-magnet.on {
+  border-style: solid;
+  border-color: #b6d4f5;
+  background: #eef5fd;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.forge-ro {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #f7f8fa;
+  border: 1px solid #eceff3;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.forge-ro-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #6b7787;
+}
+
+.forge-ro-row b {
+  color: #1b2430;
+  font-variant-numeric: tabular-nums;
+}
+
+.forge-panel-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.forge-chip {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid #d7dde5;
+  background: #ffffff;
+  color: #6b7787;
+  cursor: pointer;
+}
+
+.forge-chip:hover {
+  border-color: #b6d4f5;
+  color: #1d4ed8;
+}
+
+.forge-chip.on {
+  border-color: #1d4ed8;
+  background: #eef5fd;
+  color: #1d4ed8;
+}
+
+.forge-add {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.forge-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.forge-tool {
+  flex: 1 1 auto;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid #d7dde5;
+  background: #ffffff;
+  color: #4b5563;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.forge-tool:hover {
+  border-color: #b6d4f5;
+  color: #1d4ed8;
+}
+
+.forge-tool.on {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
+.forge-mini {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.forge-mini-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  color: #6b7787;
+}
+
+.forge-mini input {
+  width: 100%;
+  min-width: 0;
+  text-align: right;
+}
+
+.forge-danger {
+  width: 100%;
+  color: #a01b1b;
+  border-color: #f3c2c2;
+}
+
+.forge-danger:hover {
+  color: #ffffff;
+  background: #a01b1b;
+  border-color: #a01b1b;
+}
+
+/* ─────────────────────────────── Forge measurement layer (F1–F7 reference) */
+
+.stage-annotation {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.chip-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(27, 36, 48, 0.18);
+}
+
+.chip:disabled { cursor: default; }
+
+/* live delta while the finger is down — solid green, white text (F1) */
+.chip-live, .chip-live:disabled { background: #22c55e; color: #ffffff; }
+/* a size this edit owns (F2-04, F7) */
+.chip-size { background: #ffffff; color: #e5342b; }
+/* a distance to a neighbour — lockable (F6, F7) */
+.chip-offset { background: #7c8b9c; color: #ffffff; }
+/* an angle (F3) */
+.chip-angle { background: #ffffff; color: #1d4ed8; }
+/* a corner radius (F7) */
+.chip-radius { background: #ffffff; color: #1b2430; }
+
+.chip-pen { font-size: 12px; opacity: 0.65; }
+.chip-unit { margin-left: -2px; font-size: 12px; }
+
+.chip-lock {
+  border: none;
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+  background: #7c8b9c;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(27, 36, 48, 0.18);
+}
+
+.chip-lock.on { background: #1d4ed8; }
+
+/* ── the numpad sheet (F2-03) ── */
+
+.numpad-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  background: #f7f8fa;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 32px rgba(27, 36, 48, 0.18);
+  padding: 16px;
+}
+
+.numpad-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.numpad-field { flex: 1; min-width: 0; }
+
+.numpad-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #6b7787;
+}
+
+.numpad-value {
+  display: inline-block;
+  font-size: 30px;
+  font-weight: 700;
+  color: #1d4ed8;
+  border-bottom: 2px solid #d7dde5;
+  min-width: 120px;
+  font-variant-numeric: tabular-nums;
+}
+
+.numpad-value.sel { background: #dbeafe; }
+.numpad-value.bad { color: #e5342b; }
+
+.numpad-preview {
+  margin-left: 10px;
+  font-size: 13px;
+  color: #6b7787;
+}
+
+.numpad-ok {
+  width: 96px;
+  height: 48px;
+  border: none;
+  border-radius: 999px;
+  background: #2f8bff;
+  color: #ffffff;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.numpad-ok:disabled { background: #c4d3e4; cursor: default; }
+
+.numpad-x {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  font-size: 26px;
+  color: #6b7787;
+  cursor: pointer;
+}
+
+.numpad-body { display: flex; gap: 10px; }
+
+.numpad-keys {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.numpad-key {
+  height: 52px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 22px;
+  font-weight: 600;
+  color: #1b2430;
+  cursor: pointer;
+}
+
+.numpad-key:active { background: #e8ecf1; }
+
+.numpad-ops {
+  display: grid;
+  grid-template-rows: repeat(6, 1fr);
+  gap: 6px;
+  width: 60px;
+}
+
+.numpad-op {
+  border: none;
+  border-radius: 10px;
+  background: #e8ecf1;
+  font-size: 17px;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.numpad-op:active { background: #d7dde5; }
+
+.tool-glyph { font-size: 14px; margin-right: 3px; }
+
+.forge-tool.tiny {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  font-size: 11px;
+}
+
+.forge-tool.tiny.danger { color: #a01b1b; border-color: #f3c2c2; }
+.forge-tool.tiny.danger:hover { background: #a01b1b; color: #fff; border-color: #a01b1b; }
+
+.forge-modlist { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+
+.forge-modrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f7f8fa;
+  border: 1px solid #eceff3;
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+.forge-modname { flex: 1; font-size: 12px; font-weight: 600; color: #1b2430; }
+
+/* ── compact accordion: the whole panel fits the viewport, no page scroll ── */
+
+.controls-card {
+  width: 300px;
+  max-height: calc(100vh - 76px);
+  padding: 8px 10px;
+}
+
+details.controls-section {
+  display: block;
+  gap: 0;
+}
+
+details.controls-section > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 7px 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+
+details.controls-section > summary::-webkit-details-marker { display: none; }
+
+/* a caret that turns — the only affordance the header needs */
+details.controls-section > summary::before {
+  content: "›";
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1;
+  color: #9aa6b5;
+  transition: transform 0.12s ease;
+}
+
+details.controls-section[open] > summary::before { transform: rotate(90deg); }
+details.controls-section[open] > summary { color: #1d4ed8; }
+
+/* everything inside a section stacks tightly once opened */
+details.controls-section > *:not(summary) { margin-bottom: 6px; }
+details.controls-section > *:last-child { margin-bottom: 8px; }
+
+details.controls-section.separator {
+  padding-top: 0;
+  border-top: 1px solid #eceff3;
+}
+
+/* the verbose explanations are the biggest space cost — keep them, shrink them */
+.forge-note {
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.controls-card .panel-edit-row { gap: 3px; }
+.controls-card .thickness-select,
+.controls-card .panel-name-input { height: 26px; }
+.controls-card .forge-tool { padding: 5px 7px; font-size: 10.5px; }
+.controls-card .forge-chip { padding: 3px 7px; }
+.controls-card .forge-ro-row { font-size: 11px; }
+.controls-card .row-title { font-size: 9.5px; }
+
+/* F4 target-pins: a [⬡ ⊕] pill floated at a main-face corner (F4-01) */
+.target-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 4px 3px 5px;
+  border-radius: 999px;
+  border: 1.5px solid #d5dae1;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(27, 36, 48, 0.22);
+  cursor: pointer;
+  color: #64748b;
+  z-index: 11;
+}
+.target-pin .tp-hex { width: 20px; height: 20px; display: block; }
+.target-pin .tp-corner { width: 20px; height: 20px; display: block; transform-origin: 50% 50%; }
+.target-pin .tp-plus {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #2f8bff;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.target-pin:hover { border-color: #9fb6d8; transform: translate(-50%, -50%) scale(1.06); }
+.target-pin.on { border-color: #2f8bff; background: #eff6ff; }
+.target-pin.on .tp-plus { background: #16a34a; }
+
+/* a corner that already carries a round: green arc + radius, tap to re-edit */
+.target-pin.rounded { border-color: #16a34a; color: #16a34a; }
+.target-pin .tp-arc { width: 18px; height: 18px; display: block; }
+.target-pin .tp-radius { font-size: 13px; font-weight: 700; padding: 0 4px 0 1px; }
+.target-pin.rounded.on { border-color: #16a34a; background: #ecfdf3; }
+
+/* F5 edge-machining pins — same pill, an L-step (rabbet) glyph */
+.edge-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 5px 3px 6px;
+  border-radius: 999px;
+  border: 1.5px solid #d5dae1;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(27, 36, 48, 0.22);
+  cursor: pointer;
+  color: #64748b;
+  z-index: 11;
+}
+.edge-pin .ep-glyph { width: 20px; height: 20px; display: block; }
+.edge-pin .ep-plus {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #2f8bff;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.edge-pin .ep-val { font-size: 13px; font-weight: 700; padding: 0 4px 0 1px; }
+.edge-pin:hover { border-color: #9fb6d8; transform: translate(-50%, -50%) scale(1.06); }
+.edge-pin.on { border-color: #2f8bff; background: #eff6ff; }
+.edge-pin.machined { border-color: #16a34a; color: #16a34a; }
+.edge-pin.machined.on { background: #ecfdf3; }
+
+/* corner/edge family switch (modifier mode) — keeps only 4 pins on screen at once */
+.target-toggle {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 14px rgba(27, 36, 48, 0.2);
+  z-index: 12;
+}
+.target-toggle button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+.target-toggle button.on { background: #2f8bff; color: #ffffff; }
+
+/* F03 round-corner editor: [link] [radius ✎] [drag] [✓] [✕], floated by the corner */
+.round-editor {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 14px rgba(27, 36, 48, 0.24);
+  z-index: 12;
+}
+.round-editor > button {
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.round-editor .chip { padding: 4px 10px; }
+.re-link { background: #eef1f4; color: #7c8b9c; }
+.re-link.on { background: #2f8bff; color: #ffffff; }
+.re-drag { background: #eef1f4; color: #64748b; cursor: ew-resize; }
+.re-ok { background: #16a34a; color: #ffffff; }
+.re-del { background: #fdecec; color: #e5342b; }
+
+/* harness only — not part of the real app */
+.harness-log { display: flex; flex-direction: column; gap: 2px; }
+.harness-log-row {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #4b5563;
+  background: #f7f8fa;
+  border-radius: 5px;
+  padding: 2px 6px;
+}
