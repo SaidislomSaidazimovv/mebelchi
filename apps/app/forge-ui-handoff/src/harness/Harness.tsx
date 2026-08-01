@@ -31,7 +31,7 @@ export function Harness() {
   const [panels, setPanels] = useState<Panel[]>(START);
   const [selectedId, setSelectedId] = useState<string | null>("P1");
   const [selectedSide, setSelectedSide] = useState<string | null>(null);
-  const [mode, setMode] = useState<"translate" | "rotate" | "modifier">("translate");
+  const [mode, setMode] = useState<"translate" | "resize" | "rotate" | "modifier" | "measure">("translate");
   const [log, setLog] = useState<string[]>([]);
 
   const [rounds, setRounds] = useState<Record<string, Record<string, number>>>({});
@@ -40,7 +40,7 @@ export function Harness() {
 
   const [notches, setNotches] = useState<Record<string, Record<string, {width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>>>({});
 
-  const [windows, setWindows] = useState<Record<string, {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;}>>({});
+  const [windows, setWindows] = useState<Record<string, {w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;}[]>>({});
 
   const say = (m: string) => setLog((l) => [m, ...l].slice(0, 14));
   const selected = panels.find((p) => p.id === selectedId) ?? null;
@@ -72,13 +72,13 @@ export function Harness() {
     () => Object.entries(notches[selectedId ?? ""] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth, radius: v.radius, pos: v.pos, lockL: v.lockL, lockR: v.lockR })),
     [notches, selectedId]
   );
-  const appliedWindow = useMemo(() => windows[selectedId ?? ""] ?? null, [windows, selectedId]);
+  const appliedWindows = useMemo(() => windows[selectedId ?? ""] ?? [], [windows, selectedId]);
 
   const panelCuts = useMemo(() => {
-    const out: Record<string, {window: {w: number;h: number;radius: number;cx: number;cy: number;} | null;rounds: {cornerId: string;radius: number;}[];notches: {edgeId: string;width: number;depth: number;radius: number;pos: number;}[];chamfers: {edgeId: string;width: number;depth: number;}[];}> = {};
+    const out: Record<string, {windows: {w: number;h: number;radius: number;cx: number;cy: number;}[];rounds: {cornerId: string;radius: number;}[];notches: {edgeId: string;width: number;depth: number;radius: number;pos: number;}[];chamfers: {edgeId: string;width: number;depth: number;}[];}> = {};
     for (const p of panels) {
       out[p.id] = {
-        window: windows[p.id] ?? null,
+        windows: windows[p.id] ?? [],
         rounds: Object.entries(rounds[p.id] ?? {}).map(([cornerId, radius]) => ({ cornerId, radius })),
         notches: Object.entries(notches[p.id] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth, radius: v.radius, pos: v.pos })),
         chamfers: Object.entries(chamfers[p.id] ?? {}).map(([edgeId, v]) => ({ edgeId, width: v.width, depth: v.depth }))
@@ -125,6 +125,8 @@ export function Harness() {
           onUpdateDim={() => {}}
           transformMode={mode === "rotate" ? "rotate" : "translate"}
           showTargets={mode === "modifier"}
+          showGizmo={mode === "translate" || mode === "rotate"}
+          showMeasure={mode === "measure"}
           onPickTarget={(c) => say(`target ${c}`)}
           onApplyRound={(corners, r) => {
             const pid = selectedId ?? "";
@@ -156,20 +158,24 @@ export function Harness() {
             say(`notch ${edgeId} w=${mm10ToMm(w)} d=${mm10ToMm(d)} r=${mm10ToMm(r)}мм${lockL ? " L🔒" : ""}${lockR ? " R🔒" : ""}`);
           }}
           appliedNotches={appliedNotches}
-          onApplyWindow={(w, h, radius, cx, cy, lockT, lockR, lockB, lockL) => {
+          onApplyWindow={(idx, w, h, radius, cx, cy, lockT, lockR, lockB, lockL) => {
             const pid = selectedId ?? "";
             setWindows((prev) => {
+              const arr = [...(prev[pid] ?? [])];
+              if (w <= 0) {if (idx >= 0 && idx < arr.length) arr.splice(idx, 1);} else
+              if (idx < 0 || idx >= arr.length) arr.push({ w, h, radius, cx, cy, lockT, lockR, lockB, lockL });else
+              arr[idx] = { w, h, radius, cx, cy, lockT, lockR, lockB, lockL };
               const cur = { ...prev };
-              if (w > 0) cur[pid] = { w, h, radius, cx, cy, lockT, lockR, lockB, lockL };else delete cur[pid];
+              if (arr.length) cur[pid] = arr;else delete cur[pid];
               return cur;
             });
-            say(`window ${mm10ToMm(w)}×${mm10ToMm(h)} r=${mm10ToMm(radius)}мм${lockT || lockR || lockB || lockL ? " 🔒" : ""}`);
+            say(`window[${idx}] ${mm10ToMm(w)}×${mm10ToMm(h)} r=${mm10ToMm(radius)}мм${lockT || lockR || lockB || lockL ? " 🔒" : ""}`);
           }}
-          appliedWindow={appliedWindow}
+          appliedWindows={appliedWindows}
           panelCuts={panelCuts}
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}
-          handles={mode === "translate" ? handles : []}
+          handles={mode === "resize" ? handles : []}
           selectedHandleId={selectedSide}
           onSelectHandle={(id) => {setSelectedSide(id);say(`side ${id ?? "—"}`);}}
           onDragHandle={(id, coord) => {resizeSide(id, coord);say(`resize ${id} → ${mm10ToMm(coord)}мм`);}} />
@@ -188,11 +194,15 @@ export function Harness() {
             </div>
             <div className="forge-panel-list" style={{ marginTop: 8 }}>
               <button className={`forge-chip ${mode === "translate" ? "on" : ""}`}
-              onClick={() => setMode("translate")}>↔ Двигать / размер</button>
+              onClick={() => {setMode("translate");setSelectedSide(null);}}>↔ Двигать</button>
+              <button className={`forge-chip ${mode === "resize" ? "on" : ""}`}
+              onClick={() => setMode("resize")}>⇲ Размер</button>
               <button className={`forge-chip ${mode === "rotate" ? "on" : ""}`}
               onClick={() => {setMode("rotate");setSelectedSide(null);}}>⟳ Поворот</button>
               <button className={`forge-chip ${mode === "modifier" ? "on" : ""}`}
               onClick={() => {setMode("modifier");setSelectedSide(null);}}>⬡ Модификатор</button>
+              <button className={`forge-chip ${mode === "measure" ? "on" : ""}`}
+              onClick={() => {setMode("measure");setSelectedSide(null);}}>⇥ Измерить</button>
             </div>
             <div className="forge-note">
               «маленькая» — специально мелкая: именно на таких кубики граней и стрелки
