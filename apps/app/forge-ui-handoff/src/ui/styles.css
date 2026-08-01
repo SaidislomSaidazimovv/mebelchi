@@ -1001,6 +1001,48 @@ details.controls-section.separator {
 .notch-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.1); }
 .notch-handle.nh-pos { background: #2f8bff; }
 
+.round-handle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+  background: #64748b;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  box-shadow: 0 2px 8px rgba(27, 36, 48, 0.3);
+  z-index: 13;
+  touch-action: none;
+}
+.round-handle svg { width: 20px; height: 20px; display: block; }
+.round-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.1); }
+
+.chamfer-handle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+  background: #64748b;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  box-shadow: 0 2px 8px rgba(27, 36, 48, 0.3);
+  z-index: 13;
+  touch-action: none;
+}
+.chamfer-handle svg { width: 20px; height: 20px; display: block; }
+.chamfer-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.1); }
+.chamfer-handle.depth { width: 28px; height: 28px; }
+.chamfer-handle.depth svg { width: 15px; height: 15px; }
+
 
 .round-editor {
   position: absolute;
