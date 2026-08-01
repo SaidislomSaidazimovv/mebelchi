@@ -41,6 +41,8 @@ export function Harness() {
   const [selectedSide, setSelectedSide] = useState<string | null>(null);
   const [mode, setMode] = useState<"translate" | "rotate" | "modifier">("translate");
   const [log, setLog] = useState<string[]>([]);
+  /** Applied corner rounds, per panel — the model's job, faked here so they persist. */
+  const [rounds, setRounds] = useState<Record<string, Record<string, number>>>({});
 
   const say = (m: string) => setLog((l) => [m, ...l].slice(0, 14));
   const selected = panels.find((p) => p.id === selectedId) ?? null;
@@ -60,6 +62,12 @@ export function Harness() {
       { id: "yMax", x: c.x, y: selected.y + selected.height, z: c.z, axis: "y" as const },
     ];
   }, [selected]);
+
+  /** Rounds applied to the currently selected panel, as the stage wants them. */
+  const appliedRounds = useMemo(
+    () => Object.entries(rounds[selectedId ?? ""] ?? {}).map(([cornerId, radius]) => ({ cornerId, radius })),
+    [rounds, selectedId],
+  );
 
   const move = (id: string, x: number, y: number, z: number) => {
     setPanels((ps) => ps.map((p) => (p.id === id ? { ...p, x, y, z } : p)));
@@ -103,6 +111,16 @@ export function Harness() {
           transformMode={mode === "rotate" ? "rotate" : "translate"}
           showTargets={mode === "modifier"}
           onPickTarget={(c) => say(`target ${c}`)}
+          onApplyRound={(corners, r) => {
+            const pid = selectedId ?? "";
+            setRounds((prev) => {
+              const cur = { ...(prev[pid] ?? {}) };
+              for (const c of corners) { if (r > 0) cur[c] = r; else delete cur[c]; }
+              return { ...prev, [pid]: cur };
+            });
+            say(`round ${corners.join(",")} r=${mm10ToMm(r)}мм`);
+          }}
+          appliedRounds={appliedRounds}
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}
           handles={mode === "translate" ? handles : []}

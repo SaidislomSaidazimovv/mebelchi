@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
@@ -7,6 +7,7 @@ import { buildBlockGroup } from "./renderBlock";
 import { mm10ToMeters, mm10ToMm } from "../contract/types";
 import { MeasureChip } from "./MeasureChip";
 import { Numpad } from "./Numpad";
+import { toCm } from "./measure";
 
 /** One draggable side of a panel. Position is the centre of that side's face plane. */
 export interface SideHandle {
@@ -59,6 +60,49 @@ function panelCorners(p: Panel): { id: string; x: number; y: number; z: number }
   return out;
 }
 
+/**
+ * The polyline of a rounded corner — a 90° arc of radius R in the main-face plane,
+ * tangent to the two edges meeting at `cornerId`. Points are mm10 world (rotated by
+ * rx/ry/rz if the panel is turned). This is the GUIDE only; the model owns the cut.
+ */
+function cornerArc(p: Panel, cornerId: string, radius: number): { x: number; y: number; z: number }[] {
+  const sa = cornerId[1] === "1" ? 1 : 0;
+  const sb = cornerId[2] === "1" ? 1 : 0;
+  const AX = ["width", "height", "depth"] as const;
+  const AXVEC = { width: [1, 0, 0], height: [0, 1, 0], depth: [0, 0, 1] } as const;
+  const ox = p.orientation?.xAxis;
+  const oy = p.orientation?.yAxis;
+  const thick = ox && oy
+    ? AX.find((a) => a !== ox && a !== oy)!
+    : p.width <= p.height && p.width <= p.depth ? "width" : p.height <= p.depth ? "height" : "depth";
+  const face = AX.filter((a) => a !== thick);
+  const fa = face[0]!;
+  const fb = face[1]!;
+  const lo = { width: p.x, height: p.y, depth: p.z };
+  const hi = { width: p.x + p.width, height: p.y + p.height, depth: p.z + p.depth };
+  const ctr = { width: p.x + p.width / 2, height: p.y + p.height / 2, depth: p.z + p.depth / 2 };
+  const cpos = { width: ctr.width, height: ctr.height, depth: ctr.depth };
+  cpos[fa] = sa ? hi[fa] : lo[fa];
+  cpos[fb] = sb ? hi[fb] : lo[fb];
+  const C = new THREE.Vector3(cpos.width, cpos.height, cpos.depth);
+  const va = AXVEC[fa];
+  const vb = AXVEC[fb];
+  const D1 = new THREE.Vector3(va[0], va[1], va[2]).multiplyScalar(sa ? -1 : 1);
+  const D2 = new THREE.Vector3(vb[0], vb[1], vb[2]).multiplyScalar(sb ? -1 : 1);
+  const O = C.clone().addScaledVector(D1, radius).addScaledVector(D2, radius);
+  const euler = (p.rx || p.ry || p.rz) ? new THREE.Euler(p.rx || 0, p.ry || 0, p.rz || 0) : null;
+  const pc = new THREE.Vector3(ctr.width, ctr.height, ctr.depth);
+  const N = 16;
+  const out: { x: number; y: number; z: number }[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = (i / N) * (Math.PI / 2);
+    const pt = O.clone().addScaledVector(D2, -radius * Math.cos(t)).addScaledVector(D1, -radius * Math.sin(t));
+    if (euler) pt.sub(pc).applyEuler(euler).add(pc);
+    out.push({ x: pt.x, y: pt.y, z: pt.z });
+  }
+  return out;
+}
+
 export function Stage3D({
   panels,
   holes,
@@ -80,6 +124,8 @@ export function Stage3D({
   groundY_mm10 = 0,
   showTargets = false,
   onPickTarget,
+  onApplyRound,
+  appliedRounds,
 }: {
   panels: Panel[];
   holes: Hole[];
@@ -144,6 +190,10 @@ export function Stage3D({
   /** F4: show the ⬡⊕ corner target-pins — the entry to a corner modifier. */
   showTargets?: boolean;
   onPickTarget?: (cornerId: string) => void;
+  /** F03: apply a corner round — the actual cut is the model's; the UI emits the spec. */
+  onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;
+  /** F03: rounds already applied to the selected panel — drawn as persistent arcs. */
+  appliedRounds?: ReadonlyArray<{ cornerId: string; radius: number }>;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [overlayPos, setOverlayPos] = useState<{ x: number; y: number } | null>(null);
@@ -300,6 +350,75 @@ export function Stage3D({
   const [pickedPin, setPickedPin] = useState<string | null>(null);
   const onPickTargetRef = useRef(onPickTarget);
   onPickTargetRef.current = onPickTarget;
+
+  // ── F03 ROUND: the corner-round editor opened by a target-pin ──
+  const allCornerIds = pins.map((c) => c.id);
+  const ROUND_DEFAULT = 150; // 15 mm — a visible starting radius
+  const [round, setRound] = useState<{ corners: string[]; radius: number; linked: boolean } | null>(null);
+  const roundRef = useRef(round);
+  roundRef.current = round;
+  const onApplyRoundRef = useRef(onApplyRound);
+  onApplyRoundRef.current = onApplyRound;
+  const roundArcGroupRef = useRef<THREE.Group | null>(null);
+  const [roundNumpad, setRoundNumpad] = useState(false);
+
+  const openRound = (cornerId: string) => {
+    setRound((r) => {
+      const linked = r?.linked ?? false;
+      const radius = r && r.radius > 0 ? r.radius : ROUND_DEFAULT;
+      return { corners: linked ? allCornerIds : [cornerId], radius, linked };
+    });
+  };
+  const toggleRoundLink = () => {
+    setRound((r) => {
+      if (!r) return r;
+      const linked = !r.linked;
+      return { ...r, linked, corners: linked ? allCornerIds : [pickedPin ?? r.corners[0] ?? "c00"] };
+    });
+  };
+  const applyRound = () => {
+    const r = roundRef.current;
+    if (r) onApplyRoundRef.current?.(r.corners, r.radius);
+    setRound(null); setRoundNumpad(false);
+  };
+  const deleteRound = () => {
+    const r = roundRef.current;
+    if (r) onApplyRoundRef.current?.(r.corners, 0);
+    setRound(null); setRoundNumpad(false);
+  };
+  const startRoundDrag = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startR = roundRef.current?.radius ?? 0;
+    const onMove = (ev: PointerEvent) => {
+      const nr = Math.max(0, Math.round(startR + (ev.clientX - startX) * 5));
+      setRound((r) => (r ? { ...r, radius: nr } : r));
+    };
+    const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  /** The radius shown at a corner right now: the one being edited wins, else applied. */
+  const cornerRadius = (cid: string): number => {
+    if (round && round.corners.includes(cid)) return round.radius;
+    const ap = (appliedRounds ?? []).find((a) => a.cornerId === cid);
+    return ap ? ap.radius : 0;
+  };
+  /** Which way the corner bracket points, so each pin reads as its own corner (⌜⌝⌞⌟). */
+  const cornerRotation = (px: number, py: number): number => {
+    const pts = pins.map((c) => annPos[`__pin_${c.id}__`]).filter((q): q is { x: number; y: number } => !!q);
+    if (pts.length < 2) return 0;
+    const cx = pts.reduce((s, q) => s + q.x, 0) / pts.length;
+    const cy = pts.reduce((s, q) => s + q.y, 0) / pts.length;
+    const left = px < cx;
+    const top = py < cy;
+    if (top && left) return 0;      // top-left  ⌜
+    if (top && !left) return 90;    // top-right ⌝
+    if (!top && !left) return 180;  // bottom-right ⌟
+    return 270;                     // bottom-left ⌞
+  };
 
   useEffect(() => {
     const transformControls = transformRef.current;
@@ -1072,7 +1191,52 @@ export function Stage3D({
     setRotChip(null);
     setRotNumpad(null);
     setPickedPin(null);
+    setRound(null);
+    setRoundNumpad(false);
   }, [selectedPanelId]);
+
+  // Leaving modifier mode drops any open round editor.
+  useEffect(() => {
+    if (!showTargets) { setRound(null); setRoundNumpad(false); setPickedPin(null); }
+  }, [showTargets]);
+
+  // F03 arc guide — grey quarter-circles: the rounds already applied to this panel
+  // (persistent, so a re-selected panel still shows them) plus the one being edited
+  // right now, whose live radius wins over any applied value on the same corner.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const sel = panels.find((p) => p.id === selectedPanelId) || null;
+    const mat = new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.95 });
+    mat.depthTest = false;
+    let grp: THREE.Group | null = null;
+    if (sel) {
+      const editing = new Set(round ? round.corners : []);
+      const draw: { cid: string; r: number }[] = [];
+      for (const ar of appliedRounds ?? []) if (!editing.has(ar.cornerId) && ar.radius > 0) draw.push({ cid: ar.cornerId, r: ar.radius });
+      if (round && round.radius > 0) for (const c of round.corners) draw.push({ cid: c, r: round.radius });
+      if (draw.length) {
+        grp = new THREE.Group();
+        for (const { cid, r } of draw) {
+          const pts = cornerArc(sel, cid, r).map((q) =>
+            new THREE.Vector3(mm10ToMeters(q.x - MID_X), mm10ToMeters(q.y), mm10ToMeters(q.z - MID_Z)));
+          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
+          line.renderOrder = 5;
+          grp.add(line);
+        }
+        scene.add(grp);
+      }
+    }
+    roundArcGroupRef.current = grp;
+    return () => {
+      if (grp) {
+        scene.remove(grp);
+        grp.traverse((o) => { const m = o as THREE.Line; if (m.geometry) m.geometry.dispose(); });
+      }
+      mat.dispose();
+      if (roundArcGroupRef.current === grp) roundArcGroupRef.current = null;
+    };
+  }, [round, appliedRounds, panels, selectedPanelId]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -1135,22 +1299,40 @@ export function Stage3D({
       {pins.map((pin) => {
         const pos = annPos[`__pin_${pin.id}__`];
         if (!pos) return null;
+        const r = cornerRadius(pin.id);
+        const rounded = r > 0;
+        const rot = cornerRotation(pos.x, pos.y);
         return (
           <button
             key={pin.id}
-            className={`target-pin${pickedPin === pin.id ? " on" : ""}`}
+            className={`target-pin${rounded ? " rounded" : ""}${pickedPin === pin.id ? " on" : ""}`}
             style={{ left: pos.x, top: pos.y }}
-            onClick={() => { setPickedPin(pin.id); onPickTargetRef.current?.(pin.id); }}
-            title="Добавить модификатор в этот угол"
+            onClick={() => { setPickedPin(pin.id); onPickTargetRef.current?.(pin.id); openRound(pin.id); }}
+            title={rounded ? "Скруглённый угол — нажмите, чтобы изменить" : "Скруглить этот угол"}
           >
-            <svg className="tp-hex" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 2.5 L20.5 7.25 V16.75 L12 21.5 L3.5 16.75 V7.25 Z" fill="#c7ced6" />
-              <path d="M12 2.5 L20.5 7.25 L12 12 L3.5 7.25 Z" fill="#2f8bff" />
+            <svg className="tp-corner" viewBox="0 0 24 24" aria-hidden="true" style={{ transform: `rotate(${rot}deg)` }}>
+              <path d="M6 18 L6 11 A5 5 0 0 1 11 6 L18 6" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span className="tp-plus">+</span>
+            {rounded ? <span className="tp-radius">{toCm(r)}</span> : <span className="tp-plus">+</span>}
           </button>
         );
       })}
+      {round && pickedPin && annPos[`__pin_${pickedPin}__`] && (
+        <div
+          className="round-editor"
+          style={{ left: annPos[`__pin_${pickedPin}__`]!.x, top: annPos[`__pin_${pickedPin}__`]!.y - 52 }}
+        >
+          <button
+            className={`re-link${round.linked ? " on" : ""}`}
+            onClick={toggleRoundLink}
+            title={round.linked ? "4 угла связаны — нажмите, чтобы разъединить" : "Связать все 4 угла одним радиусом"}
+          >🔗</button>
+          <MeasureChip value={round.radius} tone="radius" onEdit={() => setRoundNumpad(true)} title="Радиус угла" />
+          <button className="re-drag" onPointerDown={startRoundDrag} title="Тяните вбок, чтобы менять радиус">↔</button>
+          <button className="re-ok" onClick={applyRound} title="Применить">✓</button>
+          <button className="re-del" onClick={deleteRound} title="Удалить">✕</button>
+        </div>
+      )}
       {selectedPanel && (
         <div className="floating-dims-card" style={{ position: "absolute", top: "16px", left: "50%", transform: "translateX(-50%)", background: "white", padding: "12px 24px", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", border: "1px solid #e5e7eb", display: "flex", gap: "24px", zIndex: 10 }}>
           <div className="float-field">
@@ -1209,6 +1391,15 @@ export function Stage3D({
           mode="deg"
           onCommit={commitRot}
           onCancel={() => { setRotNumpad(null); clearRotIndicator(); }}
+        />
+      )}
+      {roundNumpad && round && (
+        <Numpad
+          initial={round.radius}
+          label="Радиус, см"
+          mode="cm"
+          onCommit={(v) => { setRound((r) => (r ? { ...r, radius: v } : r)); setRoundNumpad(false); }}
+          onCancel={() => setRoundNumpad(false)}
         />
       )}
     </div>

@@ -882,9 +882,11 @@ details.controls-section.separator {
   background: #ffffff;
   box-shadow: 0 3px 10px rgba(27, 36, 48, 0.22);
   cursor: pointer;
+  color: #64748b;
   z-index: 11;
 }
 .target-pin .tp-hex { width: 20px; height: 20px; display: block; }
+.target-pin .tp-corner { width: 20px; height: 20px; display: block; transform-origin: 50% 50%; }
 .target-pin .tp-plus {
   width: 22px;
   height: 22px;
@@ -901,6 +903,46 @@ details.controls-section.separator {
 .target-pin:hover { border-color: #9fb6d8; transform: translate(-50%, -50%) scale(1.06); }
 .target-pin.on { border-color: #2f8bff; background: #eff6ff; }
 .target-pin.on .tp-plus { background: #16a34a; }
+
+/* a corner that already carries a round: green arc + radius, tap to re-edit */
+.target-pin.rounded { border-color: #16a34a; color: #16a34a; }
+.target-pin .tp-arc { width: 18px; height: 18px; display: block; }
+.target-pin .tp-radius { font-size: 13px; font-weight: 700; padding: 0 4px 0 1px; }
+.target-pin.rounded.on { border-color: #16a34a; background: #ecfdf3; }
+
+/* F03 round-corner editor: [link] [radius ✎] [drag] [✓] [✕], floated by the corner */
+.round-editor {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 14px rgba(27, 36, 48, 0.24);
+  z-index: 12;
+}
+.round-editor > button {
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.round-editor .chip { padding: 4px 10px; }
+.re-link { background: #eef1f4; color: #7c8b9c; }
+.re-link.on { background: #2f8bff; color: #ffffff; }
+.re-drag { background: #eef1f4; color: #64748b; cursor: ew-resize; }
+.re-ok { background: #16a34a; color: #ffffff; }
+.re-del { background: #fdecec; color: #e5342b; }
 
 /* harness only — not part of the real app */
 .harness-log { display: flex; flex-direction: column; gap: 2px; }
