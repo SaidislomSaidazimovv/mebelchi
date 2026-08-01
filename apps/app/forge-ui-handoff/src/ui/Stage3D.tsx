@@ -1920,13 +1920,14 @@ export function Stage3D({
       {notchHandles.map((h) => {
         const p = annPos[`__nh_${h.id}__`];
         if (!p) return null;
+        const locked = h.id === "left" && notch?.lockL || h.id === "right" && notch?.lockR;
         return (
           <button
             key={h.id}
             className={`notch-handle nh-${h.id}`}
-            style={{ left: p.x, top: p.y }}
+            style={{ left: p.x, top: p.y, opacity: locked ? 0.4 : 1 }}
             onPointerDown={(e) => startNotchDrag(e, h.id)}
-            title={h.id === "left" ? "Левая сторона" : h.id === "right" ? "Правая сторона" : h.id === "depth" ? "Глубина" : "Двигать вырез"}>
+            title={locked ? "Заблокировано" : h.id === "left" ? "Левая сторона" : h.id === "right" ? "Правая сторона" : h.id === "depth" ? "Глубина" : "Двигать вырез"}>
 
             {h.id === "left" ? "◀" : h.id === "right" ? "▶" : h.id === "depth" ? "▲" : "↔"}
           </button>);
