@@ -2,10 +2,14 @@ import { useMemo, useState } from "react";
 import { Stage3D } from "../ui/Stage3D";
 import type { Panel } from "../contract/types";
 import { mm10ToMm } from "../contract/types";
+import { snapBox, type SnapBox } from "./snap";
 
 const ENVELOPE = { w_mm10: 6000, h_mm10: 7200, d_mm10: 5600 };
 const NO_HOLES: never[] = [];
 const LOCK_ALL = ["width", "height", "depth"] as const;
+const SNAP_THRESHOLD = 120;
+const toSnapBox = (p: {x: number;y: number;z: number;width: number;height: number;depth: number;}): SnapBox => (
+  { x: p.x, y: p.y, z: p.z, w: p.width, h: p.height, d: p.depth });
 
 const START: Panel[] = [
 {
@@ -34,6 +38,7 @@ export function Harness() {
   const [mode, setMode] = useState<"translate" | "resize" | "rotate" | "modifier" | "measure">("translate");
   const [panelOpen, setPanelOpen] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  const [snapHint, setSnapHint] = useState<{box: {x: number;y: number;z: number;w: number;h: number;d: number;};axes: {x: boolean;y: boolean;z: boolean;};gap: number;contact: {x: number;y: number;z: number;};} | null>(null);
 
   const [rounds, setRounds] = useState<Record<string, Record<string, number>>>({});
 
@@ -53,12 +58,26 @@ export function Harness() {
       y: selected.y + selected.height / 2,
       z: selected.z + selected.depth / 2
     };
-    return [
-    { id: "xMin", x: selected.x, y: c.y, z: c.z, axis: "x" as const },
-    { id: "xMax", x: selected.x + selected.width, y: c.y, z: c.z, axis: "x" as const },
-    { id: "yMin", x: c.x, y: selected.y, z: c.z, axis: "y" as const },
-    { id: "yMax", x: c.x, y: selected.y + selected.height, z: c.z, axis: "y" as const }];
-
+    const AX = { width: "x", height: "y", depth: "z" } as const;
+    const faceAxes: ("width" | "height" | "depth")[] = selected.orientation ?
+    [selected.orientation.xAxis, selected.orientation.yAxis] :
+    (() => {
+      const dims = [["width", selected.width], ["height", selected.height], ["depth", selected.depth]] as const;
+      const thin = dims.reduce((a, b) => b[1] < a[1] ? b : a)[0];
+      return (["width", "height", "depth"] as const).filter((d) => d !== thin);
+    })();
+    const out: {id: string;x: number;y: number;z: number;axis: "x" | "y" | "z";}[] = [];
+    for (const fa of faceAxes) {
+      const axis = AX[fa];
+      const lo = { ...c };
+      const hi = { ...c };
+      if (fa === "width") {lo.x = selected.x;hi.x = selected.x + selected.width;} else
+      if (fa === "height") {lo.y = selected.y;hi.y = selected.y + selected.height;} else
+      {lo.z = selected.z;hi.z = selected.z + selected.depth;}
+      out.push({ id: `${axis}Min`, x: lo.x, y: lo.y, z: lo.z, axis });
+      out.push({ id: `${axis}Max`, x: hi.x, y: hi.y, z: hi.z, axis });
+    }
+    return out;
   }, [selected]);
 
   const appliedRounds = useMemo(
@@ -92,14 +111,45 @@ export function Harness() {
     setPanels((ps) => ps.map((p) => p.id === id ? { ...p, x, y, z } : p));
   };
 
-  const resizeSide = (id: string, coord: number) => {
+  const computeSnap = (id: string, x: number, y: number, z: number) => {
+    const p = panels.find((pp) => pp.id === id);
+    if (!p) return null;
+    const dragged: SnapBox = { x, y, z, w: p.width, h: p.height, d: p.depth };
+    const others = panels.filter((pp) => pp.id !== id).map(toSnapBox);
+    if (!others.length) return null;
+    const r = snapBox(dragged, others, SNAP_THRESHOLD);
+    if (!r.snapped.x && !r.snapped.y && !r.snapped.z) return null;
+    const gap = Math.round(Math.max(
+      r.snapped.x ? Math.abs(r.x - x) : 0,
+      r.snapped.y ? Math.abs(r.y - y) : 0,
+      r.snapped.z ? Math.abs(r.z - z) : 0
+    ));
+    return {
+      pos: { x: r.x, y: r.y, z: r.z },
+      hint: {
+        box: { x: r.x, y: r.y, z: r.z, w: p.width, h: p.height, d: p.depth },
+        axes: r.snapped,
+        gap,
+        contact: { x: r.x + p.width / 2, y: r.y + p.height / 2, z: r.z + p.depth / 2 }
+      }
+    };
+  };
+
+  const resizeSide = (patch: {x: number;y: number;z: number;width?: number;height?: number;depth?: number;}) => {
     setPanels((ps) => ps.map((p) => {
       if (p.id !== selectedId) return p;
-      if (id === "xMax") return { ...p, width: Math.max(50, coord - p.x) };
-      if (id === "xMin") return { ...p, width: Math.max(50, p.x + p.width - coord), x: coord };
-      if (id === "yMax") return { ...p, height: Math.max(50, coord - p.y) };
-      if (id === "yMin") return { ...p, height: Math.max(50, p.y + p.height - coord), y: coord };
-      return p;
+      const faceAxes: ("width" | "height" | "depth")[] = p.orientation ?
+      [p.orientation.xAxis, p.orientation.yAxis] :
+      (() => {
+        const dims = [["width", p.width], ["height", p.height], ["depth", p.depth]] as const;
+        const thin = dims.reduce((a, b) => b[1] < a[1] ? b : a)[0];
+        return (["width", "height", "depth"] as const).filter((d) => d !== thin);
+      })();
+      const next = { ...p, x: patch.x, y: patch.y, z: patch.z };
+      for (const fa of ["width", "height", "depth"] as const) {
+        if (patch[fa] !== undefined && faceAxes.includes(fa)) next[fa] = Math.max(50, patch[fa] as number);
+      }
+      return next;
     }));
   };
 
@@ -115,14 +165,22 @@ export function Harness() {
           panels={panels}
           holes={NO_HOLES}
           selectedPanelId={selectedId}
-          onSelectPanel={(id) => {setSelectedId(id);setSelectedSide(null);say(`select ${id ?? "—"}`);}}
+          onSelectPanel={(id) => {setSelectedId(id);setSelectedSide(null);setMode((m) => m === "resize" ? "translate" : m);say(`select ${id ?? "—"}`);}}
           onDragPanel={(id, x, y, z, rx, ry, rz) => {
-            setPanels((ps) => ps.map((p) => p.id === id ? { ...p, x, y, z, rx, ry, rz } : p));
+            const s = rx || ry || rz ? null : computeSnap(id, x, y, z);
+            const fx = s ? s.pos.x : x,fy = s ? s.pos.y : y,fz = s ? s.pos.z : z;
+            setPanels((ps) => ps.map((p) => p.id === id ? { ...p, x: fx, y: fy, z: fz, rx, ry, rz } : p));
+            setSnapHint(null);
             const rot = ([["rx", rx], ["ry", ry], ["rz", rz]] as const).
             filter(([, v]) => v).map(([k, v]) => `${k}=${Math.round((v as number) * 180 / Math.PI)}°`).join(" ");
-            say(`drop ${id} → ${mm10ToMm(x)},${mm10ToMm(y)},${mm10ToMm(z)}мм${rot ? " · " + rot : ""}`);
+            say(`drop ${id} → ${mm10ToMm(fx)},${mm10ToMm(fy)},${mm10ToMm(fz)}мм${s ? " 🧲" : ""}${rot ? " · " + rot : ""}`);
           }}
-          onLiveDragPanel={(id, x, y, z) => {move(id, x, y, z);}}
+          onLiveDragPanel={(id, x, y, z) => {
+            move(id, x, y, z);
+            const s = mode === "rotate" ? null : computeSnap(id, x, y, z);
+            setSnapHint(s ? s.hint : null);
+          }}
+          snapHint={snapHint}
           onUpdateDim={() => {}}
           transformMode={mode === "rotate" ? "rotate" : "translate"}
           showTargets={mode === "modifier"}
@@ -177,9 +235,15 @@ export function Harness() {
           envelope={ENVELOPE}
           lockedDims={LOCK_ALL}
           handles={mode === "resize" ? handles : []}
+          showResizeGrips={mode === "translate" && !!selectedId}
+          onEnterResize={() => setMode("resize")}
           selectedHandleId={selectedSide}
           onSelectHandle={(id) => {setSelectedSide(id);say(`side ${id ?? "—"}`);}}
-          onDragHandle={(id, coord) => {resizeSide(id, coord);say(`resize ${id} → ${mm10ToMm(coord)}мм`);}} />
+          onDragHandle={(id, patch) => {
+            resizeSide(patch);
+            const v = patch.width ?? patch.height ?? patch.depth;
+            say(`resize ${id}${v !== undefined ? ` → ${mm10ToMm(v)}мм` : ""}`);
+          }} />
 
         <button className="panel-toggle" onClick={() => setPanelOpen((o) => !o)} title="Тест-панель">{panelOpen ? "✕" : "☰"}</button>
         <aside className={`controls-card${panelOpen ? " open" : ""}`}>
@@ -195,10 +259,8 @@ export function Harness() {
               )}
             </div>
             <div className="forge-panel-list" style={{ marginTop: 8 }}>
-              <button className={`forge-chip ${mode === "translate" ? "on" : ""}`}
+              <button className={`forge-chip ${mode === "translate" || mode === "resize" ? "on" : ""}`}
               onClick={() => {setMode("translate");setSelectedSide(null);}}>↔ Двигать</button>
-              <button className={`forge-chip ${mode === "resize" ? "on" : ""}`}
-              onClick={() => setMode("resize")}>⇲ Размер</button>
               <button className={`forge-chip ${mode === "rotate" ? "on" : ""}`}
               onClick={() => {setMode("rotate");setSelectedSide(null);}}>⟳ Поворот</button>
               <button className={`forge-chip ${mode === "modifier" ? "on" : ""}`}

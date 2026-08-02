@@ -1007,6 +1007,72 @@ details.controls-section.separator {
 }
 .target-toggle button.on { background: #2f8bff; color: #ffffff; }
 
+.rot-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 14px rgba(27, 36, 48, 0.22);
+  z-index: 13;
+}
+.rot-axes { display: inline-flex; gap: 4px; padding-right: 6px; border-right: 1px solid #e5e7eb; }
+.rot-axis {
+  border: 2px solid transparent;
+  background: #f1f5f9;
+  cursor: pointer;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rot-axis i { width: 14px; height: 14px; border-radius: 999px; display: block; }
+.rot-axis.ax-x i { background: #ef4444; }
+.rot-axis.ax-y i { background: #22c55e; }
+.rot-axis.ax-z i { background: #3b82f6; }
+.rot-axis.ax-x.on { border-color: #ef4444; background: #fee2e2; }
+.rot-axis.ax-y.on { border-color: #22c55e; background: #dcfce7; }
+.rot-axis.ax-z.on { border-color: #3b82f6; background: #dbeafe; }
+.rot-steps { display: inline-flex; gap: 4px; }
+.rot-steps button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 7px 13px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+.rot-steps button:hover { background: #eef2f7; }
+.rot-steps .rot-reset { color: #64748b; }
+
+.snap-chip {
+  position: absolute;
+  transform: translate(-50%, -140%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #1f7bff;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(31, 123, 255, 0.4);
+  z-index: 14;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 
 .notch-handle {
   position: absolute;
@@ -1072,26 +1138,6 @@ details.controls-section.separator {
 .chamfer-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.1); }
 .chamfer-handle.depth { width: 28px; height: 28px; }
 .chamfer-handle.depth svg { width: 15px; height: 15px; }
-
-.center-romb {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(255, 255, 255, 0.9);
-  background: rgba(47, 139, 255, 0.9);
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: move;
-  box-shadow: 0 2px 8px rgba(27, 36, 48, 0.35);
-  z-index: 11;
-  touch-action: none;
-}
-.center-romb svg { width: 22px; height: 22px; display: block; }
-.center-romb:active { transform: translate(-50%, -50%) scale(1.12); }
 
 .measure-svg {
   position: absolute;
@@ -1325,7 +1371,6 @@ details.controls-section.separator {
   .mod-sheet button { padding: 9px 15px; white-space: nowrap; }
 
   .focus-btn, .ground-btn, .link-toggle { width: 48px; height: 48px; }
-  .center-romb { width: 40px; height: 40px; }
   .notch-handle, .chamfer-handle, .round-handle { width: 40px; height: 40px; }
   .chip { padding: 6px 11px; font-size: 13px; }
   .chip-lock { width: 26px; height: 26px; }
