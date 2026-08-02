@@ -1032,7 +1032,7 @@ export function Stage3D({
     const transformControls = new TransformControls(camera, renderer.domElement);
     transformControls.mode = transformMode;
 
-    transformControls.size = 0.6;
+    transformControls.size = 1.1;
     transformControls.addEventListener("objectChange", () => {
       const mesh = transformControls.object;
       if (!mesh || !mesh.name || mesh.name.startsWith("handle:")) return;
