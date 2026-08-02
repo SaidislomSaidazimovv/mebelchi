@@ -203,6 +203,9 @@ export function Stage3D({
   selectedHandleId = null,
   onSelectHandle,
   onDragHandle,
+  showResizeGrips = false,
+  onEnterResize,
+  snapHint,
   annotations,
   onLiveDragPanel,
   overlays,
@@ -222,7 +225,7 @@ export function Stage3D({
   appliedWindows,
   panelCuts
 
-}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, coord_mm10: number) => void;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;showGizmo?: boolean;showMeasure?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (idx: number, width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindows?: ReadonlyArray<{w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;}>;panelCuts?: Record<string, {windows?: ReadonlyArray<{w: number;h: number;radius: number;cx: number;cy: number;}>;rounds?: ReadonlyArray<{cornerId: string;radius: number;}>;notches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;}>;chamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;}>;}) {
+}: {panels: Panel[];holes: Hole[];selectedPanelId: string | null;onSelectPanel: (id: string | null) => void;onDragPanel: (id: string, x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void;onUpdateDim: (dim: "width" | "height" | "depth", val: number) => void;transformMode?: "translate" | "rotate";envelope?: {w_mm10: number;h_mm10: number;d_mm10: number;};lockedDims?: ReadonlyArray<"width" | "height" | "depth">;handles?: ReadonlyArray<SideHandle>;selectedHandleId?: string | null;onSelectHandle?: (id: string | null) => void;onDragHandle?: (id: string, patch: {x: number;y: number;z: number;width?: number;height?: number;depth?: number;}) => void;showResizeGrips?: boolean;onEnterResize?: () => void;snapHint?: {box: {x: number;y: number;z: number;w: number;h: number;d: number;};axes: {x: boolean;y: boolean;z: boolean;};gap: number;contact: {x: number;y: number;z: number;};} | null;annotations?: ReadonlyArray<{id: string;x: number;y: number;z: number;node: ReactNode;}>;onLiveDragPanel?: (id: string, x: number, y: number, z: number) => void;overlays?: ReadonlyArray<{id: string;points: ReadonlyArray<{x: number;y: number;z: number;}>;color: number;closed?: boolean;dashed?: boolean;}>;rotationGizmo?: {cx: number;cy: number;cz: number;axis: "x" | "y" | "z";sweepDeg: number;radius: number;} | null;groundY_mm10?: number;showTargets?: boolean;showGizmo?: boolean;showMeasure?: boolean;onPickTarget?: (cornerId: string) => void;onApplyRound?: (cornerIds: string[], radius_mm10: number) => void;appliedRounds?: ReadonlyArray<{cornerId: string;radius: number;}>;onApplyChamfer?: (edgeIds: string[], width_mm10: number, depth_mm10: number) => void;appliedChamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;onApplyNotch?: (edgeId: string, width_mm10: number, depth_mm10: number, radius_mm10: number, pos_mm10: number, lockL: boolean, lockR: boolean) => void;appliedNotches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;lockL: boolean;lockR: boolean;}>;onApplyWindow?: (idx: number, width_mm10: number, height_mm10: number, radius_mm10: number, cx_mm10: number, cy_mm10: number, lockT: boolean, lockR: boolean, lockB: boolean, lockL: boolean) => void;appliedWindows?: ReadonlyArray<{w: number;h: number;radius: number;cx: number;cy: number;lockT: boolean;lockR: boolean;lockB: boolean;lockL: boolean;}>;panelCuts?: Record<string, {windows?: ReadonlyArray<{w: number;h: number;radius: number;cx: number;cy: number;}>;rounds?: ReadonlyArray<{cornerId: string;radius: number;}>;notches?: ReadonlyArray<{edgeId: string;width: number;depth: number;radius: number;pos: number;}>;chamfers?: ReadonlyArray<{edgeId: string;width: number;depth: number;}>;}>;}) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [overlayPos, setOverlayPos] = useState<{x: number;y: number;} | null>(null);
   const [annPos, setAnnPos] = useState<Record<string, {x: number;y: number;}>>({});
@@ -236,6 +239,8 @@ export function Stage3D({
 
   const panelsRef = useRef(panels);
   panelsRef.current = panels;
+  const selectedPanelIdRef = useRef(selectedPanelId);
+  selectedPanelIdRef.current = selectedPanelId;
   const onDragPanelRef = useRef(onDragPanel);
   onDragPanelRef.current = onDragPanel;
   const onDragHandleRef = useRef(onDragHandle);
@@ -244,9 +249,14 @@ export function Stage3D({
   onLiveDragPanelRef.current = onLiveDragPanel;
   const onSelectHandleRef = useRef(onSelectHandle);
   onSelectHandleRef.current = onSelectHandle;
+  const onEnterResizeRef = useRef(onEnterResize);
+  onEnterResizeRef.current = onEnterResize;
+  const snapHintRef = useRef(snapHint);
+  snapHintRef.current = snapHint;
   const handlesRef = useRef(handles);
   handlesRef.current = handles;
   const dragRef = useRef<{id: string;axisVec: THREE.Vector3;grabOffset: number;} | null>(null);
+  const resizeFrameRef = useRef<{axis: "x" | "y" | "z";O: THREE.Vector3;dir: THREE.Vector3;grab: number;dims: {width: number;height: number;depth: number;};centerM: THREE.Vector3;origExt: number;other: {axis: "x" | "y" | "z";origExt: number;} | null;} | null>(null);
   const justDraggedRef = useRef(false);
 
   const gizmoDraggingRef = useRef(false);
@@ -310,16 +320,29 @@ export function Stage3D({
       resizeLeaderRef.current = null;
     }
     resizeMetaRef.current = null;
+    resizeFrameRef.current = null;
     resizeAnchorRef.current = null;
     setResizeChip(null);
   };
 
   const commitResize = (v_mm10: number) => {
+    const fr = resizeFrameRef.current;
     const rm = resizeMetaRef.current;
     setResizeNumpad(null);
-    if (!rm) {clearResizeIndicator();return;}
-    const newCoord = rm.oppositeCoord + rm.sign * v_mm10;
-    onDragHandleRef.current?.(rm.id, roundMm10(newCoord));
+    if (!fr || !rm) {clearResizeIndicator();return;}
+    const ext = Math.max(50, roundMm10(v_mm10));
+    const ext_m = ext / 10000;
+    const cM = fr.O.clone().addScaledVector(fr.dir, ext_m / 2);
+    const cx = cM.x * 10000 + MID_X,cy = cM.y * 10000,cz = cM.z * 10000 + MID_Z;
+    const w = fr.axis === "x" ? ext : fr.dims.width;
+    const hgt = fr.axis === "y" ? ext : fr.dims.height;
+    const dep = fr.axis === "z" ? ext : fr.dims.depth;
+    onDragHandleRef.current?.(rm.id, {
+      x: roundMm10(cx - w / 2),
+      y: roundMm10(cy - hgt / 2),
+      z: roundMm10(cz - dep / 2),
+      ...fr.axis === "x" ? { width: ext } : fr.axis === "y" ? { height: ext } : { depth: ext }
+    });
     clearResizeIndicator();
   };
 
@@ -329,6 +352,7 @@ export function Stage3D({
   const rotAnchorRef = useRef<{x: number;y: number;z: number;} | null>(null);
   const rotAutoHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [rotChip, setRotChip] = useState<{value: number;resting: boolean;axis: "x" | "y" | "z";} | null>(null);
+  const [rotAxis, setRotAxis] = useState<"x" | "y" | "z">("y");
   const [rotNumpad, setRotNumpad] = useState<{value: number;} | null>(null);
   const rotNumpadRef = useRef(rotNumpad);
   rotNumpadRef.current = rotNumpad;
@@ -359,6 +383,26 @@ export function Stage3D({
   };
 
   const selectedPanel = panels.find((p) => p.id === selectedPanelId) || null;
+
+  const rotateBy = (deltaDeg: number) => {
+    const p = selectedPanel;
+    if (!p) return;
+    const cur = { x: p.rx ?? 0, y: p.ry ?? 0, z: p.rz ?? 0 };
+    let v = cur[rotAxis] + deltaDeg * Math.PI / 180;
+    v = v % (Math.PI * 2);
+    if (v > Math.PI) v -= Math.PI * 2;
+    if (v < -Math.PI) v += Math.PI * 2;
+    cur[rotAxis] = v;
+    onDragPanelRef.current?.(p.id, p.x, p.y, p.z, cur.x, cur.y, cur.z);
+  };
+
+  const resetRotAxis = () => {
+    const p = selectedPanel;
+    if (!p) return;
+    const cur = { x: p.rx ?? 0, y: p.ry ?? 0, z: p.rz ?? 0 };
+    cur[rotAxis] = 0;
+    onDragPanelRef.current?.(p.id, p.x, p.y, p.z, cur.x, cur.y, cur.z);
+  };
 
   const focusSelected = () => {
     const camera = cameraRef.current;
@@ -398,12 +442,6 @@ export function Stage3D({
     onDragPanelRef.current?.(p.id, p.x, roundMm10(p.y + shift), p.z, p.rx, p.ry, p.rz);
   };
 
-  const centerRomb = selectedPanel && transformMode === "translate" && showGizmo && !showTargets ?
-  { x: selectedPanel.x + selectedPanel.width / 2, y: selectedPanel.y + selectedPanel.height / 2, z: selectedPanel.z + selectedPanel.depth / 2 } :
-  null;
-  const centerRombRef = useRef(centerRomb);
-  centerRombRef.current = centerRomb;
-
   const showMeasureRef = useRef(showMeasure);
   showMeasureRef.current = showMeasure;
   const [measurePts, setMeasurePts] = useState<{x: number;y: number;z: number;panelId: string;}[]>([]);
@@ -426,48 +464,6 @@ export function Stage3D({
     if (!panel) return;
     onDragPanelRef.current?.(panel.id, roundMm10(panel.x + (nbx - B.x)), roundMm10(panel.y + (nby - B.y)), roundMm10(panel.z + (nbz - B.z)), panel.rx, panel.ry, panel.rz);
     setMeasurePts([A, { x: roundMm10(nbx), y: roundMm10(nby), z: roundMm10(nbz), panelId: B.panelId }]);
-  };
-
-  const startCenterMove = (ev0: ReactPointerEvent) => {
-    ev0.preventDefault();
-    ev0.stopPropagation();
-    const p = selectedPanel;
-    const cam = cameraRef.current;
-    if (!p || !cam) return;
-    const cx = p.x + p.width / 2,cy = p.y + p.height / 2,cz = p.z + p.depth / 2;
-    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
-    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
-    const L = 1000;
-    const p0 = projectMm10(cx, cy, cz);
-    const pr = projectMm10(cx + right.x * L, cy + right.y * L, cz + right.z * L);
-    const pu = projectMm10(cx + up.x * L, cy + up.y * L, cz + up.z * L);
-    if (!p0 || !pr || !pu) return;
-    const Rx = pr.x - p0.x,Ry = pr.y - p0.y,Ux = pu.x - p0.x,Uy = pu.y - p0.y;
-    const det = Rx * Uy - Ry * Ux;
-    if (Math.abs(det) < 1e-6) return;
-    const startX = ev0.clientX,startY = ev0.clientY;
-    const sx0 = p.x,sy0 = p.y,sz0 = p.z;
-    const solve = (dsx: number, dsy: number) => {
-      const a = (Uy * dsx - Ux * dsy) / det;
-      const b = (-Ry * dsx + Rx * dsy) / det;
-      return {
-        x: roundMm10(sx0 + (right.x * a + up.x * b) * L),
-        y: roundMm10(sy0 + (right.y * a + up.y * b) * L),
-        z: roundMm10(sz0 + (right.z * a + up.z * b) * L)
-      };
-    };
-    const onMove = (ev: PointerEvent) => {
-      const n = solve(ev.clientX - startX, ev.clientY - startY);
-      onLiveDragPanelRef.current?.(p.id, n.x, n.y, n.z);
-    };
-    const onUp = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      const n = solve(ev.clientX - startX, ev.clientY - startY);
-      onDragPanelRef.current?.(p.id, n.x, n.y, n.z, p.rx, p.ry, p.rz);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
   };
 
   const frameModel = (reposition: boolean) => {
@@ -1160,17 +1156,7 @@ export function Stage3D({
         justDraggedRef.current = true;
         const mesh = transformControls.object;
 
-        if (mesh && mesh.name.startsWith("handle:")) {
-          const id = mesh.name.slice("handle:".length);
-          const h = (handlesRef.current ?? []).find((x) => x.id === id);
-          if (h) {
-            const coord = h.axis === "x" ? mesh.position.x * 10000 + MID_X :
-            h.axis === "y" ? mesh.position.y * 10000 :
-            mesh.position.z * 10000 + MID_Z;
-            if (isFinite(coord)) onDragHandleRef.current?.(id, roundMm10(coord));
-          }
-          return;
-        }
+        if (mesh && mesh.name.startsWith("handle:")) return;
 
         if (mesh && mesh.name) {
           const p = panelsRef.current.find((x) => x.id === mesh.name);
@@ -1272,34 +1258,42 @@ export function Stage3D({
       }
       const anchor = onCube.object.position.clone();
 
-      const axisVec = new THREE.Vector3(+(h.axis === "x"), +(h.axis === "y"), +(h.axis === "z"));
+      const opp = (handlesRef.current ?? []).find((o) => o.axis === h.axis && o.id !== h.id);
+      const oppMesh = opp ? groupRef.current?.children.find((o) => o.name === `handle:${opp.id}`) : null;
+      const O = oppMesh ? oppMesh.position.clone() : anchor.clone();
+      const dir = anchor.clone().sub(O);
+      const fullLen = dir.length();
+      if (fullLen < 1e-6) dir.set(+(h.axis === "x"), +(h.axis === "y"), +(h.axis === "z"));else
+      dir.normalize();
 
       const camDir = camera.getWorldDirection(new THREE.Vector3());
-      const normal = camDir.clone().sub(axisVec.clone().multiplyScalar(camDir.dot(axisVec)));
+      const normal = camDir.clone().sub(dir.clone().multiplyScalar(camDir.dot(dir)));
       if (normal.lengthSq() < 1e-8) normal.set(0, 1, 0);
       dragPlane.setFromNormalAndCoplanarPoint(normal.normalize(), anchor);
 
       const grabbed = pointerRay.ray.intersectPlane(dragPlane, hit) ?
-      anchor.dot(axisVec) - hit.dot(axisVec) :
+      fullLen - hit.clone().sub(O).dot(dir) :
       0;
 
-      dragRef.current = { id, axisVec, grabOffset: grabbed };
+      dragRef.current = { id, axisVec: dir, grabOffset: grabbed };
 
-      const opp = (handlesRef.current ?? []).find((o) => o.axis === h.axis && o.id !== h.id);
-      const oppositeCoord = opp ? h.axis === "x" ? opp.x : h.axis === "y" ? opp.y : opp.z :
-      h.axis === "x" ? h.x : h.axis === "y" ? h.y : h.z;
-      const startCoord = h.axis === "x" ? h.x : h.axis === "y" ? h.y : h.z;
-      const hs = handlesRef.current ?? [];
-      const xH = hs.filter((o) => o.axis === "x");
-      const yH = hs.filter((o) => o.axis === "y");
+      const selPnl = panelsRef.current.find((x) => x.id === selectedPanelIdRef.current);
+      const dimOf = { x: "width", y: "height", z: "depth" } as const;
+      const otherHandle = (handlesRef.current ?? []).find((o) => o.axis !== h.axis);
+      resizeFrameRef.current = {
+        axis: h.axis, O, dir, grab: grabbed,
+        dims: selPnl ? { width: selPnl.width, height: selPnl.height, depth: selPnl.depth } : { width: 0, height: 0, depth: 0 },
+        centerM: selPnl ? new THREE.Vector3(
+          mm10ToMeters(selPnl.x + selPnl.width / 2 - MID_X),
+          mm10ToMeters(selPnl.y + selPnl.height / 2),
+          mm10ToMeters(selPnl.z + selPnl.depth / 2 - MID_Z)
+        ) : anchor.clone().add(O).multiplyScalar(0.5),
+        origExt: selPnl ? selPnl[dimOf[h.axis]] : fullLen * 10000,
+        other: otherHandle && selPnl ? { axis: otherHandle.axis, origExt: selPnl[dimOf[otherHandle.axis]] } : null
+      };
       resizeMetaRef.current = {
-        id, axis: h.axis, oppositeCoord,
-        sign: Math.sign(startCoord - oppositeCoord) || 1,
-        center: { x: h.x, y: h.y, z: h.z },
-        oldW: xH.length === 2 ? Math.abs(xH[0].x - xH[1].x) : 0,
-        oldH: yH.length === 2 ? Math.abs(yH[0].y - yH[1].y) : 0,
-        panelX: xH.length ? Math.min(...xH.map((o) => o.x)) : 0,
-        panelY: yH.length ? Math.min(...yH.map((o) => o.y)) : 0
+        id, axis: h.axis, oppositeCoord: 0, sign: 1,
+        center: { x: h.x, y: h.y, z: h.z }, oldW: 0, oldH: 0, panelX: 0, panelY: 0
       };
       if (resizeAutoHideRef.current) {clearTimeout(resizeAutoHideRef.current);resizeAutoHideRef.current = null;}
       if (resizeLeaderRef.current) {scene.remove(resizeLeaderRef.current);resizeLeaderRef.current.geometry.dispose();resizeLeaderRef.current = null;}
@@ -1320,50 +1314,53 @@ export function Stage3D({
       e.preventDefault();
     };
 
-    const mm10Vec = (x: number, y: number, z: number) =>
-    new THREE.Vector3(mm10ToMeters(x - MID_X), mm10ToMeters(y), mm10ToMeters(z - MID_Z));
+    const keyOf = (a: "x" | "y" | "z") => a === "x" ? "width" : a === "y" ? "height" : "depth" as "width" | "height" | "depth";
+
+    const framePatch = (fr: NonNullable<typeof resizeFrameRef.current>, ext: number) => {
+      const dimKey = keyOf(fr.axis);
+      const patch: {x: number;y: number;z: number;width?: number;height?: number;depth?: number;} = { x: 0, y: 0, z: 0 };
+
+      if (uniformRef.current && fr.other && fr.origExt > 0) {
+        const otherKey = keyOf(fr.other.axis);
+        const otherExt = Math.max(50, roundMm10(fr.other.origExt * (ext / fr.origExt)));
+        const w = dimKey === "width" ? ext : otherKey === "width" ? otherExt : fr.dims.width;
+        const hgt = dimKey === "height" ? ext : otherKey === "height" ? otherExt : fr.dims.height;
+        const dep = dimKey === "depth" ? ext : otherKey === "depth" ? otherExt : fr.dims.depth;
+        const cx = fr.centerM.x * 10000 + MID_X,cy = fr.centerM.y * 10000,cz = fr.centerM.z * 10000 + MID_Z;
+        patch.x = roundMm10(cx - w / 2);patch.y = roundMm10(cy - hgt / 2);patch.z = roundMm10(cz - dep / 2);
+        patch[dimKey] = ext;patch[otherKey] = otherExt;
+        return patch;
+      }
+
+      const cM = fr.O.clone().addScaledVector(fr.dir, ext / 10000 / 2);
+      const w = dimKey === "width" ? ext : fr.dims.width;
+      const hgt = dimKey === "height" ? ext : fr.dims.height;
+      const dep = dimKey === "depth" ? ext : fr.dims.depth;
+      const cx = cM.x * 10000 + MID_X,cy = cM.y * 10000,cz = cM.z * 10000 + MID_Z;
+      patch.x = roundMm10(cx - w / 2);patch.y = roundMm10(cy - hgt / 2);patch.z = roundMm10(cz - dep / 2);
+      patch[dimKey] = ext;
+      return patch;
+    };
 
     const onPointerMove = (e: PointerEvent) => {
       const d = dragRef.current;
-      if (!d) return;
+      const fr = resizeFrameRef.current;
+      if (!d || !fr) return;
       setRay(e);
       if (!pointerRay.ray.intersectPlane(dragPlane, hit)) return;
-      const along = hit.dot(d.axisVec) + d.grabOffset;
-      const coord = d.axisVec.x ? along * 10000 + MID_X :
-      d.axisVec.y ? along * 10000 :
-      along * 10000 + MID_Z;
-      if (!isFinite(coord)) return;
-      const live = roundMm10(coord);
-      onDragHandleRef.current?.(d.id, live);
+      const newLen_m = Math.max(0.005, hit.clone().sub(fr.O).dot(fr.dir) + fr.grab);
+      const ext = roundMm10(newLen_m * 10000);
+      if (!isFinite(ext)) return;
+      onDragHandleRef.current?.(d.id, framePatch(fr, ext));
 
-      if (uniformRef.current) {
-        const um = resizeMetaRef.current;
-        if (um && um.id === d.id && (um.axis === "x" || um.axis === "y")) {
-          const oldDragged = um.axis === "x" ? um.oldW : um.oldH;
-          if (oldDragged > 0) {
-            const factor = Math.abs(live - um.oppositeCoord) / oldDragged;
-            const otherAxis = um.axis === "x" ? "y" : "x";
-            const oldOther = otherAxis === "x" ? um.oldW : um.oldH;
-            const otherMin = otherAxis === "x" ? um.panelX : um.panelY;
-            const otherHs = (handlesRef.current ?? []).filter((o) => o.axis === otherAxis);
-            const otherMaxH = otherHs.length ? otherHs.reduce((p, q) => (otherAxis === "x" ? q.x > p.x : q.y > p.y) ? q : p) : null;
-            if (otherMaxH) onDragHandleRef.current?.(otherMaxH.id, roundMm10(otherMin + oldOther * factor));
-          }
-        }
-      }
-
-      const rm = resizeMetaRef.current;
       const rl = resizeLeaderRef.current;
-      if (rm && rl && rm.id === d.id) {
-        const c = rm.center;
-        let a: THREE.Vector3, b: THREE.Vector3, anchor: {x: number;y: number;z: number;};
-        if (rm.axis === "x") {a = mm10Vec(rm.oppositeCoord, c.y, c.z);b = mm10Vec(live, c.y, c.z);anchor = { x: (rm.oppositeCoord + live) / 2, y: c.y, z: c.z };} else
-        if (rm.axis === "y") {a = mm10Vec(c.x, rm.oppositeCoord, c.z);b = mm10Vec(c.x, live, c.z);anchor = { x: c.x, y: (rm.oppositeCoord + live) / 2, z: c.z };} else
-        {a = mm10Vec(c.x, c.y, rm.oppositeCoord);b = mm10Vec(c.x, c.y, live);anchor = { x: c.x, y: c.y, z: (rm.oppositeCoord + live) / 2 };}
-        rl.geometry.setFromPoints([a, b]);
+      if (rl) {
+        const edge = fr.O.clone().addScaledVector(fr.dir, ext / 10000);
+        rl.geometry.setFromPoints([fr.O.clone(), edge]);
         rl.computeLineDistances();
-        resizeAnchorRef.current = anchor;
-        setResizeChip({ value: Math.abs(live - rm.oppositeCoord), resting: false, axis: rm.axis });
+        const mid = fr.O.clone().add(edge).multiplyScalar(0.5);
+        resizeAnchorRef.current = { x: mid.x * 10000 + MID_X, y: mid.y * 10000, z: mid.z * 10000 + MID_Z };
+        setResizeChip({ value: ext, resting: false, axis: fr.axis });
       }
     };
 
@@ -1431,7 +1428,16 @@ export function Stage3D({
 
       if (groupRef.current) {
         const intersects = raycaster.intersectObjects(groupRef.current.children, true);
-        const picked = intersects.find((int) => int.object instanceof THREE.Mesh && int.object.name);
+
+        const gripHit = intersects.find(
+          (int) => int.object instanceof THREE.Mesh && int.object.name.startsWith("grip:")
+        );
+        if (gripHit) {
+          onEnterResizeRef.current?.();
+          return;
+        }
+
+        const picked = intersects.find((int) => int.object instanceof THREE.Mesh && int.object.name && !int.object.name.startsWith("grip:"));
 
         const handleHit = intersects.find(
           (int) => int.object instanceof THREE.Mesh && int.object.name.startsWith("handle:")
@@ -1525,6 +1531,15 @@ export function Stage3D({
 
     const group = buildBlockGroup(panels, holes, selectedPanelId, panelCutsLive, geoCacheRef.current);
 
+    const selP = selectedPanelId ? panels.find((p) => p.id === selectedPanelId) : null;
+    const selEuler = selP && (selP.rx || selP.ry || selP.rz) ?
+    new THREE.Euler(selP.rx || 0, selP.ry || 0, selP.rz || 0) : null;
+    const selCenter = selP ? new THREE.Vector3(
+      mm10ToMeters(selP.x + selP.width / 2 - MID_X),
+      mm10ToMeters(selP.y + selP.height / 2),
+      mm10ToMeters(selP.z + selP.depth / 2 - MID_Z)
+    ) : null;
+
     for (const h of handles ?? []) {
       const isOn = h.id === selectedHandleId;
 
@@ -1539,13 +1554,45 @@ export function Stage3D({
         new THREE.MeshStandardMaterial({ color, roughness: 0.35, emissive: color, emissiveIntensity: isOn ? 0.5 : 0.18 })
       );
       mesh.name = `handle:${h.id}`;
-      mesh.position.set(
+      const pos = new THREE.Vector3(
         mm10ToMeters(h.x - MID_X),
         mm10ToMeters(h.y),
         mm10ToMeters(h.z - MID_Z)
       );
+      if (selEuler && selCenter) {
+        pos.sub(selCenter).applyEuler(selEuler).add(selCenter);
+        mesh.rotation.copy(selEuler);
+      }
+      mesh.position.copy(pos);
       mesh.renderOrder = 2;
       group.add(mesh);
+    }
+
+    if (showResizeGrips && selP && selCenter) {
+      const AXV = { width: new THREE.Vector3(1, 0, 0), height: new THREE.Vector3(0, 1, 0), depth: new THREE.Vector3(0, 0, 1) };
+      const dimVal = { width: selP.width, height: selP.height, depth: selP.depth };
+      const faces: ("width" | "height" | "depth")[] = selP.orientation ?
+      [selP.orientation.xAxis, selP.orientation.yAxis] :
+      (() => {
+        const ds = [["width", selP.width], ["height", selP.height], ["depth", selP.depth]] as const;
+        const thin = ds.reduce((a, c) => c[1] < a[1] ? c : a)[0];
+        return (["width", "height", "depth"] as const).filter((d) => d !== thin);
+      })();
+      const uA = AXV[faces[0]],eA = mm10ToMeters(dimVal[faces[0]]) / 2;
+      const uB = AXV[faces[1]],eB = mm10ToMeters(dimVal[faces[1]]) / 2;
+      for (const [sA, sB] of [[-1, -1], [-1, 1], [1, -1], [1, 1]] as const) {
+        const grip = new THREE.Mesh(
+          new THREE.BoxGeometry(0.05, 0.05, 0.05),
+          new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.3, emissive: 0x94a3b8, emissiveIntensity: 0.35 })
+        );
+        grip.name = `grip:${sA}${sB}`;
+        const off = uA.clone().multiplyScalar(sA * eA).add(uB.clone().multiplyScalar(sB * eB));
+        if (selEuler) off.applyEuler(selEuler);
+        grip.position.copy(selCenter.clone().add(off));
+        if (selEuler) grip.rotation.copy(selEuler);
+        grip.renderOrder = 2;
+        group.add(grip);
+      }
     }
 
     if (envelope) {
@@ -1581,7 +1628,7 @@ export function Stage3D({
     const target = selectedPanelId ? group.children.find((c) => c.name === selectedPanelId) : undefined;
     if (target && !showTargets && showGizmo) transformControls.attach(target);else
     transformControls.detach();
-  }, [panels, holes, selectedPanelId, envelope, handles, selectedHandleId, showTargets, showGizmo, panelCutsLive]);
+  }, [panels, holes, selectedPanelId, envelope, handles, selectedHandleId, showTargets, showGizmo, panelCutsLive, showResizeGrips]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -1647,6 +1694,37 @@ export function Stage3D({
       live.add(rot);
     }
 
+    if (snapHint) {
+      const bx = snapHint.box;
+      const ghostMat = new THREE.LineBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.95 });
+      ghostMat.depthTest = false;
+      const ghost = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(mm10ToMeters(bx.w), mm10ToMeters(bx.h), mm10ToMeters(bx.d))),
+        ghostMat
+      );
+      ghost.position.set(
+        mm10ToMeters(bx.x + bx.w / 2 - MID_X),
+        mm10ToMeters(bx.y + bx.h / 2),
+        mm10ToMeters(bx.z + bx.d / 2 - MID_Z)
+      );
+      ghost.renderOrder = 990;
+      live.add(ghost);
+
+      const nubMat = new THREE.MeshBasicMaterial({ color: 0x22c55e });
+      nubMat.depthTest = false;
+      const nub = new THREE.Mesh(
+        new THREE.SphereGeometry(0.03, 16, 12),
+        nubMat
+      );
+      nub.position.set(
+        mm10ToMeters(snapHint.contact.x - MID_X),
+        mm10ToMeters(snapHint.contact.y),
+        mm10ToMeters(snapHint.contact.z - MID_Z)
+      );
+      nub.renderOrder = 991;
+      live.add(nub);
+    }
+
     scene.add(live);
     return () => {
       scene.remove(live);
@@ -1655,7 +1733,7 @@ export function Stage3D({
         if (m.geometry) m.geometry.dispose();
       });
     };
-  }, [overlays, rotationGizmo]);
+  }, [overlays, rotationGizmo, snapHint]);
 
   useEffect(() => {
     let frame = 0;
@@ -1684,6 +1762,8 @@ export function Stage3D({
       if (rz) project("__resize__", rz.x, rz.y, rz.z);
       const ra = rotAnchorRef.current;
       if (ra) project("__rot__", ra.x, ra.y, ra.z);
+      const sh = snapHintRef.current;
+      if (sh) project("__snap__", sh.contact.x, sh.contact.y, sh.contact.z);
       for (const pin of pinsRef.current) project(`__pin_${pin.id}__`, pin.x, pin.y, pin.z);
       for (const e of edgesRef.current) project(`__edge_${e.id}__`, e.x, e.y, e.z);
       for (const h of notchHandlesRef.current) project(`__nh_${h.id}__`, h.x, h.y, h.z);
@@ -1697,8 +1777,6 @@ export function Stage3D({
       if (chh) project("__ch__", chh.x, chh.y, chh.z);
       const cdh = chamferDepthHandleRef.current;
       if (cdh) project("__cd__", cdh.x, cdh.y, cdh.z);
-      const cr = centerRombRef.current;
-      if (cr) project("__center__", cr.x, cr.y, cr.z);
       measurePtsRef.current.forEach((mp, i) => project(`__mpt${i}__`, mp.x, mp.y, mp.z));
       setAnnPos(next);
       frame = requestAnimationFrame(tick);
@@ -2000,6 +2078,21 @@ export function Stage3D({
           <button className={targetKind === "windows" ? "on" : ""} onClick={() => setTargetKind("windows")}>▢ Окно</button>
         </div>
       }
+      {transformMode === "rotate" && selectedPanel &&
+      <div className="rot-bar">
+          <div className="rot-axes">
+            <button className={`rot-axis ax-x${rotAxis === "x" ? " on" : ""}`} onClick={() => setRotAxis("x")} title="Ось X"><i /></button>
+            <button className={`rot-axis ax-y${rotAxis === "y" ? " on" : ""}`} onClick={() => setRotAxis("y")} title="Ось Y"><i /></button>
+            <button className={`rot-axis ax-z${rotAxis === "z" ? " on" : ""}`} onClick={() => setRotAxis("z")} title="Ось Z"><i /></button>
+          </div>
+          <div className="rot-steps">
+            <button onClick={() => rotateBy(90)} title="Повернуть на 90°">+90°</button>
+            <button onClick={() => rotateBy(180)} title="Повернуть на 180°">180°</button>
+            <button onClick={() => rotateBy(270)} title="Повернуть на 270°">+270°</button>
+            <button className="rot-reset" onClick={resetRotAxis} title="Сбросить эту ось">⟲ 0°</button>
+          </div>
+        </div>
+      }
       {(round || chamfer || notch || win) &&
       <div className="mod-sheet">
           {win &&
@@ -2049,6 +2142,14 @@ export function Stage3D({
           undefined
           } />
 
+        </div>
+      }
+      {snapHint && annPos["__snap__"] &&
+      <div className="snap-chip" style={{ left: annPos["__snap__"].x, top: annPos["__snap__"].y }}>
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M6 4 H10 V13 a2 2 0 0 0 4 0 V4 H18 V13 a6 6 0 0 1 -12 0 Z" />
+          </svg>
+          {toCm(snapHint.gap)}
         </div>
       }
       {rotChip && annPos["__rot__"] &&
@@ -2275,18 +2376,6 @@ export function Stage3D({
 
           <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
             <circle cx="12" cy="12" r="5" />
-          </svg>
-        </button>
-      }
-      {centerRomb && annPos["__center__"] &&
-      <button
-        className="center-romb"
-        style={{ left: annPos["__center__"].x, top: annPos["__center__"].y }}
-        onPointerDown={startCenterMove}
-        title="Двигать по плоскости экрана">
-
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M12 4 L9 7 M12 4 L15 7 M12 20 L9 17 M12 20 L15 17 M4 12 L7 9 M4 12 L7 15 M20 12 L17 9 M20 12 L17 15" />
           </svg>
         </button>
       }
